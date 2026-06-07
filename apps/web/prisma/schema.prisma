@@ -1,0 +1,220 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Merchant (Developer) ─────────────────────────────────────────────────────
+
+model Merchant {
+  id             String   @id @default(cuid())
+  merchantId     String   @unique // "A1B2-C3D4-E5F6" — the public merchant identifier
+  email          String   @unique
+  name           String
+  liveKeyHash    String   // bcrypt hash of live_ API key
+  testKeyHash    String   // bcrypt hash of test_ API key
+  webhookSecret  String   // HMAC-SHA256 signing secret for webhook deliveries
+  walletAddress  String?  // merchant's payout wallet on Arc
+  isLive         Boolean  @default(false) // toggled when merchant goes live
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  plans            Plan[]
+  subscriptions    Subscription[]
+  checkoutSessions CheckoutSession[]
+  payments         Payment[]
+  webhookEndpoints WebhookEndpoint[]
+
+  @@map("merchants")
+}
+
+// ─── Plan ─────────────────────────────────────────────────────────────────────
+
+model Plan {
+  id          String   @id @default(cuid())
+  planId      String   @unique // "plan_pro_monthly"
+  merchantId  String
+  merchant    Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  amount      BigInt   // USDC in smallest unit (6 decimals). $9.00 = 9_000_000
+  currency    String   @default("USDC")
+  interval    String   // "daily" | "weekly" | "monthly" | "yearly"
+  trialDays   Int      @default(0)
+  archived    Boolean  @default(false)
+  metadata    Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subscriptions    Subscription[]
+  checkoutSessions CheckoutSession[]
+
+  @@map("plans")
+}
+
+// ─── Checkout Session ─────────────────────────────────────────────────────────
+
+model CheckoutSession {
+  id           String   @id @default(cuid())
+  sessionId    String   @unique // "cs_live_a1b2c3d4e5"
+  merchantId   String
+  merchant     Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  planId       String
+  plan         Plan     @relation(fields: [planId], references: [id])
+
+  externalRef  String   // developer's user ID
+  successUrl   String
+  cancelUrl    String
+  metadata     Json?
+  sessionToken String   @unique // for embedded checkout SDK
+  status       String   @default("open") // "open" | "complete" | "expired"
+  isTestMode   Boolean  @default(false)
+  expiresAt    DateTime
+
+  subscriptionId String? // populated when status = "complete"
+
+  createdAt DateTime @default(now())
+
+  @@index([merchantId])
+  @@index([externalRef])
+  @@map("checkout_sessions")
+}
+
+// ─── Subscription ─────────────────────────────────────────────────────────────
+
+model Subscription {
+  id             String   @id @default(cuid())
+  subscriptionId String   @unique // "sub_xyz789"
+  merchantId     String
+  merchant       Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  planId         String
+  plan           Plan     @relation(fields: [planId], references: [id])
+
+  externalRef        String   // developer's user ID
+  walletAddress      String   // subscriber's wallet address
+  status             String   // "trialing" | "active" | "past_due" | "cancelled" | "paused"
+  activationMethod   String   // "wallet" | "passport"
+  isTestMode         Boolean  @default(false)
+
+  // On-chain references
+  onChainSubId       String?  // bytes32 subscriptionId passed to the contract
+  contractAddress    String?  // SubscriptionManager contract address
+  allowanceTxHash    String?  // USDC.approve() transaction hash
+  activationTxHash   String?  // subscribe() transaction hash
+
+  // Billing state
+  retryCount         Int      @default(0)
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  trialStart         DateTime?
+  trialEnd           DateTime?
+  cancelledAt        DateTime?
+  cancelReason       String?
+
+  passportId String?
+  passport   Passport? @relation(fields: [passportId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payments Payment[]
+
+  @@index([merchantId])
+  @@index([externalRef])
+  @@index([merchantId, externalRef])
+  @@index([status])
+  @@index([currentPeriodEnd]) // billing engine queries on this
+  @@map("subscriptions")
+}
+
+// ─── Payment ──────────────────────────────────────────────────────────────────
+
+model Payment {
+  id          String   @id @default(cuid())
+  paymentId   String   @unique // "pay_abc123"
+  merchantId  String
+  merchant    Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id])
+
+  amount      BigInt   // USDC in smallest unit
+  currency    String   @default("USDC")
+  status      String   // "pending" | "succeeded" | "failed" | "refunded"
+  type        String   // "initial" | "renewal" | "refund"
+  isTestMode  Boolean  @default(false)
+
+  // On-chain proof
+  txHash      String?
+  blockNumber BigInt?
+  chain       String  @default("arc")
+
+  failureReason String?
+  createdAt     DateTime @default(now())
+
+  @@index([merchantId])
+  @@index([subscriptionId])
+  @@map("payments")
+}
+
+// ─── Passport ─────────────────────────────────────────────────────────────────
+
+model Passport {
+  id             String   @id @default(cuid())
+  passportId     String   @unique // "pass_xyz"
+  walletAddress  String   @unique
+  platformSig    String   // HMAC signature of {walletAddress + issuedAt}
+  isValid        Boolean  @default(true)
+  issuedAt       DateTime @default(now())
+  revokedAt      DateTime?
+  revokedReason  String?
+
+  subscriptions Subscription[]
+
+  @@map("passports")
+}
+
+// ─── Webhook ──────────────────────────────────────────────────────────────────
+
+model WebhookEndpoint {
+  id         String   @id @default(cuid())
+  endpointId String   @unique // "we_abc123"
+  merchantId String
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  url        String
+  events     String[] // subscribed event types
+  secret     String   // per-endpoint HMAC signing secret
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  deliveries WebhookDelivery[]
+
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id          String   @id @default(cuid())
+  eventId     String   @unique // "evt_a1b2c3d4"
+  endpointId  String
+  endpoint    WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  eventType      String
+  payload        Json
+  status         String   @default("pending") // "pending" | "delivered" | "failed"
+  attempts       Int      @default(0)
+  lastAttemptAt  DateTime?
+  nextRetryAt    DateTime?
+  responseStatus Int?
+  responseBody   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([status, nextRetryAt]) // webhook retry queue
+  @@map("webhook_deliveries")
+}

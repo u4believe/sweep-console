@@ -1,0 +1,29 @@
+{
+  "name": "sweep-console",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Stripe-like stablecoin subscription platform built on Arc (Circle L1) with USDC settlement",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "lint": "pnpm --filter web lint",
+    "typecheck": "pnpm --filter web typecheck && pnpm --filter contracts typecheck",
+    "test": "pnpm --filter contracts test",
+    "contracts:compile": "pnpm --filter contracts compile",
+    "contracts:deploy:testnet": "pnpm --filter contracts deploy:testnet",
+    "contracts:deploy:mainnet": "pnpm --filter contracts deploy:mainnet",
+    "db:generate": "pnpm --filter web db:generate",
+    "db:migrate": "pnpm --filter web db:migrate",
+    "db:push": "pnpm --filter web db:push",
+    "db:studio": "pnpm --filter web db:studio"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.15.0"
+}
