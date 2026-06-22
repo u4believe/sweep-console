@@ -1,0 +1,44 @@
+{
+  "name": "@sweep/api",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "billing:run": "tsx src/billing/runner.ts",
+    "db:generate": "prisma generate --schema=../web/prisma/schema.prisma",
+    "db:push": "prisma db push --schema=../web/prisma/schema.prisma",
+    "circle:register-webhook": "tsx scripts/register-circle-webhook.ts"
+  },
+  "dependencies": {
+    "@circle-fin/adapter-viem-v2": "^1.0.0",
+    "@circle-fin/app-kit": "^1.0.0",
+    "@panva/hkdf": "^1.2.1",
+    "@prisma/client": "^5.22.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "date-fns": "^3.6.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "jose": "^6.2.3",
+    "jsonwebtoken": "^9.0.3",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^8.0.10",
+    "viem": "^2.21.0",
+    "zod": "^3.24.3"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.15.3",
+    "@types/node-cron": "^3.0.11",
+    "@types/nodemailer": "^8.0.0",
+    "prisma": "^5.22.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.9.3"
+  }
+}

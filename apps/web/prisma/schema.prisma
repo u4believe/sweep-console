@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ─── Merchant (Developer) ─────────────────────────────────────────────────────
@@ -14,10 +15,23 @@ model Merchant {
   merchantId     String   @unique // "A1B2-C3D4-E5F6" — the public merchant identifier
   email          String   @unique
   name           String
-  liveKeyHash    String   // bcrypt hash of live_ API key
-  testKeyHash    String   // bcrypt hash of test_ API key
+  googleId       String?  @unique // Google account subject — set when the merchant signs in with Google
+  testKeyHash    String?  // HMAC hash of active test_ API key (null = no key yet)
+  testKeyName    String   @default("Default")
+  testKeyPrefix  String?  // first 16 chars of the key for display (e.g. "test_a1b2c3d4e5f6")
+  liveKeyHash    String?  // HMAC hash of live_ API key (unused in beta)
   webhookSecret  String   // HMAC-SHA256 signing secret for webhook deliveries
-  walletAddress  String?  // merchant's payout wallet on Arc
+  walletAddress    String?  // merchant's payout wallet on Arc
+  walletType       String   @default("external") // "circle" | "external"
+  circleWalletId   String?  // Circle internal wallet UUID (for balance / transfer APIs)
+  addressVerifiedAt    DateTime? // external addresses must be ownership-verified (signed nonce) before payouts
+  pendingWalletAddress String?   // external address awaiting signature verification
+  walletNonce          String?   // nonce the merchant must sign with the pending wallet
+  walletNonceExpiresAt DateTime? // nonce validity window
+  usdcBalance      String   @default("0") // cached USDC balance, refreshed by webhooks
+  balanceUpdatedAt DateTime? // when usdcBalance was last written
+  passwordHash   String?  // scrypt hash for portal login (null for Google-only accounts)
+  onboarded      Boolean  @default(true) // false only for fresh Google accounts that still owe a company name
   isLive         Boolean  @default(false) // toggled when merchant goes live
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -27,8 +41,36 @@ model Merchant {
   checkoutSessions CheckoutSession[]
   payments         Payment[]
   webhookEndpoints WebhookEndpoint[]
+  paymentLinks     PaymentLink[]
+  customers        Customer[]
+  customerWallets  CustomerWallet[]
 
   @@map("merchants")
+}
+
+// ─── Email Verification (pre-account token) ──────────────────────────────────
+
+model EmailVerification {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  email     String
+  name      String?  // collected later at the set-password step (signup is email-only)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@map("email_verifications")
+}
+
+// ─── Password Reset (single-use token) ───────────────────────────────────────
+
+model PasswordReset {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  email     String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@map("password_resets")
 }
 
 // ─── Plan ─────────────────────────────────────────────────────────────────────
@@ -45,6 +87,7 @@ model Plan {
   currency    String   @default("USDC")
   interval    String   // "daily" | "weekly" | "monthly" | "yearly"
   trialDays   Int      @default(0)
+  settlementWindowHours Int? // escrow hold for first payments; null = platform default (SETTLEMENT_WINDOW_HOURS)
   archived    Boolean  @default(false)
   metadata    Json?
 
@@ -53,8 +96,58 @@ model Plan {
 
   subscriptions    Subscription[]
   checkoutSessions CheckoutSession[]
+  paymentLinks     PaymentLink[]
+  tiers            PlanTier[]
 
   @@map("plans")
+}
+
+// Tiers for a plan (Basic/Pro, monthly/yearly, …). The Plan's own
+// amount/interval/trialDays is the DEFAULT tier; these are additional options.
+// Append-only: a tier's price is never mutated, only archived — so a subscriber's
+// agreed terms can't change underneath them.
+model PlanTier {
+  id        String   @id @default(cuid())
+  planId    String
+  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  name      String
+  amount    BigInt   // USDC micro-units
+  interval  String   // "daily" | "weekly" | "monthly" | "yearly"
+  trialDays Int      @default(0)
+  features  Json?    // arbitrary feature list shown at checkout
+  archived  Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([planId])
+  @@map("plan_tiers")
+}
+
+// ─── Payment Link ──────────────────────────────────────────────────────────────
+// A reusable, shareable URL (not tied to a pre-known subscriber). Each visit
+// mints a fresh checkout session on demand — the Stripe Payment Link model.
+
+model PaymentLink {
+  id         String   @id @default(cuid())
+  linkId     String   @unique // "plink_a1b2c3d4e5"
+  merchantId String
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  planId     String
+  plan       Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  // Optional redirect overrides; fall back to the platform's hosted pages
+  successUrl String?
+  cancelUrl  String?
+  active     Boolean  @default(true)
+  isTestMode Boolean  @default(true)
+  metadata   Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([merchantId])
+  @@map("payment_links")
 }
 
 // ─── Checkout Session ─────────────────────────────────────────────────────────
@@ -71,6 +164,7 @@ model CheckoutSession {
   successUrl   String
   cancelUrl    String
   metadata     Json?
+  tierId       String?  // chosen PlanTier (null = the plan's default tier)
   sessionToken String   @unique // for embedded checkout SDK
   status       String   @default("open") // "open" | "complete" | "expired"
   isTestMode   Boolean  @default(false)
@@ -80,9 +174,74 @@ model CheckoutSession {
 
   createdAt DateTime @default(now())
 
+  sweeps Sweep[]
+
   @@index([merchantId])
   @@index([externalRef])
   @@map("checkout_sessions")
+}
+
+// ─── Cross-Chain Sweep (Circle Gateway) ───────────────────────────────────────
+// A sweep collects the subscriber's USDC from multiple source chains into
+// Circle Gateway's unified balance (gasless ERC-3009 deposits submitted by the
+// platform relayer) and mints it on Arc, where subscribeViaGateway() activates
+// the subscription atomically in the mint transaction.
+
+model Sweep {
+  id        String   @id @default(cuid())
+  sweepId   String   @unique // "swp_a1b2c3d4"
+  sessionId String
+  session   CheckoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  walletAddress   String  // subscriber's wallet (depositor + mint recipient)
+  subscriberEmail String? // carried through the async sweep so completion can bind the Passport
+  status        String @default("planned") // "planned" | "depositing" | "bridging" | "minting" | "complete" | "failed"
+
+  totalAmount BigInt // USDC micro-units the plan sweeps to Arc
+  feeTotal    BigInt @default(0) // estimated Gateway fees across all legs
+  priceAmount BigInt // first-period price the sweep must cover
+
+  activationTxHash String? // Arc tx: gatewayMint + permit + subscribe (one hash)
+  error            String?
+
+  // Server-generated EIP-712 payloads (permit + per-leg deposit/burn typed data)
+  // stored at plan time so execute() only ever accepts SIGNATURES from the
+  // client — amounts and addresses can't be tampered with.
+  permitPayload Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  legs SweepLeg[]
+
+  @@index([sessionId])
+  @@index([status])
+  @@map("sweeps")
+}
+
+model SweepLeg {
+  id      String @id @default(cuid())
+  sweepId String
+  sweep   Sweep  @relation(fields: [sweepId], references: [id], onDelete: Cascade)
+
+  chainKey String // "baseSepolia" | "arbitrumSepolia" | ...
+  domain   Int    // Circle Gateway domain ID for the source chain
+  amount   BigInt // USDC micro-units drawn from this chain
+  maxFee   BigInt @default(0) // burn-intent maxFee for this leg
+  gasPayer String @default("relayer") // "user" (wallet self-submits deposit) | "relayer"
+
+  status        String  @default("pending") // "pending" | "deposited" | "burned" | "failed" | "skipped"
+  depositTxHash String? // relayer's depositWithAuthorization tx on the source chain
+  error         String?
+
+  depositPayload Json? // EIP-712 ReceiveWithAuthorization typed data (server-generated)
+  burnPayload    Json? // EIP-712 BurnIntent typed data (server-generated)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sweepId])
+  @@map("sweep_legs")
 }
 
 // ─── Subscription ─────────────────────────────────────────────────────────────
@@ -95,8 +254,14 @@ model Subscription {
   planId         String
   plan           Plan     @relation(fields: [planId], references: [id])
 
+  // Chosen-tier snapshot (immutable terms). Null = the plan's default tier; the
+  // billing engine reads these and falls back to plan.amount/interval when null.
+  amount         BigInt?  // per-period USDC micro-units for this subscription
+  interval       String?  // billing interval for this subscription
+
   externalRef        String   // developer's user ID
   walletAddress      String   // subscriber's wallet address
+  subscriberEmail    String?  // email bound to the wallet at checkout (Passport identity)
   status             String   // "trialing" | "active" | "past_due" | "cancelled" | "paused"
   activationMethod   String   // "wallet" | "passport"
   isTestMode         Boolean  @default(false)
@@ -109,6 +274,8 @@ model Subscription {
 
   // Billing state
   retryCount         Int      @default(0)
+  escrowBalance      BigInt   @default(0) // USDC held in the contract's settlement-window escrow
+  settlementDeadline DateTime?            // when escrow auto-releases to the merchant
   currentPeriodStart DateTime
   currentPeriodEnd   DateTime
   trialStart         DateTime?
@@ -119,17 +286,117 @@ model Subscription {
   passportId String?
   passport   Passport? @relation(fields: [passportId], references: [id])
 
+  customerId String?   // email-anchored identity (stable across wallet changes)
+  customer   Customer? @relation(fields: [customerId], references: [id])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  payments Payment[]
+  payments            Payment[]
+  renewalDelegations  RenewalDelegation[]
+  bridgeTransfers     BridgeTransfer[]
+  renewalClaims       RenewalClaim[]
 
   @@index([merchantId])
   @@index([externalRef])
   @@index([merchantId, externalRef])
   @@index([status])
+  @@index([customerId])
   @@index([currentPeriodEnd]) // billing engine queries on this
+  @@index([settlementDeadline]) // settlement sweep queries on this
   @@map("subscriptions")
+}
+
+// One-charge-per-cycle lock. Before charging a subscription's due period, EITHER
+// renewal path (Arc allowance or cross-chain CCTP) must claim (subscriptionId,
+// periodKey) here. The unique constraint makes the claim atomic: the first claimer
+// charges; any other path/chain/retry for the same period is rejected and skips —
+// so a subscriber with funds on multiple granted chains is only ever charged once
+// per cycle, regardless of how the passes interleave. periodKey = the due period's
+// currentPeriodEnd (epoch ms); the next period has a new key and is chargeable again.
+model RenewalClaim {
+  id             String   @id @default(cuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  periodKey      String
+  createdAt      DateTime @default(now())
+
+  @@unique([subscriptionId, periodKey])
+  @@map("renewal_claims")
+}
+
+// ─── Renewal Delegation (Tier 2 — ERC-7710) ────────────────────────────────────
+//
+// A subscriber's one-time ERC-7715 grant: authorises the relayer (delegate) to
+// pull up to `periodAmount` of `token` per `periodDuration` on `chainId`,
+// redeemed each cycle via `delegationManager.redeemDelegations(context, ...)`.
+// Bound to the checkout session first; linked to the Subscription once activated.
+// Revoking on-chain or letting `expiry` pass cancels future renewals.
+model RenewalDelegation {
+  id             String   @id @default(cuid())
+  sessionId      String?  // bound at checkout, before the Subscription row exists
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  walletAddress     String // delegator — the subscriber's connected (EOA) account
+  accountAddress    String? // bound account the permission redeems from (== EOA under 7702)
+  delegateAddress   String // delegate — our renewal relayer / session account
+  chainId           Int    // chain the mandate is redeemable on
+  token             String // ERC-20 (USDC) address on `chainId`
+  periodAmount      BigInt // max transferable per period (USDC micro-units)
+  periodDuration    Int    // billing interval in seconds
+  expiry            DateTime // hard expiry of the whole mandate
+
+  delegationManager String // DelegationManager the context redeems against
+  context           String // ERC-7710 permission context (hex blob), redeemed each cycle
+  // ERC-7715 account-deployment deps ([{factory, factoryData}]) the relayer must
+  // include on the FIRST redeem if the delegator account isn't on-chain yet
+  // (EIP-7702 / smart-account init). Empty array for an already-deployed account.
+  dependencies      Json?
+
+  status         String    @default("active") // "active" | "revoked" | "expired"
+  lastRedeemedAt DateTime?
+  lastRedeemTx   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([subscriptionId])
+  @@index([sessionId])
+  @@index([walletAddress])
+  @@index([status])
+  @@map("renewal_delegations")
+}
+
+// An in-flight CCTP bridge for a cross-chain (source) renewal. Written the moment
+// the relayer's burn lands (funds left the source chain) and BEFORE the period is
+// advanced — settlement = the Arc mint. If the mint step fails, the row stays
+// "burned" and the next renewal pass RESUMES it (re-attest + receiveOnArc) instead
+// of re-pulling, so funds can't be burned-but-lost nor double-charged.
+model BridgeTransfer {
+  id             String   @id @default(cuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  mandateId      String // the source RenewalDelegation that was pulled
+
+  chainId       Int    // source chain the period was pulled from
+  sourceDomain  Int    // CCTP source domain (for the Iris attestation lookup)
+  burnTxHash    String? @unique // the depositForBurn tx we attest + mint (null until burned)
+  grossAmount   BigInt // full period pulled from the subscriber (the Payment amount)
+  bridgedAmount BigInt // amount burned toward the creator (merchant share)
+  mintRecipient String // creator on Arc
+
+  // "pulled"  = period transferred to the relayer, not yet burned
+  // "burned"  = depositForBurn done, awaiting Iris attestation + Arc mint
+  // "minted"  = minted on Arc + settled (period advanced, Payment written)
+  status     String    @default("pulled")
+  mintTxHash String?
+  createdAt  DateTime  @default(now())
+  mintedAt   DateTime?
+
+  @@index([subscriptionId])
+  @@index([status])
+  @@map("bridge_transfers")
 }
 
 // ─── Payment ──────────────────────────────────────────────────────────────────
@@ -162,12 +429,68 @@ model Payment {
   @@map("payments")
 }
 
-// ─── Passport ─────────────────────────────────────────────────────────────────
+// ─── Customer (email-anchored identity, scoped PER MERCHANT) ────────────────────
+// The identity anchor is the EMAIL, but scoped to a merchant (the Stripe model):
+// the same email is a SEPARATE customer under each merchant, and a wallet links
+// an email per merchant — so a returning wallet is only recognised at the
+// merchant it linked at, and a new merchant's checkout prompts a fresh link.
+// Email ownership is proven once via OTP. customerId is per-merchant in webhooks.
+
+model Customer {
+  id              String    @id @default(cuid())
+  customerId      String    @unique // "cus_..." — public id surfaced in webhooks (per merchant)
+  merchantId      String
+  merchant        Merchant  @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  email           String
+  emailVerifiedAt DateTime? // set when the email is proven via OTP (first link)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  wallets       CustomerWallet[]
+  subscriptions Subscription[]
+
+  @@unique([merchantId, email]) // same email = distinct customer per merchant
+  @@index([merchantId])
+  @@map("customers")
+}
+
+model CustomerWallet {
+  id         String   @id @default(cuid())
+  merchantId String
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  address    String   // a wallet maps to one customer PER MERCHANT (not globally)
+  firstSeenAt DateTime @default(now())
+  lastUsedAt  DateTime @default(now())
+
+  @@unique([merchantId, address]) // recall is scoped to the merchant
+  @@index([customerId])
+  @@index([address])
+  @@map("customer_wallets")
+}
+
+// One-time passcodes for verifying email ownership at checkout (first link).
+model CheckoutOtp {
+  id         String    @id @default(cuid())
+  email      String
+  codeHash   String    // HMAC of the 6-digit code (never store the raw code)
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([email])
+  @@map("checkout_otps")
+}
+
+// ─── Passport (legacy — superseded by Customer) ────────────────────────────────
 
 model Passport {
   id             String   @id @default(cuid())
   passportId     String   @unique // "pass_xyz"
   walletAddress  String   @unique
+  email          String?  // bound to the wallet at checkout = Passport identity (addendum decision 5)
   platformSig    String   // HMAC signature of {walletAddress + issuedAt}
   isValid        Boolean  @default(true)
   issuedAt       DateTime @default(now())
