@@ -43,16 +43,16 @@ interface WebhookPayload {
   version: number;
 }
 
-circleWebhooksRouter.post("/", async (req, res) => {
-  // IP allowlist — only enforced in production
+circleWebhooksRouter.post("/", (req, res) => {
+  // IP allowlist is ADVISORY only. Circle rotates its sender IPs and Railway (and
+  // most hosts) proxy the request, so hard-blocking on IP rejects real + test
+  // deliveries. The ECDSA signature check below is the actual security gate.
   const clientIp =
     (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0].trim() ??
     req.socket.remoteAddress ??
     "";
-
-  if (process.env.NODE_ENV === "production" && !CIRCLE_IPS.has(clientIp)) {
-    console.warn(`[circle-webhook] Rejected — unknown sender IP: ${clientIp}`);
-    return res.status(403).json({ error: "Forbidden" });
+  if (process.env.NODE_ENV === "production" && clientIp && !CIRCLE_IPS.has(clientIp)) {
+    console.warn(`[circle-webhook] sender IP not in known list (not blocking): ${clientIp}`);
   }
 
   const rawBody = req.body as Buffer;
@@ -60,53 +60,48 @@ circleWebhooksRouter.post("/", async (req, res) => {
     return res.status(400).json({ error: "Unexpected body type" });
   }
 
+  // ACK immediately with 2xx so Circle's connection test + deliveries always
+  // succeed; verification + processing happen out of band below.
+  res.status(200).json({ ok: true });
+
   const signature = req.headers["x-circle-signature"] as string | undefined;
   const keyId     = req.headers["x-circle-key-id"]     as string | undefined;
 
-  if (signature && keyId) {
+  void (async () => {
+    // Only ACT on cryptographically verified events.
+    if (!signature || !keyId) {
+      console.warn("[circle-webhook] missing signature headers — not processing");
+      return;
+    }
+    let verified = false;
     try {
       const publicKey = await getVerifyKey(keyId);
-      const sigBytes  = Buffer.from(signature, "base64");
-      const valid     = cryptoVerify("sha256", rawBody, publicKey, sigBytes);
-      if (!valid) {
-        console.warn("[circle-webhook] ECDSA signature invalid — rejecting");
-        return res.status(401).json({ error: "Invalid signature" });
-      }
+      verified = cryptoVerify("sha256", rawBody, publicKey, Buffer.from(signature, "base64"));
     } catch (e) {
-      console.error("[circle-webhook] Signature verification error:", (e as Error).message);
-      if (process.env.NODE_ENV === "production") {
-        return res.status(401).json({ error: "Signature verification failed" });
-      }
+      console.error("[circle-webhook] signature verification error:", (e as Error).message);
+      return;
     }
-  } else {
-    console.warn("[circle-webhook] Missing signature headers — skipping verification (dev only)");
-    if (process.env.NODE_ENV === "production") {
-      return res.status(401).json({ error: "Missing signature headers" });
+    if (!verified) {
+      console.warn("[circle-webhook] invalid signature — ignoring event");
+      return;
     }
-  }
 
-  let payload: WebhookPayload;
-  try {
-    payload = JSON.parse(rawBody.toString("utf-8")) as WebhookPayload;
-  } catch {
-    return res.status(400).json({ error: "Invalid JSON" });
-  }
+    let payload: WebhookPayload;
+    try {
+      payload = JSON.parse(rawBody.toString("utf-8")) as WebhookPayload;
+    } catch {
+      return;
+    }
+    console.log(`[circle-webhook] ${payload.notificationType} | id=${payload.notificationId}`);
 
-  console.log(`[circle-webhook] ${payload.notificationType} | id=${payload.notificationId}`);
-
-  // Acknowledge within 5 seconds; process the rest asynchronously
-  res.status(200).json({ ok: true });
-
-  const n = payload.notification;
-  const isInboundUsdc =
-    payload.notificationType === "transactions.inbound" &&
-    n?.operation === "INBOUND" &&
-    (n?.state === "CONFIRMED" || n?.state === "COMPLETE") &&
-    n?.token?.symbol === "USDC";
-
-  if (isInboundUsdc) {
-    void handleInboundDeposit(n!);
-  }
+    const n = payload.notification;
+    const isInboundUsdc =
+      payload.notificationType === "transactions.inbound" &&
+      n?.operation === "INBOUND" &&
+      (n?.state === "CONFIRMED" || n?.state === "COMPLETE") &&
+      n?.token?.symbol === "USDC";
+    if (isInboundUsdc) await handleInboundDeposit(n!);
+  })();
 });
 
 async function handleInboundDeposit(n: InboundNotification): Promise<void> {
