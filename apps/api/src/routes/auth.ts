@@ -33,13 +33,20 @@ function issueSession(
     onboarded: merchant.onboarded,
   };
   const token = jwt.sign(payload, getJwtSecret(), { expiresIn: `${days}d` });
-  res.cookie("sweep_session", token, {
+  res.cookie("sweep_session", token, { ...sessionCookieOptions(), maxAge: days * DAY_MS });
+}
+
+// In production the frontend (Vercel) and API (Railway) live on different
+// domains, so the session cookie must be SameSite=None + Secure to be sent on
+// cross-site fetches; in dev we keep Lax over http.
+function sessionCookieOptions() {
+  const isProd = process.env.NODE_ENV === "production";
+  return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: days * DAY_MS,
+    secure: isProd,
+    sameSite: (isProd ? "none" : "lax") as "none" | "lax",
     path: "/",
-  });
+  };
 }
 
 function fieldErrors(error: z.ZodError): Record<string, string> {
@@ -438,7 +445,7 @@ authRouter.post("/reset-password", async (req, res) => {
 // ─── POST /auth/logout ────────────────────────────────────────────────────────
 
 authRouter.post("/logout", (_req, res) => {
-  res.clearCookie("sweep_session", { path: "/" });
+  res.clearCookie("sweep_session", sessionCookieOptions());
   return ok(res, { ok: true });
 });
 

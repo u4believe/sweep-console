@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
+
 pragma solidity ^0.8.24;
 
-import "forge-std/Script.sol";
-import "../src/SubscriptionManager.sol";
+import {Script} from "forge-std/Script.sol";
+import {console} from "forge-std/console.sol";
+import {SubscriptionManager} from "../src/SubscriptionManager.sol";
 
 /// @notice Deployment script for SubscriptionManager on Arc.
 ///

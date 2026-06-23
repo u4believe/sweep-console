@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "pnpm --filter web dev",
+    "dev:api": "pnpm --filter @sweep/api dev",
     "build": "pnpm --filter web build",
     "lint": "pnpm --filter web lint",
     "typecheck": "pnpm --filter web typecheck && pnpm --filter contracts typecheck",

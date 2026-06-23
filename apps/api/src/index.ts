@@ -22,7 +22,8 @@ import { circleWebhooksRouter } from "./routes/circle-webhooks";
 import { prisma } from "./lib/prisma";
 
 const app = express();
-const PORT = process.env.API_PORT ?? 4000;
+// Railway (and most PaaS) inject PORT; API_PORT is the local-dev override.
+const PORT = process.env.PORT ?? process.env.API_PORT ?? 4000;
 
 // Configured origins (comma-separated APP_URL / NEXT_PUBLIC_APP_URL).
 const allowedOrigins = (process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000")
