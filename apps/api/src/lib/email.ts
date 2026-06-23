@@ -1,4 +1,9 @@
 import nodemailer from "nodemailer";
+import { setDefaultResultOrder } from "node:dns";
+
+// Many hosts (e.g. Railway) can't route IPv6 outbound, which surfaces as
+// `connect ENETUNREACH <ipv6>:587` on SMTP. Prefer IPv4 for all DNS lookups.
+setDefaultResultOrder("ipv4first");
 
 function getTransport() {
   const host = process.env.SMTP_HOST;
@@ -8,6 +13,10 @@ function getTransport() {
     host,
     port: Number(process.env.SMTP_PORT ?? 587),
     secure: process.env.SMTP_SECURE === "true",
+    // Fail fast instead of hanging when the connection can't be established.
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 15_000,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,

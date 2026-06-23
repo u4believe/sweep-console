@@ -1,4 +1,10 @@
-const BASE = process.env.CIRCLE_BASE_URL ?? "https://api.circle.com";
+// Normalize the base URL: a bare host like "api-sandbox.circle.com" makes fetch
+// throw "Failed to parse URL", so ensure a scheme and strip any trailing slash.
+function normalizeBaseUrl(raw: string): string {
+  const trimmed = raw.trim().replace(/\/+$/, "");
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+const BASE = normalizeBaseUrl(process.env.CIRCLE_BASE_URL ?? "https://api.circle.com");
 
 // Per the addendum this should be ARC-TESTNET once Circle user-controlled
 // wallets support Arc; ETH-SEPOLIA is the working sandbox default until then.
