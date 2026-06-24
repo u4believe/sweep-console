@@ -504,6 +504,14 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
             />
           </div>
         )}
+
+        {/* Standalone portal — view/cancel this and any other subscription later
+            (opens in a new tab so this confirmation stays put). */}
+        <p className="mt-6 text-center text-sm">
+          <a href="/manage" target="_blank" rel="noreferrer" className="font-medium text-brand-600 hover:underline">
+            Manage your subscriptions ↗
+          </a>
+        </p>
       </div>
     );
   }

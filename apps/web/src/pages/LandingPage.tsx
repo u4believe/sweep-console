@@ -172,12 +172,12 @@ function Hero() {
           >
             Start for free
           </Link>
-          <a
-            href="#pricing"
+          <Link
+            to="/manage"
             className="w-full rounded-xl border border-gray-200 bg-white px-6 py-3.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 sm:w-auto"
           >
-            View pricing
-          </a>
+            Manage subscription
+          </Link>
         </div>
         <p className="mt-4 text-xs text-gray-400">No credit card required · Test mode included</p>
 

@@ -171,6 +171,7 @@ export function otpEmailHtml(code: string, merchantName: string): string {
     <p style="color:#6b7280;margin:0 0 24px">Enter this code to confirm your email and complete your subscription with ${merchantName}.</p>
     <div style="font-size:34px;font-weight:700;letter-spacing:8px;color:#111827;background:#f3f4f6;border-radius:8px;padding:18px;text-align:center">${code}</div>
     <p style="color:#9ca3af;font-size:12px;margin:24px 0 0">This code expires in 10 minutes. If you didn't request it, ignore this email.</p>
+    <p style="color:#9ca3af;font-size:12px;margin:8px 0 0">Manage your subscriptions anytime at <a href="${manageUrl()}" style="color:#16a34a">${manageUrl()}</a>.</p>
   </div>
 </body>
 </html>`;
