@@ -11,7 +11,7 @@ export interface AuthUser {
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
-  login: (email: string, password: string, remember?: boolean) => Promise<void>;
+  login: (email: string, password: string, remember?: boolean, turnstileToken?: string) => Promise<void>;
   logout: () => Promise<void>;
   /** Re-fetch the session (used after the Google sign-in popup completes). */
   refresh: () => Promise<AuthUser | null>;
@@ -37,12 +37,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refresh().finally(() => setLoading(false));
   }, [refresh]);
 
-  async function login(email: string, password: string, remember?: boolean) {
+  async function login(email: string, password: string, remember?: boolean, turnstileToken?: string) {
     const res = await fetch(`${API_URL}/auth/login`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, remember }),
+      body: JSON.stringify({ email, password, remember, turnstileToken }),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({})) as { error?: { message?: string } };

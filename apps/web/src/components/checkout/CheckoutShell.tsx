@@ -21,6 +21,7 @@ import { GatewaySweepPanel } from "./GatewaySweepPanel";
 import { DelegatedRenewalToggle } from "./DelegatedRenewalToggle";
 import { ManageSubscriptionsPanel } from "./ManageSubscriptionsPanel";
 import { ArcLogo, BaseLogo, ArbitrumLogo, OptimismLogo } from "./ChainBadge";
+import { Turnstile, TURNSTILE_ENABLED } from "@/components/Turnstile";
 import {
   fetchWalletStatus,
   hydrateTypedData,
@@ -141,6 +142,8 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
   const [otpPhase, setOtpPhase] = useState<"idle" | "sending" | "sent" | "verifying">("idle");
   const [otpCode, setOtpCode] = useState("");
   const [otpError, setOtpError] = useState("");
+  const [otpCaptcha, setOtpCaptcha] = useState("");
+  const [otpCaptchaReset, setOtpCaptchaReset] = useState(0);
   const verified = walletVerified || !!emailToken;
 
   const emailValid = EMAIL_RE.test(email.trim());
@@ -208,13 +211,17 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
 
   const onSendCode = async () => {
     if (!emailValid) { setOtpError("Enter a valid email first."); return; }
+    if (TURNSTILE_ENABLED && !otpCaptcha) { setOtpError("Complete the captcha first."); return; }
     setOtpError(""); setOtpPhase("sending");
     try {
-      await requestOtp(sessionId, email.trim());
+      await requestOtp(sessionId, email.trim(), otpCaptcha);
       setOtpPhase("sent");
     } catch (e) {
       setOtpError(e instanceof Error ? e.message : "Could not send the code.");
       setOtpPhase("idle");
+    } finally {
+      // The token is single-use — mint a fresh one so "Resend" works.
+      setOtpCaptchaReset((n) => n + 1);
     }
   };
 
@@ -725,12 +732,21 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                 />
                 <button
                   onClick={onSendCode}
-                  disabled={!emailValid || otpPhase === "sending"}
+                  disabled={!emailValid || otpPhase === "sending" || (TURNSTILE_ENABLED && !otpCaptcha)}
                   className="whitespace-nowrap rounded-lg border border-brand-200 px-3 text-sm font-medium text-brand-600 hover:bg-brand-50 disabled:opacity-50"
                 >
                   {otpPhase === "sending" ? "Sending…" : otpPhase === "sent" || otpPhase === "verifying" ? "Resend" : "Send code"}
                 </button>
               </div>
+
+              {emailValid && (
+                <Turnstile
+                  onVerify={setOtpCaptcha}
+                  onExpire={() => setOtpCaptcha("")}
+                  resetSignal={otpCaptchaReset}
+                  className="mt-2"
+                />
+              )}
 
               {(otpPhase === "sent" || otpPhase === "verifying") && (
                 <div className="mt-2 flex gap-2">

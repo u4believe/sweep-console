@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useAuth } from "@/context/auth";
 import { AuthTabs, OrDivider } from "@/components/auth/AuthTabs";
 import { GoogleButton } from "@/components/auth/GoogleButton";
+import { Turnstile, TURNSTILE_ENABLED } from "@/components/Turnstile";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -14,6 +15,8 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
+  const [captcha, setCaptcha] = useState("");
+  const [captchaReset, setCaptchaReset] = useState(0);
   const passwordId = useId();
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -22,10 +25,11 @@ export function LoginPage() {
     setLoading(true);
     const form = new FormData(e.currentTarget);
     try {
-      await login(form.get("email") as string, form.get("password") as string, remember);
+      await login(form.get("email") as string, form.get("password") as string, remember, captcha);
       navigate(next, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
+      setCaptchaReset((n) => n + 1); // token is single-use — mint a fresh one
     } finally {
       setLoading(false);
     }
@@ -111,9 +115,11 @@ export function LoginPage() {
           </Link>
         </div>
 
+        <Turnstile onVerify={setCaptcha} onExpire={() => setCaptcha("")} resetSignal={captchaReset} />
+
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || (TURNSTILE_ENABLED && !captcha)}
           className="w-full rounded-lg bg-gray-900 py-2.5 font-medium text-white transition hover:bg-black disabled:opacity-50"
         >
           {loading ? "Signing in…" : "Login"}

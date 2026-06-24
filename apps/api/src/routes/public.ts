@@ -26,6 +26,7 @@ import {
   OtpError,
 } from "../lib/checkout/identity";
 import { revokeSubscription } from "../lib/subscriptions/revoke";
+import { verifyTurnstile, clientIp } from "../lib/turnstile";
 import type { Hex } from "viem";
 
 // The subscriber grants a year of renewals in one EIP-2612 permit, mirroring
@@ -172,11 +173,14 @@ publicRouter.get("/customer/wallet-status", async (req, res) => {
 const otpRequestSchema = z.object({
   email: z.string().email(),
   session_id: z.string().optional(), // to label the email with the merchant
+  turnstile_token: z.string().optional(),
 });
 
 publicRouter.post("/customer/otp/request", async (req, res) => {
   const parsed = otpRequestSchema.safeParse(req.body);
   if (!parsed.success) return err(res, "A valid email is required", 422);
+  const captcha = await verifyTurnstile(parsed.data.turnstile_token, clientIp(req));
+  if (!captcha.ok) return err(res, "Captcha verification failed. Please try again.", 400);
   try {
     let merchantName = "your subscription";
     if (parsed.data.session_id) {

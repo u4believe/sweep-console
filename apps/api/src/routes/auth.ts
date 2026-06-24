@@ -10,6 +10,7 @@ import { ids } from "../lib/ids";
 import { hashPassword, verifyPassword } from "../lib/password";
 import { sendEmail, verificationEmailHtml, passwordResetEmailHtml } from "../lib/email";
 import { getJwtSecret, verifyPortalSession, type SessionPayload, type PortalRequest } from "../middleware/portalAuth";
+import { verifyTurnstile, clientIp } from "../lib/turnstile";
 
 export const authRouter = Router();
 
@@ -62,12 +63,16 @@ function fieldErrors(error: z.ZodError): Record<string, string> {
 const signupSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1).max(100).optional(),
+  turnstileToken: z.string().optional(),
 });
 
 authRouter.post("/signup", async (req, res) => {
   try {
     const parsed = signupSchema.safeParse(req.body);
     if (!parsed.success) return validationError(res, fieldErrors(parsed.error));
+
+    const captcha = await verifyTurnstile(parsed.data.turnstileToken, clientIp(req));
+    if (!captcha.ok) return err(res, "Captcha verification failed. Please try again.", 400);
 
     const { name } = parsed.data;
     const email = parsed.data.email.toLowerCase();
@@ -183,12 +188,16 @@ const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
   remember: z.boolean().optional(),
+  turnstileToken: z.string().optional(),
 });
 
 authRouter.post("/login", async (req, res) => {
   try {
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) return validationError(res, fieldErrors(parsed.error));
+
+    const captcha = await verifyTurnstile(parsed.data.turnstileToken, clientIp(req));
+    if (!captcha.ok) return err(res, "Captcha verification failed. Please try again.", 400);
 
     const { password, remember } = parsed.data;
     const email = parsed.data.email.toLowerCase();
@@ -359,13 +368,19 @@ authRouter.post("/complete-profile", verifyPortalSession, async (req, res) => {
 // ─── POST /auth/forgot-password ───────────────────────────────────────────────
 // Always returns a generic success (don't leak which emails are registered).
 
-const forgotSchema = z.object({ email: z.string().email() });
+const forgotSchema = z.object({
+  email: z.string().email(),
+  turnstileToken: z.string().optional(),
+});
 
 authRouter.post("/forgot-password", async (req, res) => {
   const generic = { message: "If that email is registered, we've sent a reset link." };
   try {
     const parsed = forgotSchema.safeParse(req.body);
     if (!parsed.success) return validationError(res, fieldErrors(parsed.error));
+
+    const captcha = await verifyTurnstile(parsed.data.turnstileToken, clientIp(req));
+    if (!captcha.ok) return err(res, "Captcha verification failed. Please try again.", 400);
 
     const email = parsed.data.email.toLowerCase();
     const merchant = await prisma.merchant.findUnique({ where: { email } });

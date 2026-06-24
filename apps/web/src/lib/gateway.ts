@@ -81,10 +81,14 @@ export function fetchWalletStatus(
   return request(`/customer/wallet-status?address=${address}&session_id=${sessionId}`);
 }
 
-export function requestOtp(sessionId: string, email: string): Promise<{ sent: boolean }> {
+export function requestOtp(
+  sessionId: string,
+  email: string,
+  turnstileToken?: string
+): Promise<{ sent: boolean }> {
   return request(`/customer/otp/request`, {
     method: "POST",
-    body: JSON.stringify({ email, session_id: sessionId }),
+    body: JSON.stringify({ email, session_id: sessionId, turnstile_token: turnstileToken }),
   });
 }
 
