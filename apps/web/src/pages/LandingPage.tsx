@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Pricing } from "@/components/landing/Pricing";
 import { Logo } from "@/components/ui/Logo";
 import { UMAMI_SHARE_URL } from "@/lib/analytics";
+import { fetchPlatformStats, type PlatformStats } from "@/lib/gateway";
 
 function LogoMark() {
   return <Logo height={30} />;
@@ -33,6 +35,105 @@ function Nav() {
         </div>
       </div>
     </header>
+  );
+}
+
+const usd0 = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
+const compactUsd = (n: number) =>
+  new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 })
+    .format(n)
+    .replace("K", "k"); // match the "$192k" style
+
+type StatsState =
+  | { status: "loading" }
+  | { status: "empty" }
+  | { status: "ready"; stats: PlatformStats };
+
+function useLiveStats(): StatsState {
+  const [state, setState] = useState<StatsState>({ status: "loading" });
+  useEffect(() => {
+    let alive = true;
+    fetchPlatformStats()
+      .then((r) => {
+        if (!alive) return;
+        const s = r.data;
+        // Nothing real to show yet — flag empty so we hide the panel instead of
+        // displaying $0 / 0 on the marketing hero.
+        const empty = s.mrr === 0 && s.activeSubscribers === 0 && s.settledThisMonth === 0;
+        setState(empty ? { status: "empty" } : { status: "ready", stats: s });
+      })
+      // On error, hide too — never leave a stuck skeleton or show fake numbers.
+      .catch(() => alive && setState({ status: "empty" }));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return state;
+}
+
+function StatTiles({ stats }: { stats: PlatformStats }) {
+  const tiles = [
+    { label: "MRR", value: usd0(stats.mrr), trend: "Updated live" },
+    {
+      label: "Active subscribers",
+      value: stats.activeSubscribers.toLocaleString("en-US"),
+      trend:
+        stats.newSubscribersThisMonth > 0
+          ? `+${stats.newSubscribersThisMonth} this month`
+          : "Updated live",
+    },
+    {
+      label: "Settled this month",
+      value: `${compactUsd(stats.settledThisMonth)} USDC`,
+      trend: "Arc",
+    },
+  ];
+  return (
+    <div className="grid gap-4 p-6 sm:grid-cols-3">
+      {tiles.map((s) => (
+        <div key={s.label} className="rounded-xl border border-gray-100 bg-white p-4 text-left shadow-sm">
+          <p className="text-xs font-medium text-gray-400">{s.label}</p>
+          <p className="mt-1 text-2xl font-bold text-gray-900">{s.value}</p>
+          <p className="mt-1 text-xs font-medium text-brand-600">{s.trend}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StatSkeleton() {
+  return (
+    <div className="grid gap-4 p-6 sm:grid-cols-3">
+      {["MRR", "Active subscribers", "Settled this month"].map((label) => (
+        <div key={label} className="rounded-xl border border-gray-100 bg-white p-4 text-left shadow-sm">
+          <p className="text-xs font-medium text-gray-400">{label}</p>
+          <div className="mt-2 h-7 w-24 animate-pulse rounded bg-gray-100" />
+          <div className="mt-2 h-3 w-16 animate-pulse rounded bg-gray-100" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// The product-preview card. Renders nothing when the platform has no live
+// activity yet (or stats fail to load), so the hero never shows $0 / 0 numbers;
+// it reappears automatically once there are real subscriptions.
+function HeroPreview() {
+  const state = useLiveStats();
+  if (state.status === "empty") return null;
+  return (
+    <div className="relative mx-auto mt-16 max-w-3xl">
+      <div className="pointer-events-none absolute -inset-6 rounded-[2rem] bg-gradient-to-tr from-brand-400/30 via-sky-300/20 to-blue-300/30 blur-2xl" />
+      <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+        <div className="flex items-center gap-1.5 border-b border-gray-100 bg-gray-50 px-4 py-3">
+          <span className="h-3 w-3 rounded-full bg-red-300" />
+          <span className="h-3 w-3 rounded-full bg-yellow-300" />
+          <span className="h-3 w-3 rounded-full bg-gray-300" />
+          <span className="ml-3 text-xs text-gray-400">app.sweepconsole.com</span>
+        </div>
+        {state.status === "ready" ? <StatTiles stats={state.stats} /> : <StatSkeleton />}
+      </div>
+    </div>
   );
 }
 
@@ -80,31 +181,8 @@ function Hero() {
         </div>
         <p className="mt-4 text-xs text-gray-400">No credit card required · Test mode included</p>
 
-        {/* Product preview with glow */}
-        <div className="relative mx-auto mt-16 max-w-3xl">
-          <div className="pointer-events-none absolute -inset-6 rounded-[2rem] bg-gradient-to-tr from-brand-400/30 via-sky-300/20 to-blue-300/30 blur-2xl" />
-          <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
-            <div className="flex items-center gap-1.5 border-b border-gray-100 bg-gray-50 px-4 py-3">
-              <span className="h-3 w-3 rounded-full bg-red-300" />
-              <span className="h-3 w-3 rounded-full bg-yellow-300" />
-              <span className="h-3 w-3 rounded-full bg-gray-300" />
-              <span className="ml-3 text-xs text-gray-400">app.sweepconsole.com</span>
-            </div>
-            <div className="grid gap-4 p-6 sm:grid-cols-3">
-              {[
-                { label: "MRR", value: "$48,250", trend: "+12.4%" },
-                { label: "Active subscribers", value: "1,284", trend: "+86" },
-                { label: "Settled this month", value: "$192k USDC", trend: "Arc" },
-              ].map((s) => (
-                <div key={s.label} className="rounded-xl border border-gray-100 bg-white p-4 text-left shadow-sm">
-                  <p className="text-xs font-medium text-gray-400">{s.label}</p>
-                  <p className="mt-1 text-2xl font-bold text-gray-900">{s.value}</p>
-                  <p className="mt-1 text-xs font-medium text-brand-600">{s.trend}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        {/* Product preview with glow — live data, hidden until there's activity */}
+        <HeroPreview />
       </div>
     </section>
   );

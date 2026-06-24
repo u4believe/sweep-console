@@ -57,6 +57,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+// ─── Public platform stats (marketing hero) ───────────────────────────────────
+
+export interface PlatformStats {
+  mrr: number;                     // monthly recurring revenue, USDC dollars
+  activeSubscribers: number;
+  newSubscribersThisMonth: number;
+  settledThisMonth: number;        // USDC dollars settled this calendar month
+}
+
+/// Live, aggregate platform metrics across all merchants. Public + cached server-side.
+export function fetchPlatformStats(): Promise<{ data: PlatformStats }> {
+  return request(`/stats`);
+}
+
 // ─── Email verification (OTP) ─────────────────────────────────────────────────
 
 /// Is this connected wallet already an OTP-verified customer of this merchant?

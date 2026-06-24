@@ -5,6 +5,47 @@ import { setDefaultResultOrder } from "node:dns";
 // `connect ENETUNREACH <ipv6>:587` on SMTP. Prefer IPv4 for all DNS lookups.
 setDefaultResultOrder("ipv4first");
 
+interface SendOptions {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+}
+
+function fromAddress(): string {
+  return (
+    process.env.EMAIL_FROM ??
+    process.env.SMTP_FROM ??
+    "Sweep Console <noreply@sweepconsole.com>"
+  );
+}
+
+// Preferred transport: Resend's HTTP API (port 443). Works on hosts like Railway
+// that block outbound SMTP ports (25/465/587), where nodemailer can't connect.
+async function sendViaResend(opts: SendOptions): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY!;
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: fromAddress(),
+      to: [opts.to],
+      subject: opts.subject,
+      html: opts.html,
+      text: opts.text,
+    }),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Resend API ${res.status}: ${detail.slice(0, 300)}`);
+  }
+  console.log("[email] Sent to", opts.to, "via Resend");
+}
+
 function getTransport() {
   const host = process.env.SMTP_HOST;
   if (!host) return null;
@@ -24,34 +65,39 @@ function getTransport() {
   });
 }
 
-interface SendOptions {
-  to: string;
-  subject: string;
-  html: string;
-  text: string;
-}
-
 export async function sendEmail(opts: SendOptions): Promise<void> {
-  const from = process.env.SMTP_FROM ?? "Sweep Console <noreply@sweepconsole.com>";
+  // 1) Prefer the HTTP API when configured — the only thing that reliably works
+  //    on hosts that block outbound SMTP.
+  if (process.env.RESEND_API_KEY) {
+    try {
+      await sendViaResend(opts);
+      return;
+    } catch (e) {
+      console.error("[email] Resend error:", e);
+      throw new Error(`Failed to send email: ${(e as Error).message}`);
+    }
+  }
+
+  // 2) Fall back to SMTP (works locally / on hosts that allow it).
   const transport = getTransport();
-
-  if (!transport) {
-    console.log("\n─────────────────────────────────────────");
-    console.log("[email] SMTP_HOST not set — logging instead of sending");
-    console.log("[email] To:", opts.to);
-    console.log("[email] Subject:", opts.subject);
-    console.log("[email] Body:", opts.text);
-    console.log("─────────────────────────────────────────\n");
-    return;
+  if (transport) {
+    try {
+      await transport.sendMail({ from: fromAddress(), ...opts });
+      console.log("[email] Sent to", opts.to, "via SMTP");
+      return;
+    } catch (e) {
+      console.error("[email] SMTP error:", e);
+      throw new Error(`Failed to send email: ${(e as Error).message}`);
+    }
   }
 
-  try {
-    await transport.sendMail({ from, ...opts });
-    console.log("[email] Sent to", opts.to);
-  } catch (e) {
-    console.error("[email] SMTP error:", e);
-    throw new Error(`Failed to send email: ${(e as Error).message}`);
-  }
+  // 3) Neither configured — log so local dev still surfaces the content.
+  console.log("\n─────────────────────────────────────────");
+  console.log("[email] No RESEND_API_KEY or SMTP_HOST set — logging instead of sending");
+  console.log("[email] To:", opts.to);
+  console.log("[email] Subject:", opts.subject);
+  console.log("[email] Body:", opts.text);
+  console.log("─────────────────────────────────────────\n");
 }
 
 export function otpEmailHtml(code: string, merchantName: string): string {

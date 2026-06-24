@@ -44,6 +44,76 @@ function splitSignature(signature: string): { v: number; r: Hex; s: Hex } {
 
 export const publicRouter = Router();
 
+// ─── GET /stats — public platform metrics for the marketing hero ──────────────
+// Real, live aggregates across ALL merchants (live mode only, test excluded):
+// MRR, active subscribers, and USDC settled this calendar month. Cached briefly
+// so the landing page can poll cheaply without touching the DB every load.
+const MONTH_SECONDS = INTERVAL_SECONDS.monthly; // 30 days
+let statsCache: { at: number; data: unknown } | null = null;
+const STATS_TTL_MS = 60_000;
+
+function monthlyMicro(amountMicro: bigint, interval: string): number {
+  const secs = INTERVAL_SECONDS[interval] ?? MONTH_SECONDS;
+  // Normalize a per-period amount to a monthly run-rate.
+  return Number(amountMicro) * (MONTH_SECONDS / secs);
+}
+
+publicRouter.get("/stats", async (_req, res) => {
+  try {
+    if (statsCache && Date.now() - statsCache.at < STATS_TTL_MS) {
+      return ok(res, { data: statsCache.data });
+    }
+
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+
+    // Active subscriptions carry their own amount/interval snapshot; fall back to
+    // the plan's default tier when null. We read rows (not an aggregate) because
+    // MRR needs per-subscription interval normalization + the null fallback.
+    const activeSubs = await prisma.subscription.findMany({
+      where: { isTestMode: false, status: { in: ["active", "trialing"] } },
+      select: {
+        amount: true,
+        interval: true,
+        createdAt: true,
+        plan: { select: { amount: true, interval: true } },
+      },
+    });
+
+    let mrrMicro = 0;
+    let newSubscribersThisMonth = 0;
+    for (const s of activeSubs) {
+      const amount = s.amount ?? s.plan.amount;
+      const interval = s.interval ?? s.plan.interval;
+      mrrMicro += monthlyMicro(amount, interval);
+      if (s.createdAt >= monthStart) newSubscribersThisMonth += 1;
+    }
+
+    const settled = await prisma.payment.aggregate({
+      where: {
+        isTestMode: false,
+        status: "succeeded",
+        type: { in: ["initial", "renewal"] },
+        createdAt: { gte: monthStart },
+      },
+      _sum: { amount: true },
+    });
+
+    const data = {
+      mrr: mrrMicro / 1e6, // USDC dollars
+      activeSubscribers: activeSubs.length,
+      newSubscribersThisMonth,
+      settledThisMonth: Number(settled._sum.amount ?? 0n) / 1e6, // USDC dollars
+    };
+
+    statsCache = { at: Date.now(), data };
+    return ok(res, { data });
+  } catch (e) {
+    console.error("[public/stats]", e);
+    return err(res, "Failed to load stats", 500);
+  }
+});
+
 // ─── Customer identity: lookup + OTP (public) ─────────────────────────────────
 // Email is the identity anchor. On wallet connect the checkout asks whether this
 // wallet already belongs to a known customer (returns only a MASKED email, so a
