@@ -199,7 +199,23 @@ async function redeemSingle(
     args: [[context], [SINGLE_DEFAULT_MODE], [executionCallData]],
     account,
   });
-  const txHash = await walletClient.writeContract(request);
+  // Cap the gas to fit the block — without this, some testnet RPCs return a
+  // block-sized estimate the sequencer rejects ("exceeds the limit allowed for
+  // the block"). redeemDelegations is heavier than a plain transfer, so the
+  // fallback is generous.
+  const gas = await boundedGas(
+    publicClient,
+    () =>
+      publicClient.estimateContractGas({
+        address: delegationManager,
+        abi: DELEGATION_MANAGER_ABI,
+        functionName: "redeemDelegations",
+        args: [[context], [SINGLE_DEFAULT_MODE], [executionCallData]],
+        account,
+      }),
+    600_000n
+  );
+  const txHash = await walletClient.writeContract({ ...request, gas });
   const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
   if (receipt.status !== "success") {
     throw new Error(`redeemDelegations reverted: ${txHash}`);
