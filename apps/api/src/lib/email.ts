@@ -176,6 +176,13 @@ export function otpEmailHtml(code: string, merchantName: string): string {
 </html>`;
 }
 
+/// The standalone customer portal URL (email + OTP) where a subscriber manages
+/// every subscription tied to their email across merchants.
+function manageUrl(): string {
+  const base = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+  return `${base}/manage`;
+}
+
 /// Sent ONCE when a creator closes (deletes) a plan. Trust-first: we've already
 /// stopped billing and returned any escrowed funds on-chain, so this is a receipt,
 /// not a request. Revoking the dormant permission is optional.
@@ -199,6 +206,7 @@ export function planClosedEmailHtml(opts: {
     <p style="color:#6b7280;margin:0 0 16px">${opts.merchantName} closed this plan, so we cancelled your subscription (${opts.subscriptionId}). <strong>We stopped billing the moment it was closed and will never charge it again.</strong></p>
     ${refundLine}
     <p style="color:#6b7280;margin:0 0 16px">The renewal permission you granted is now <strong>dormant</strong> — we won't use it. You don't need to do anything. If you'd like full on-chain control, you can revoke it anytime in your wallet's permissions settings.</p>
+    <p style="color:#6b7280;margin:0 0 16px">You can review and manage your other subscriptions anytime at <a href="${manageUrl()}" style="color:#16a34a">${manageUrl()}</a>.</p>
     <p style="color:#9ca3af;font-size:12px;margin:24px 0 0">Sent once. Your funds are safe.</p>
   </div>
 </body>

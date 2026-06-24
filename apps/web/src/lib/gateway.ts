@@ -240,3 +240,87 @@ export function hydrateTypedData(payload: TypedDataPayload): TypedDataPayload {
   }
   return { ...payload, message: hydrate(payload.primaryType, payload.message) };
 }
+
+// ─── Standalone customer portal (/manage) ─────────────────────────────────────
+// Cross-merchant, email+OTP gated. Reuses verifyOtp() (returns the email_token);
+// these are the session-less portal endpoints (see api routes/customer-portal.ts).
+
+export interface PortalSubscription {
+  id: string;
+  merchant: { name: string };
+  status: string;
+  wallet_address: string;
+  plan: { name: string; amount: number; interval: string; currency: string };
+  current_period_end: string;
+  trial_end: string | null;
+  escrow_refundable: boolean;
+  refundable_until: string | null;
+  refundable_amount: number;
+  permissions: { arc_subscription: boolean; cross_chain_grants: number };
+  cross_chain_enabled: boolean;
+  revocable: boolean;
+}
+
+/// OTP request for the portal (no checkout session — generic branding server-side).
+export function portalRequestOtp(email: string, turnstileToken?: string): Promise<{ sent: boolean }> {
+  return request(`/customer/otp/request`, {
+    method: "POST",
+    body: JSON.stringify({ email, turnstile_token: turnstileToken }),
+  });
+}
+
+export function portalListSubscriptions(
+  email: string,
+  emailToken: string
+): Promise<{ proven: boolean; email?: string; subscriptions: PortalSubscription[] }> {
+  return request(`/customer/portal/subscriptions`, {
+    method: "POST",
+    body: JSON.stringify({ email, email_token: emailToken }),
+  });
+}
+
+export function portalCancelSubscription(
+  email: string,
+  emailToken: string,
+  subscriptionId: string
+): Promise<{ id: string; status: string; refunded_escrow: number; on_chain_cancelled: boolean; tx_hash: string | null }> {
+  return request(`/customer/portal/subscriptions/${subscriptionId}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ email, email_token: emailToken }),
+  });
+}
+
+export function portalGrantPlan(
+  email: string,
+  emailToken: string,
+  subscriptionId: string,
+  wallet: string
+): Promise<{ targets: GrantTarget[] }> {
+  return request(`/customer/portal/subscriptions/${subscriptionId}/grant-plan`, {
+    method: "POST",
+    body: JSON.stringify({ email, email_token: emailToken, wallet }),
+  });
+}
+
+export function portalSaveGrant(
+  email: string,
+  emailToken: string,
+  subscriptionId: string,
+  body: Record<string, unknown>
+): Promise<{ delegation_id: string; status: string }> {
+  return request(`/customer/portal/subscriptions/${subscriptionId}/grant`, {
+    method: "POST",
+    body: JSON.stringify({ email, email_token: emailToken, ...body }),
+  });
+}
+
+export function portalRevokeGrant(
+  email: string,
+  emailToken: string,
+  subscriptionId: string
+): Promise<{ revoked: number }> {
+  return request(`/customer/portal/subscriptions/${subscriptionId}/grant-revoke`, {
+    method: "POST",
+    body: JSON.stringify({ email, email_token: emailToken }),
+  });
+}

@@ -11,15 +11,12 @@
 // ERC-7715 support; otherwise it's invisible and checkout proceeds Arc-only.
 
 import { useEffect, useState } from "react";
-import { useAccount, useChainId, useConfig, useConnectorClient, useSignTypedData, useSwitchChain } from "wagmi";
-import { getChainId } from "wagmi/actions";
+import { useAccount, useChainId, useConnectorClient } from "wagmi";
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
-import { grantRenewalMandate } from "@/lib/delegation/grant";
-import { enableCrossChain, fetchGrantPlan, hydrateTypedData, revokeGrant, saveDelegation, type TypedDataPayload } from "@/lib/gateway";
+import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
+import { enableCrossChain, fetchGrantPlan, revokeGrant, saveDelegation } from "@/lib/gateway";
 
 const TIER2_ENABLED = import.meta.env.VITE_TIER2_DELEGATION === "true";
-const MANDATE_LIFETIME_SEC = 31_536_000; // 1 year
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 interface Props {
   sessionId: string;
@@ -46,9 +43,6 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
   const { address } = useAccount();
   const chainId = useChainId();
   const { data: connectorClient } = useConnectorClient();
-  const { signTypedDataAsync } = useSignTypedData();
-  const { switchChainAsync } = useSwitchChain();
-  const wagmiConf = useConfig();
   const [state, setState] = useState<State>("checking");
   const [supportedChainIds, setSupportedChainIds] = useState<number[]>([]);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
@@ -100,27 +94,6 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
     };
   }, [address, chainId, connectorClient, sessionId, walletAddress]);
 
-  const signOnChain = async (cid: number, payload: TypedDataPayload): Promise<string> => {
-    if (getChainId(wagmiConf) !== cid) {
-      await switchChainAsync({ chainId: cid });
-      for (let i = 0; i < 40 && getChainId(wagmiConf) !== cid; i++) await sleep(150);
-    }
-    const hydrated = hydrateTypedData(payload) as never;
-    for (let attempt = 0; ; attempt++) {
-      try {
-        return await signTypedDataAsync(hydrated);
-      } catch (e) {
-        const m = e instanceof Error ? e.message : String(e);
-        if (attempt < 6 && /does not match the connection|ConnectorChainMismatch|must match the active chain/.test(m)) {
-          await switchChainAsync({ chainId: cid }).catch(() => {});
-          await sleep(250);
-          continue;
-        }
-        throw e;
-      }
-    }
-  };
-
   const onEnable = async () => {
     if (!address || !connectorClient) return;
     setError("");
@@ -137,33 +110,13 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
 
       // One ERC-7715 delegation per funded source chain. No fee — the platform
       // covers gas + bridge from the 2% fee on each charge.
-      const now = Math.floor(Date.now() / 1000);
-      for (const t of targets) {
-        const mandate = await grantRenewalMandate(connectorClient, {
-          chainId: t.chain_id,
-          token: t.token,
-          delegate: t.delegate,
-          periodAmountMicro: BigInt(t.period_amount),
-          periodDurationSec: t.period_duration,
-          startTimeSec: now,
-          expirySec: now + MANDATE_LIFETIME_SEC,
-          justification: `Cross-chain renewals on ${t.name} when your Arc balance is low — capped to one period each cycle, revocable anytime.`,
-        });
-        await saveDelegation(sessionId, {
-          wallet_address: walletAddress,
-          account_address: mandate.accountAddress,
-          delegate_address: t.delegate,
-          chain_id: t.chain_id,
-          token: t.token,
-          delegation_manager: mandate.delegationManager,
-          context: mandate.context,
-          dependencies: mandate.dependencies,
-          period_amount: t.period_amount,
-          period_duration: t.period_duration,
-          expiry: mandate.expirySec,
-        });
-        setProgress((p) => ({ done: p.done + 1, total: p.total }));
-      }
+      await grantRenewalMandates(
+        connectorClient,
+        walletAddress,
+        targets,
+        (input) => saveDelegation(sessionId, input),
+        (done, total) => setProgress({ done, total })
+      );
 
       await enableCrossChain(sessionId, {
         session_token: sessionToken,

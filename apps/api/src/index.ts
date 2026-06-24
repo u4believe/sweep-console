@@ -15,6 +15,7 @@ import { checkoutRouter } from "./routes/checkout";
 import { passportRouter } from "./routes/passport";
 import { portalRouter } from "./routes/portal";
 import { publicRouter } from "./routes/public";
+import { customerPortalRouter } from "./routes/customer-portal";
 import { gatewayRouter } from "./routes/gateway";
 import { delegationRouter } from "./routes/delegation";
 import { devRouter } from "./routes/dev";
@@ -71,6 +72,9 @@ app.use("/portal", portalRouter);
 
 // Public routes (checkout page data, checkout confirm)
 app.use("/", publicRouter);
+
+// Standalone customer portal (/manage): cross-merchant, email+OTP gated
+app.use("/customer/portal", customerPortalRouter);
 
 // Cross-chain checkout (Circle Gateway): balance scanner + sweep plan/execute
 app.use("/", gatewayRouter);

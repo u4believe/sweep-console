@@ -23,6 +23,7 @@ import { LandingPage } from "@/pages/LandingPage";
 import { DocsPage } from "@/pages/DocsPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
+import { ManageSubscriptionsPage } from "@/pages/ManageSubscriptionsPage";
 
 export default function App() {
   return (
@@ -48,6 +49,9 @@ export default function App() {
 
       {/* Payment links — public, shareable; mints a session on subscribe */}
       <Route path="/pay/:link_id" element={<PaymentLinkPage />} />
+
+      {/* Standalone customer portal — public, email+OTP gated inside */}
+      <Route path="/manage" element={<ManageSubscriptionsPage />} />
 
       {/* Dev-only: ERC-7715 grant + caveat-scope test harness */}
       {import.meta.env.DEV && (

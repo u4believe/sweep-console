@@ -332,6 +332,7 @@ function Footer() {
             <a href="#pricing" className="transition hover:text-gray-900">Pricing</a>
             <Link to="/docs" className="transition hover:text-gray-900">Documentation</Link>
             {UMAMI_SHARE_URL && <Link to="/analytics" className="transition hover:text-gray-900">Analytics</Link>}
+            <Link to="/manage" className="transition hover:text-gray-900">Manage subscription</Link>
             <Link to="/login" className="transition hover:text-gray-900">Login</Link>
             <Link to="/signup" className="transition hover:text-gray-900">Get started</Link>
           </nav>
