@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useConfig, useConnectorClient, useSignTypedData, useSwitchChain } from "wagmi";
 import { getChainId } from "wagmi/actions";
-import { formatUnits } from "viem";
 import {
   activateCrossChain,
   fetchGrantPlan,
@@ -18,10 +17,10 @@ import { grantRenewalMandate } from "@/lib/delegation/grant";
 // Cross-chain checkout via CCTP V2 (delegation-gated).
 //
 // Arc is primary; this panel is the Arc-SHORT path. Enabling cross-chain is a
-// one-time setup: the subscriber signs (1) a 1 USDC setup fee (ERC-3009), (2) an
-// ERC-7715 delegation per funded source chain, and (3) the Arc permit. The platform
-// then funds + activates the subscription from a source chain via CCTP — covering
-// gas + bridge fees, so the subscriber is charged only the exact subscription amount.
+// one-time setup: the subscriber signs (1) an ERC-7715 delegation per funded source
+// chain and (2) the Arc permit — no fee. The platform then funds + activates the
+// subscription from a source chain via CCTP — covering gas + bridge fees, so the
+// subscriber is charged only the exact subscription amount.
 
 const MANDATE_LIFETIME_SEC = 31_536_000; // 1 year
 
@@ -38,7 +37,6 @@ interface Props {
 type Phase = "planning" | "review" | "signing" | "executing" | "insufficient" | "error";
 
 const POLL_MS = 3_000;
-const fmt = (micro: string) => formatUnits(BigInt(micro), 6);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /// Map noisier wallet-side ERC-7715 failures to guidance the subscriber can act on.
@@ -69,8 +67,8 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
     try {
       const p = await fetchGrantPlan(sessionId, walletAddress);
       setPlan(p);
-      // Already enabled (fee paid + grants exist from a prior enable): no fee, no
-      // re-granting — just confirm to activate with the Arc permit.
+      // Already enabled (grants exist from a prior enable): no re-granting — just
+      // confirm to activate with the Arc permit.
       if (p.already_enabled) {
         setPhase("review");
         return;
@@ -79,11 +77,7 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
       const supported = connectorClient ? await getSupportedDelegationChainIds(connectorClient) : [];
       const usable = p.targets.filter((t) => supported.includes(t.chain_id));
       setTargets(usable);
-      if (!p.fee_chain || !p.fee_payload || usable.length === 0) {
-        setPhase("insufficient");
-      } else {
-        setPhase("review");
-      }
+      setPhase(usable.length === 0 ? "insufficient" : "review");
     } catch (e) {
       setErrorMsg(describeError(e));
       setPhase("error");
@@ -142,21 +136,15 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
   const onApprove = async () => {
     if (!plan) return;
     const enabled = plan.already_enabled;
-    // Fresh enable needs the fee + grants (and a 7715-capable wallet).
-    if (!enabled && (!plan.fee_chain || !plan.fee_payload || !connectorClient || targets.length === 0)) return;
+    // Fresh enable needs grants (and a 7715-capable wallet).
+    if (!enabled && (!connectorClient || targets.length === 0)) return;
     setErrorMsg("");
     setPhase("signing");
 
     try {
-      let feeFields: { fee_chain: string; fee_payload: TypedDataPayload; fee_signature: string } | undefined;
-
-      if (!enabled && plan.fee_chain && plan.fee_payload && connectorClient) {
-        // 1 — one-time setup fee (ERC-3009 on the fee source chain).
-        const feeChainId = Number(plan.fee_payload.domain.chainId);
-        const feeSignature = await signOnChain(feeChainId, plan.fee_payload);
-        feeFields = { fee_chain: plan.fee_chain, fee_payload: plan.fee_payload, fee_signature: feeSignature };
-
-        // 2..N — one ERC-7715 delegation per funded source chain, saved server-side.
+      if (!enabled && connectorClient) {
+        // One ERC-7715 delegation per funded source chain, saved server-side. No
+        // fee — the platform covers gas + bridge from the 2% fee on each charge.
         const now = Math.floor(Date.now() / 1000);
         for (const t of targets) {
           const mandate = await grantRenewalMandate(connectorClient, {
@@ -194,7 +182,6 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
         wallet_address: walletAddress,
         email,
         email_token: emailToken ?? undefined,
-        ...feeFields,
         permit_signature: permitSignature,
         permit_value: plan.permit_value,
         permit_deadline: plan.permit_deadline,
@@ -225,7 +212,7 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
         <div className="space-y-2">
           <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
             Cross-chain isn't available: you need USDC on a supported chain (Base, Arbitrum, or
-            Optimism Sepolia) your wallet can authorize, plus a little for the one-time setup fee.
+            Optimism Sepolia) your wallet can authorize.
           </p>
           <button onClick={loadPlan} className="text-sm text-brand-600 hover:underline">
             Re-check balances
@@ -236,7 +223,7 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
       {phase === "review" && plan && plan.already_enabled && (
         <div className="space-y-3">
           <p className="text-sm text-gray-600">
-            Cross-chain is already enabled for this checkout — no setup fee, no re-authorizing.
+            Cross-chain is already enabled for this checkout — no re-authorizing.
             Confirm to pay from a chain with funds; we'll bridge it to Arc.
           </p>
           <p className="text-xs text-gray-400">One gasless signature (the Arc approval).</p>
@@ -246,20 +233,18 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
         </div>
       )}
 
-      {phase === "review" && plan && !plan.already_enabled && plan.fee_chain && (
+      {phase === "review" && plan && !plan.already_enabled && targets.length > 0 && (
         <div className="space-y-3">
           <p className="text-sm text-gray-600">
             Enable cross-chain once and we'll handle every charge on Arc, pulling from your USDC on
-            other chains when your Arc balance runs low. Gas and bridge fees are on us.
+            other chains when your Arc balance runs low. No extra fee — gas and bridge costs are on us.
           </p>
           <ul className="space-y-1 rounded-lg bg-gray-50 px-4 py-3 text-sm text-gray-600">
-            <li>• One-time setup fee: <span className="font-medium">${fmt(plan.setup_fee)} USDC</span> on {plan.fee_chain} <span className="text-gray-400">(first enable for this wallet — never per payment)</span></li>
             <li>• Authorize renewals on: {targets.map((t) => t.name).join(", ")}</li>
             <li>• Then your subscription activates on Arc — you're charged the exact amount only</li>
           </ul>
           <p className="text-xs text-gray-400">
-            {1 + targets.length + 1} gasless signatures: the setup fee, one per chain you authorize,
-            and the Arc approval.
+            {targets.length + 1} gasless signatures: one per chain you authorize, and the Arc approval.
           </p>
           <button onClick={onApprove} className="btn-primary w-full py-3">
             Enable &amp; Pay

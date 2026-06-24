@@ -176,7 +176,6 @@ Backend (`apps/api/.env`) — the most important:
 | `SUBSCRIPTION_MANAGER_ADDRESS` | Deployed contract address on Arc |
 | `SETTLEMENT_WINDOW_HOURS`, `BILLING_CRON_SCHEDULE` | Escrow window + cron schedule |
 | `SUPPORTED_SOURCE_CHAINS` | `base,arbitrum,optimism` |
-| `PLATFORM_SETUP_FEE_USDC` | One-time fee to enable cross-chain (micro-units) |
 | `CCTP_IRIS_URL`, `CCTP_FAST_MAX_FEE_BPS` | CCTP attestation API + Fast-transfer fee cap |
 | `SMTP_*` | Transactional email |
 

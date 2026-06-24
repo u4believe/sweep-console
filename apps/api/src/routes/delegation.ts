@@ -15,12 +15,8 @@ import { getSourceChain } from "../lib/gateway/chains";
 import { getDelegateAddress, decodePeriodTransferTerms } from "../lib/chain/delegation";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
 import {
-  buildSetupFeePayload,
   buildPermitPayload,
-  setupFeeMicro,
-  collectSetupFee,
   executeCrossChainActivation,
-  type TypedDataPayload,
 } from "../lib/checkout/cctp-activate";
 import { resolveCheckoutCustomer } from "../lib/checkout/identity";
 import { resolveTier } from "../lib/checkout/tiers";
@@ -76,12 +72,11 @@ delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, re
       targets.push(target(src.chain.id, src.key, src.name, src.usdc));
     }
 
-    // Cross-chain is "enabled" — skip the fee + re-granting + the whole toggle —
-    // in two cases:
+    // Cross-chain is "enabled" — skip re-granting + the whole toggle — in two cases:
     //   1. THIS checkout session already has grants (per-session dedup), or
     //   2. the CONNECTED WALLET already enabled cross-chain renewals for THIS
     //      merchant on a prior subscription (returning customer, same wallet) —
-    //      so they're never re-offered it or re-charged the one-time fee.
+    //      so they're never re-offered it.
     // A brand-new wallet, or a returning Arc-only wallet that never granted, still
     // sees the offer. Each new subscription gets its own fresh on-chain mandate.
     const sessionGrants = await prisma.renewalDelegation.count({
@@ -96,12 +91,6 @@ delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, re
     });
     const alreadyEnabled = sessionGrants > 0 || walletGrantsForMerchant > 0;
 
-    // One-time setup fee: charged on a source chain holding at least the fee.
-    const feeChain = balances.chains.find((c) => c.walletBalance >= setupFeeMicro());
-    const feePayload = feeChain
-      ? await buildSetupFeePayload(feeChain.chainKey, wallet as Hex)
-      : null;
-
     // Arc permit (recurring allowance) — funds Arc-first renewals + the escrow on
     // cross-chain activation.
     const nowSec = BigInt(Math.floor(Date.now() / 1000));
@@ -112,9 +101,6 @@ delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, re
     return ok(res, {
       targets,
       already_enabled: alreadyEnabled,
-      setup_fee: setupFeeMicro().toString(),
-      fee_chain: feeChain?.chainKey ?? null,
-      fee_payload: feePayload,
       permit_payload: permitPayload,
       permit_value: permitValue.toString(),
       permit_deadline: permitDeadline.toString(),
@@ -214,28 +200,16 @@ delegationRouter.post("/internal/checkout/:session_id/delegation", async (req, r
 
 // ─── POST /internal/checkout/:session_id/cross-chain/activate ─────────────────
 //
-// Arc-short cross-chain activation. The subscriber has already (1) signed the
-// one-time setup-fee ERC-3009 and (2) granted the delegation(s) via POST
-// /delegation above, and now signs the Arc permit. We collect the fee, then fund
+// Arc-short cross-chain activation. The subscriber has already granted the
+// delegation(s) via POST /delegation above, and now signs the Arc permit. We fund
 // + activate the subscription from a granted source chain (detached; the UI polls
-// the sweep status). Idempotent per session — one non-failed sweep.
-// Fee fields are OPTIONAL: omitted when cross-chain was already enabled (fee paid
-// on the prior enable), present on a fresh Arc-short enable+activate.
+// the sweep status). Idempotent per session — one non-failed sweep. The subscriber
+// pays no fee; the platform covers gas + bridge from the 2% fee on each charge.
 const activateSchema = z.object({
   session_token: z.string().min(1),
   wallet_address: z.string().regex(ADDRESS_RE),
   email: z.string().email().optional(),
   email_token: z.string().optional(), // OTP proof, required to link a new wallet
-  fee_chain: z.string().min(1).optional(),
-  fee_payload: z
-    .object({
-      domain: z.record(z.unknown()),
-      types: z.record(z.array(z.object({ name: z.string(), type: z.string() }))),
-      primaryType: z.string(),
-      message: z.record(z.unknown()),
-    })
-    .optional(),
-  fee_signature: z.string().regex(/^0x[a-fA-F0-9]{130}$/).optional(),
   permit_signature: z.string().regex(/^0x[a-fA-F0-9]{130}$/),
   permit_value: z.string().regex(/^\d+$/),
   permit_deadline: z.string().regex(/^\d+$/),
@@ -257,7 +231,7 @@ delegationRouter.post("/internal/checkout/:session_id/cross-chain/activate", asy
       return err(res, `Session is ${session.status === "open" ? "expired" : session.status}`, 409);
     }
 
-    // Idempotency: one non-failed sweep per session (guards double fee collection).
+    // Idempotency: one non-failed sweep per session.
     const existing = await prisma.sweep.findFirst({
       where: { sessionId: session.id, status: { not: "failed" } },
     });
@@ -273,25 +247,6 @@ delegationRouter.post("/internal/checkout/:session_id/cross-chain/activate", asy
     });
     if (!customer) {
       return err(res, "Verify your email before paying.", 403);
-    }
-
-    // Collect the one-time fee ONLY on a fresh enable (fee fields present). When
-    // cross-chain was already enabled, the client omits them and we skip it.
-    if (d.fee_payload && d.fee_chain && d.fee_signature) {
-      const treasury = process.env.PLATFORM_TREASURY_ADDRESS?.toLowerCase();
-      if (!treasury) return err(res, "PLATFORM_TREASURY_ADDRESS not configured", 500);
-      const msg = d.fee_payload.message as { from?: string; to?: string; value?: string };
-      if (msg.to?.toLowerCase() !== treasury) return err(res, "Setup fee must pay the platform treasury", 400);
-      if (msg.value !== setupFeeMicro().toString()) return err(res, "Unexpected setup fee amount", 400);
-      if (msg.from?.toLowerCase() !== d.wallet_address.toLowerCase()) return err(res, "Setup fee payer mismatch", 400);
-
-      await collectSetupFee(
-        session.sessionId,
-        d.wallet_address as Hex,
-        d.fee_chain,
-        d.fee_payload as TypedDataPayload,
-        d.fee_signature as Hex
-      );
     }
 
     const sweep = await prisma.sweep.create({
@@ -325,22 +280,15 @@ delegationRouter.post("/internal/checkout/:session_id/cross-chain/activate", asy
 // PROACTIVE enable for an Arc-funded subscriber: they pay (and activate) on Arc as
 // usual, and ALSO turn on cross-chain so renewals can pull from a source chain when
 // their Arc balance runs dry. The delegation grants are POSTed via /delegation
-// above (source chains only — Arc is the L1 settlement chain, not a CCTP source);
-// this endpoint just collects the one-time setup fee. No activation here — the Arc
-// checkout creates the subscription and links the session's delegations to it.
+// above (source chains only — Arc is the L1 settlement chain, not a CCTP source).
+// This endpoint just confirms the enable: no fee, no fund movement. No activation
+// here — the Arc checkout creates the subscription and links the session's
+// delegations to it; if the subscriber paid first, we link them now.
 const enableSchema = z.object({
   session_token: z.string().min(1),
   wallet_address: z.string().regex(ADDRESS_RE),
   email: z.string().email().optional(),
   email_token: z.string().optional(), // OTP proof, required to link a new wallet
-  fee_chain: z.string().min(1),
-  fee_payload: z.object({
-    domain: z.record(z.unknown()),
-    types: z.record(z.array(z.object({ name: z.string(), type: z.string() }))),
-    primaryType: z.string(),
-    message: z.record(z.unknown()),
-  }),
-  fee_signature: z.string().regex(/^0x[a-fA-F0-9]{130}$/),
 });
 
 delegationRouter.post("/internal/checkout/:session_id/cross-chain/enable", async (req, res) => {
@@ -355,7 +303,7 @@ delegationRouter.post("/internal/checkout/:session_id/cross-chain/enable", async
     if (!session) return err(res, "Checkout session not found", 404);
     if (session.sessionToken !== d.session_token) return err(res, "Invalid session token", 401);
 
-    // Verified customer link required before charging the setup fee.
+    // Verified customer link required before enabling renewals on this wallet.
     const customer = await resolveCheckoutCustomer({
       merchantId: session.merchantId,
       walletAddress: d.wallet_address,
@@ -363,21 +311,6 @@ delegationRouter.post("/internal/checkout/:session_id/cross-chain/enable", async
       emailToken: d.email_token,
     });
     if (!customer) return err(res, "Verify your email before enabling cross-chain.", 403);
-
-    const treasury = process.env.PLATFORM_TREASURY_ADDRESS?.toLowerCase();
-    if (!treasury) return err(res, "PLATFORM_TREASURY_ADDRESS not configured", 500);
-    const msg = d.fee_payload.message as { from?: string; to?: string; value?: string };
-    if (msg.to?.toLowerCase() !== treasury) return err(res, "Setup fee must pay the platform treasury", 400);
-    if (msg.value !== setupFeeMicro().toString()) return err(res, "Unexpected setup fee amount", 400);
-    if (msg.from?.toLowerCase() !== d.wallet_address.toLowerCase()) return err(res, "Setup fee payer mismatch", 400);
-
-    const feeTxHash = await collectSetupFee(
-      session.sessionId,
-      d.wallet_address as Hex,
-      d.fee_chain,
-      d.fee_payload as TypedDataPayload,
-      d.fee_signature as Hex
-    );
 
     // Normally enable happens BEFORE the Arc payment, so completeCheckoutSession
     // links the session's grants to the new subscription. If the subscriber paid
@@ -395,7 +328,7 @@ delegationRouter.post("/internal/checkout/:session_id/cross-chain/enable", async
       }
     }
 
-    return ok(res, { enabled: true, fee_tx_hash: feeTxHash });
+    return ok(res, { enabled: true });
   } catch (e) {
     console.error("[cross-chain/enable]", e);
     return err(res, e instanceof Error ? e.message : "Failed to enable cross-chain", 500);
@@ -406,8 +339,7 @@ delegationRouter.post("/internal/checkout/:session_id/cross-chain/enable", async
 // Revoke the cross-chain renewal grant the subscriber just enabled in THIS
 // checkout (before any subscription exists). Marks the session's active,
 // not-yet-linked delegations revoked so the relayer can never redeem them. The
-// already-collected one-time setup fee is not refunded; the subscriber can also
-// revoke the permission on-chain in their wallet for full control.
+// subscriber can also revoke the permission on-chain in their wallet for full control.
 const grantRevokeSchema = z.object({
   session_token: z.string().min(1),
   wallet_address: z.string().regex(ADDRESS_RE),

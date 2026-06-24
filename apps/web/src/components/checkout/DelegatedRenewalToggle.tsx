@@ -2,10 +2,10 @@
 // primary flow) who also wants renewals to fall back to their USDC on other chains
 // when their Arc balance runs dry.
 //
-// It collects the one-time setup fee + grants an ERC-7715 delegation on each funded
-// SOURCE chain (Base/Arbitrum/Optimism Sepolia — Arc is the L1 settlement chain, not
-// a CCTP source, so it's never a target). It does NOT activate: the Arc checkout
-// creates the subscription (and the permit/allowance), and links these delegations.
+// It grants an ERC-7715 delegation on each funded SOURCE chain (Base/Arbitrum/
+// Optimism Sepolia — Arc is the L1 settlement chain, not a CCTP source, so it's
+// never a target). No fee. It does NOT activate: the Arc checkout creates the
+// subscription (and the permit/allowance), and links these delegations.
 //
 // Self-gating: renders only when the feature flag is on AND the wallet advertises
 // ERC-7715 support; otherwise it's invisible and checkout proceeds Arc-only.
@@ -13,7 +13,6 @@
 import { useEffect, useState } from "react";
 import { useAccount, useChainId, useConfig, useConnectorClient, useSignTypedData, useSwitchChain } from "wagmi";
 import { getChainId } from "wagmi/actions";
-import { formatUnits } from "viem";
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
 import { grantRenewalMandate } from "@/lib/delegation/grant";
 import { enableCrossChain, fetchGrantPlan, hydrateTypedData, revokeGrant, saveDelegation, type TypedDataPayload } from "@/lib/gateway";
@@ -31,7 +30,7 @@ interface Props {
 }
 
 // "dormant" = this wallet already enabled cross-chain renewals for this merchant
-// (or this session) → the toggle + one-time fee are hidden entirely.
+// (or this session) → the toggle is hidden entirely.
 type State = "checking" | "ineligible" | "ready" | "granting" | "linked" | "fallback" | "dormant";
 
 function describeError(e: unknown): string {
@@ -53,7 +52,6 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
   const [state, setState] = useState<State>("checking");
   const [supportedChainIds, setSupportedChainIds] = useState<number[]>([]);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
-  const [feeText, setFeeText] = useState<string>("");
   const [error, setError] = useState("");
   const [revoking, setRevoking] = useState(false);
 
@@ -87,19 +85,12 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
         return;
       }
       // Already enabled for this wallet (this session, or a prior subscription
-      // with this merchant)? Hide the offer entirely — never re-show it or
-      // re-charge the one-time fee to a wallet that already granted. Otherwise
-      // capture the setup fee NOW so the amount is disclosed up front, before
-      // the subscriber commits to signing.
+      // with this merchant)? Hide the offer entirely — never re-show it to a
+      // wallet that already granted.
       try {
         const plan = await fetchGrantPlan(sessionId, walletAddress);
         if (cancelled) return;
-        if (plan.already_enabled) {
-          setState("dormant");
-        } else {
-          if (plan.setup_fee) setFeeText(formatUnits(BigInt(plan.setup_fee), 6));
-          setState("ready");
-        }
+        setState(plan.already_enabled ? "dormant" : "ready");
       } catch {
         if (!cancelled) setState("ready");
       }
@@ -137,19 +128,15 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
     try {
       const plan = await fetchGrantPlan(sessionId, walletAddress);
       const targets = plan.targets.filter((t) => supportedChainIds.includes(t.chain_id));
-      if (!plan.fee_chain || !plan.fee_payload || targets.length === 0) {
+      if (targets.length === 0) {
         setError("You need USDC on a supported chain (Base, Arbitrum, or Optimism Sepolia) your wallet can authorize.");
         setState("fallback");
         return;
       }
-      setFeeText(formatUnits(BigInt(plan.setup_fee), 6));
       setProgress({ done: 0, total: targets.length });
 
-      // 1 — one-time setup fee (ERC-3009 on the fee source chain).
-      const feeChainId = Number(plan.fee_payload.domain.chainId);
-      const feeSignature = await signOnChain(feeChainId, plan.fee_payload);
-
-      // 2..N — one ERC-7715 delegation per funded source chain.
+      // One ERC-7715 delegation per funded source chain. No fee — the platform
+      // covers gas + bridge from the 2% fee on each charge.
       const now = Math.floor(Date.now() / 1000);
       for (const t of targets) {
         const mandate = await grantRenewalMandate(connectorClient, {
@@ -183,9 +170,6 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
         wallet_address: walletAddress,
         email,
         email_token: emailToken ?? undefined,
-        fee_chain: plan.fee_chain,
-        fee_payload: plan.fee_payload,
-        fee_signature: feeSignature,
       });
       setState("linked");
     } catch (e) {
@@ -240,11 +224,7 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
       <p className="text-sm font-medium text-gray-800">Auto-renew from other chains if Arc runs low</p>
       <p className="mt-0.5 text-xs text-gray-500">
         Optional: authorize once so renewals can fall back to your USDC on Base, Arbitrum, or
-        Optimism when your Arc balance is short.{" "}
-        {feeText
-          ? `A one-time $${feeText} USDC setup fee applies for a new wallet — `
-          : "A one-time setup fee applies for a new wallet — "}
-        gas and bridge fees are on us.
+        Optimism when your Arc balance is short. No extra fee — gas and bridge costs are on us.
       </p>
       <button
         onClick={onEnable}
@@ -255,7 +235,7 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
           ? progress.total
             ? `Authorizing ${progress.done}/${progress.total}…`
             : "Preparing…"
-          : `Enable cross-chain renewals${feeText ? ` ($${feeText} one-time)` : ""}`}
+          : "Enable cross-chain renewals"}
       </button>
     </div>
   );

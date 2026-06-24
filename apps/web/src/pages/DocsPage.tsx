@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
 import type { ReactNode } from "react";
-import { clsx } from "clsx";
 import { Logo } from "@/components/ui/Logo";
 
 /* ── small building blocks ─────────────────────────────────────────────── */
@@ -44,17 +43,6 @@ function Step({ n, children }: { n: number; children: ReactNode }) {
   );
 }
 
-function FeeRow({ scenario, charged }: { scenario: ReactNode; charged: boolean }) {
-  return (
-    <div className="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-gray-100 py-3 last:border-0">
-      <span className="text-sm text-gray-600">{scenario}</span>
-      <span className={clsx("shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold", charged ? "bg-amber-100 text-amber-700" : "bg-brand-100 text-brand-700")}>
-        {charged ? "$1 charged" : "No fee"}
-      </span>
-    </div>
-  );
-}
-
 const toc = [
   {
     group: "Using Sweep Console",
@@ -64,7 +52,6 @@ const toc = [
       { id: "email-verification", label: "Email verification" },
       { id: "wallets", label: "Connecting & switching wallets" },
       { id: "upgrading", label: "Upgrading a plan" },
-      { id: "cross-chain-fee", label: "The $1 cross-chain fee" },
       { id: "revenue-escrow", label: "Revenue & escrow" },
       { id: "challenges", label: "Common challenges" },
     ],
@@ -211,26 +198,8 @@ export function DocsPage() {
               <p>
                 Completing the new subscription <strong>auto-replaces the old one</strong> (or you can revoke the old one first from
                 the checkout). If you upgrade with the <strong>same wallet</strong> that already enabled cross-chain renewals, the
-                grant carries over — <strong>no new $1 fee</strong> while that grant is still active (see below).
+                grant carries over — no re-authorizing while that grant is still active.
               </p>
-            </Section>
-
-            <Section id="cross-chain-fee" title="The $1 cross-chain fee">
-              <p>
-                The $1 USDC fee is a <strong>one-time setup fee charged only when a subscriber enables cross-chain renewals</strong> —
-                authorizing the platform to pull a future renewal from their USDC on Base / Arbitrum / Optimism if their Arc balance
-                runs low. It funds the platform's gas + bridge coverage. It is <strong>not</strong> a per-payment fee and is never
-                charged for paying on Arc. It is keyed to the <strong>wallet + merchant</strong>, not to the plan.
-              </p>
-              <div className="rounded-xl border border-gray-200 px-5 py-1">
-                <FeeRow scenario="New subscriber, pays on Arc only" charged={false} />
-                <FeeRow scenario="New subscriber enables cross-chain (first time for that wallet)" charged={true} />
-                <FeeRow scenario="Returning subscriber — same wallet already enabled cross-chain" charged={false} />
-                <FeeRow scenario="Returning Arc-only subscriber now enabling cross-chain" charged={true} />
-                <FeeRow scenario="Upgrading the plan with the same wallet (grant still active)" charged={false} />
-                <FeeRow scenario="Re-enabling after revoking the grant" charged={true} />
-              </div>
-              <p className="text-sm text-gray-500">Gas and bridge fees are always on the platform — the subscriber is charged only the exact subscription amount.</p>
             </Section>
 
             <Section id="revenue-escrow" title="Creator revenue & the escrow window">
@@ -257,7 +226,7 @@ export function DocsPage() {
 
             <Section id="challenges" title="Common challenges (and fixes)">
               <ul className="list-disc space-y-2 pl-5">
-                <li><strong>Not enough USDC on Arc.</strong> The Arc option is shown but disabled with a clear message — use <strong>Pay from another chain</strong> instead (needs USDC on Base / Arbitrum / Optimism, plus a little for the one-time fee).</li>
+                <li><strong>Not enough USDC on Arc.</strong> The Arc option is shown but disabled with a clear message — use <strong>Pay from another chain</strong> instead (needs USDC on Base / Arbitrum / Optimism).</li>
                 <li><strong>Wallet can't enable cross-chain.</strong> Enabling cross-chain renewals needs an ERC-7715-capable wallet (MetaMask). If yours can't, you can still subscribe Arc-only.</li>
                 <li><strong>MetaMask "couldn't reach permission storage".</strong> Turn on MetaMask → Settings → <strong>Backup and sync</strong>, make sure you're signed in and online, then retry.</li>
                 <li><strong>Email not verified.</strong> Payment is blocked until you enter the 6-digit code sent to your email.</li>
@@ -339,7 +308,6 @@ pnpm --filter @sweep/api circle:register-webhook`}</Pre>
                 <Row k="PLATFORM_TREASURY_ADDRESS / PLATFORM_FEE_BPS" v="Platform fee split." />
                 <Row k="SETTLEMENT_WINDOW_HOURS" v="First-payment escrow / refund window (default 24)." />
                 <Row k="SUPPORTED_SOURCE_CHAINS" v={<><Code>base,arbitrum,optimism</Code> — CCTP source chains.</>} />
-                <Row k="PLATFORM_SETUP_FEE_USDC" v="One-time cross-chain fee in micro-units (default 1 USDC)." />
               </div>
               <div className="rounded-xl border border-gray-200 px-5 py-2">
                 <p className="border-b border-gray-100 py-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Frontend — apps/web/.env</p>

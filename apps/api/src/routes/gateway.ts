@@ -5,8 +5,8 @@
 //        by the checkout UI; the Sweep is created by the cross-chain/activate route)
 //
 // The cross-chain ENABLE + ACTIVATE flow lives in routes/delegation.ts (it owns the
-// delegation grants + setup fee); this file just exposes the balance scan and the
-// activation status the UI polls.
+// delegation grants); this file just exposes the balance scan and the activation
+// status the UI polls.
 
 import { Router } from "express";
 import type { Hex } from "viem";

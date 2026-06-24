@@ -12,6 +12,13 @@ interface SendOptions {
   text: string;
 }
 
+// Delivery is a failover chain: Resend (primary) → Brevo (fallback) → SMTP.
+// Both Resend and Brevo are HTTP APIs (port 443), so they work on hosts that
+// block outbound SMTP (e.g. Railway). On the free tiers Resend allows 100
+// emails/day and Brevo 300/day; when Resend errors — including exhausting its
+// daily quota — we fall through to Brevo for that send. A detected daily-quota
+// error also parks Resend until the next UTC reset so we stop wasting calls on it.
+
 function fromAddress(): string {
   return (
     process.env.EMAIL_FROM ??
@@ -20,14 +27,25 @@ function fromAddress(): string {
   );
 }
 
-// Preferred transport: Resend's HTTP API (port 443). Works on hosts like Railway
-// that block outbound SMTP ports (25/465/587), where nodemailer can't connect.
+// Resend takes the raw "Name <email>" string; Brevo wants it split out.
+function parseFrom(raw: string): { email: string; name?: string } {
+  const m = raw.match(/^\s*(.*?)\s*<([^>]+)>\s*$/);
+  if (m) return { name: m[1] || undefined, email: m[2].trim() };
+  return { email: raw.trim() };
+}
+
+class ProviderError extends Error {
+  constructor(message: string, readonly status?: number, readonly quotaExhausted = false) {
+    super(message);
+  }
+}
+
+// ─── Resend (primary) ─────────────────────────────────────────────────────────
 async function sendViaResend(opts: SendOptions): Promise<void> {
-  const apiKey = process.env.RESEND_API_KEY!;
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -38,18 +56,42 @@ async function sendViaResend(opts: SendOptions): Promise<void> {
       text: opts.text,
     }),
   });
+  if (res.ok) return;
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(`Resend API ${res.status}: ${detail.slice(0, 300)}`);
-  }
-  console.log("[email] Sent to", opts.to, "via Resend");
+  const body = (await res.json().catch(() => ({}))) as { name?: string; message?: string };
+  const detail = `${body.name ?? ""} ${body.message ?? res.statusText}`.trim();
+  // Resend signals the 100/day cap with a 429 mentioning the daily quota.
+  const quotaExhausted = res.status === 429 && /daily|quota/i.test(detail);
+  throw new ProviderError(`Resend ${res.status}: ${detail}`, res.status, quotaExhausted);
 }
 
+// ─── Brevo (fallback) ─────────────────────────────────────────────────────────
+async function sendViaBrevo(opts: SendOptions): Promise<void> {
+  const from = parseFrom(fromAddress());
+  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: {
+      "api-key": process.env.BREVO_API_KEY as string,
+      "Content-Type": "application/json",
+      accept: "application/json",
+    },
+    body: JSON.stringify({
+      sender: from.name ? { email: from.email, name: from.name } : { email: from.email },
+      to: [{ email: opts.to }],
+      subject: opts.subject,
+      htmlContent: opts.html,
+      textContent: opts.text,
+    }),
+  });
+  if (res.ok) return;
+  const detail = await res.text().catch(() => "");
+  throw new ProviderError(`Brevo ${res.status}: ${detail.slice(0, 200)}`, res.status);
+}
+
+// ─── SMTP (last resort, e.g. local dev) ───────────────────────────────────────
 function getTransport() {
   const host = process.env.SMTP_HOST;
   if (!host) return null;
-
   return nodemailer.createTransport({
     host,
     port: Number(process.env.SMTP_PORT ?? 587),
@@ -58,46 +100,65 @@ function getTransport() {
     connectionTimeout: 10_000,
     greetingTimeout: 10_000,
     socketTimeout: 15_000,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
   });
 }
 
-export async function sendEmail(opts: SendOptions): Promise<void> {
-  // 1) Prefer the HTTP API when configured — the only thing that reliably works
-  //    on hosts that block outbound SMTP.
-  if (process.env.RESEND_API_KEY) {
-    try {
-      await sendViaResend(opts);
-      return;
-    } catch (e) {
-      console.error("[email] Resend error:", e);
-      throw new Error(`Failed to send email: ${(e as Error).message}`);
-    }
-  }
+// Epoch ms until which Resend is skipped after a daily-quota 429 (resets at UTC midnight).
+let resendDisabledUntil = 0;
+function nextUtcMidnight(): number {
+  const d = new Date();
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 0, 0, 0);
+}
 
-  // 2) Fall back to SMTP (works locally / on hosts that allow it).
+type Provider = { name: string; send: (o: SendOptions) => Promise<void> };
+
+function providers(): Provider[] {
+  const list: Provider[] = [];
+  if (process.env.RESEND_API_KEY) list.push({ name: "Resend", send: sendViaResend });
+  if (process.env.BREVO_API_KEY) list.push({ name: "Brevo", send: sendViaBrevo });
   const transport = getTransport();
   if (transport) {
+    list.push({ name: "SMTP", send: (o) => transport.sendMail({ from: fromAddress(), ...o }).then(() => {}) });
+  }
+  return list;
+}
+
+export async function sendEmail(opts: SendOptions): Promise<void> {
+  const list = providers();
+
+  // Nothing configured — log so local dev still surfaces the content.
+  if (list.length === 0) {
+    console.log("\n─────────────────────────────────────────");
+    console.log("[email] No email provider configured (RESEND_API_KEY / BREVO_API_KEY / SMTP_HOST) — logging instead");
+    console.log("[email] To:", opts.to);
+    console.log("[email] Subject:", opts.subject);
+    console.log("[email] Body:", opts.text);
+    console.log("─────────────────────────────────────────\n");
+    return;
+  }
+
+  const errors: string[] = [];
+  for (const p of list) {
+    // Skip Resend while its daily free-tier quota is known-exhausted.
+    if (p.name === "Resend" && Date.now() < resendDisabledUntil) continue;
     try {
-      await transport.sendMail({ from: fromAddress(), ...opts });
-      console.log("[email] Sent to", opts.to, "via SMTP");
+      await p.send(opts);
+      console.log(`[email] Sent to ${opts.to} via ${p.name}`);
       return;
     } catch (e) {
-      console.error("[email] SMTP error:", e);
-      throw new Error(`Failed to send email: ${(e as Error).message}`);
+      const err = e as ProviderError;
+      if (p.name === "Resend" && err.quotaExhausted) {
+        resendDisabledUntil = nextUtcMidnight();
+        console.warn("[email] Resend daily quota exhausted — routing to fallback until UTC reset");
+      } else {
+        console.error(`[email] ${p.name} failed:`, err.message);
+      }
+      errors.push(`${p.name}: ${err.message}`);
     }
   }
 
-  // 3) Neither configured — log so local dev still surfaces the content.
-  console.log("\n─────────────────────────────────────────");
-  console.log("[email] No RESEND_API_KEY or SMTP_HOST set — logging instead of sending");
-  console.log("[email] To:", opts.to);
-  console.log("[email] Subject:", opts.subject);
-  console.log("[email] Body:", opts.text);
-  console.log("─────────────────────────────────────────\n");
+  throw new Error(`Failed to send email — all providers failed: ${errors.join(" | ")}`);
 }
 
 export function otpEmailHtml(code: string, merchantName: string): string {

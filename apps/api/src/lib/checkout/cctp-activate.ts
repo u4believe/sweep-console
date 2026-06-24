@@ -2,17 +2,16 @@
 //
 // Arc is the primary chain — a subscriber with enough Arc USDC activates with the
 // gasless permit path (no CCTP). When Arc is short, cross-chain is enabled ONCE:
-//   1. a one-time setup fee (PLATFORM_SETUP_FEE_USDC) paid gaslessly via ERC-3009
-//      to the platform treasury,
-//   2. an ERC-7715 delegation per funded source chain (cap = plan amount),
-//   3. an Arc EIP-2612 permit.
+//   1. an ERC-7715 delegation per funded source chain (cap = plan amount),
+//   2. an Arc EIP-2612 permit.
 // The platform then funds the activation by redeeming the delegation on a source
 // chain, CCTP-bridging the EXACT plan amount to Arc (platform covers gas + the
-// bridge fee), and activating via subscribeWithPermit. Renewals reuse the same
-// delegation (Arc-first, source otherwise — see billing/delegated-renewal.ts).
+// bridge fee), and activating via subscribeWithPermit. The subscriber pays NO
+// extra fee — the 2% platform fee on every charge covers the relayer's gas/bridge
+// costs. Renewals reuse the same delegation (Arc-first, source otherwise — see
+// billing/delegated-renewal.ts).
 
-import { toHex, type Address, type Hex } from "viem";
-import { randomBytes } from "crypto";
+import { type Address, type Hex } from "viem";
 import { prisma, withRetry } from "../prisma";
 import { ids } from "../ids";
 import { completeCheckoutSession, INTERVAL_SECONDS } from "./complete";
@@ -28,25 +27,11 @@ import {
   getDelegateAddress,
   redeemPeriodicTransfer,
   relayerBridgeToArc,
-  relayerPullViaAuthorization,
   splitSignature,
 } from "../chain/delegation";
 import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../gateway/cctp";
-import { ARC_DOMAIN, chainKeyForId, getSourceChain, getSourceClient } from "../gateway/chains";
+import { ARC_DOMAIN, chainKeyForId, getSourceChain } from "../gateway/chains";
 import { selectPaymentChain } from "../gateway/selector";
-
-// ─── Config ───────────────────────────────────────────────────────────────────
-
-/// One-time fee (USDC micro-units) charged when a subscriber enables cross-chain.
-export function setupFeeMicro(): bigint {
-  return BigInt(process.env.PLATFORM_SETUP_FEE_USDC ?? "1000000"); // 1 USDC
-}
-
-function treasuryAddress(): Address {
-  const t = process.env.PLATFORM_TREASURY_ADDRESS;
-  if (!t) throw new Error("PLATFORM_TREASURY_ADDRESS not set");
-  return t as Address;
-}
 
 // ─── EIP-712 payload builders (server-built, subscriber-signed) ───────────────
 
@@ -56,17 +41,6 @@ export interface TypedDataPayload {
   primaryType: string;
   message: Record<string, unknown>;
 }
-
-const TRANSFER_WITH_AUTHORIZATION_TYPES = {
-  TransferWithAuthorization: [
-    { name: "from", type: "address" },
-    { name: "to", type: "address" },
-    { name: "value", type: "uint256" },
-    { name: "validAfter", type: "uint256" },
-    { name: "validBefore", type: "uint256" },
-    { name: "nonce", type: "bytes32" },
-  ],
-};
 
 const PERMIT_TYPES = {
   Permit: [
@@ -84,8 +58,6 @@ const ERC20_META_ABI = [
   { type: "function", name: "nonces", inputs: [{ name: "owner", type: "address" }], outputs: [{ type: "uint256" }], stateMutability: "view" },
 ] as const;
 
-const randomBytes32 = (): Hex => toHex(randomBytes(32));
-
 async function usdcDomain(
   client: { readContract: (a: never) => Promise<unknown> },
   usdc: Hex,
@@ -97,27 +69,6 @@ async function usdcDomain(
     read({ address: usdc, abi: ERC20_META_ABI, functionName: "version" }).catch(() => "2"),
   ]);
   return { name: name as string, version: version as string, chainId, verifyingContract: usdc };
-}
-
-/// Build the one-time setup-fee ERC-3009 TransferWithAuthorization on a source
-/// chain (subscriber → platform treasury). Submitted by the relayer (gasless).
-export async function buildSetupFeePayload(chainKey: string, subscriber: Hex): Promise<TypedDataPayload> {
-  const source = getSourceChain(chainKey);
-  const client = getSourceClient(source);
-  const nowSec = BigInt(Math.floor(Date.now() / 1000));
-  return {
-    domain: await usdcDomain(client as never, source.usdc, source.chain.id),
-    types: TRANSFER_WITH_AUTHORIZATION_TYPES,
-    primaryType: "TransferWithAuthorization",
-    message: {
-      from: subscriber,
-      to: treasuryAddress(),
-      value: setupFeeMicro().toString(),
-      validAfter: "0",
-      validBefore: (nowSec + 7_200n).toString(), // 2h window
-      nonce: randomBytes32(),
-    },
-  };
 }
 
 /// Build the EIP-2612 Arc-USDC permit payload (the recurring allowance). Shared
@@ -147,36 +98,6 @@ export async function buildPermitPayload(
       deadline: deadline.toString(),
     },
   };
-}
-
-// ─── Setup-fee collection ────────────────────────────────────────────────────
-
-/// Submit the subscriber's signed one-time setup fee (ERC-3009 → treasury). The
-/// on-chain transfer is the record; the ERC-3009 nonce makes a replay revert, and
-/// the route's single-claim guard ensures this runs once per enable. Returns the
-/// fee tx hash.
-export async function collectSetupFee(
-  sessionId: string,
-  subscriber: Hex,
-  feeChainKey: string,
-  payload: TypedDataPayload,
-  signature: Hex
-): Promise<Hex> {
-  const source = getSourceChain(feeChainKey);
-  const msg = payload.message as { value: string; validAfter: string; validBefore: string; nonce: Hex };
-  const { txHash } = await relayerPullViaAuthorization({
-    chainId: source.chain.id,
-    token: source.usdc,
-    from: subscriber,
-    to: treasuryAddress(),
-    value: BigInt(msg.value),
-    validAfter: BigInt(msg.validAfter),
-    validBefore: BigInt(msg.validBefore),
-    nonce: msg.nonce,
-    signature,
-  });
-  console.log(`[checkout/cctp] setup fee collected for session ${sessionId} on ${feeChainKey} (tx ${txHash})`);
-  return txHash;
 }
 
 // ─── Cross-chain activation (Arc-short checkout) ─────────────────────────────

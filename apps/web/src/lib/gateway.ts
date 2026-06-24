@@ -1,10 +1,10 @@
 // Client for the cross-chain checkout (CCTP V2, delegation-gated).
 //
 // Arc is primary. When Arc is short, the subscriber enables cross-chain ONCE:
-// a one-time setup fee (ERC-3009) + an ERC-7715 delegation per funded source chain
-// + an Arc permit. The platform then funds + activates the subscription from a
-// source chain. This client exposes the grant plan, per-chain delegation save, the
-// activation kickoff, and status polling.
+// an ERC-7715 delegation per funded source chain + an Arc permit (no fee). The
+// platform then funds + activates the subscription from a source chain, covering
+// gas + bridge from the 2% fee on each charge. This client exposes the grant plan,
+// per-chain delegation save, the activation kickoff, and status polling.
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -27,11 +27,8 @@ export interface GrantTarget {
 
 export interface GrantPlan {
   targets: GrantTarget[];
-  // True once the session already has active grants — skip the fee + re-granting.
+  // True once the session already has active grants — skip re-granting.
   already_enabled: boolean;
-  setup_fee: string;
-  fee_chain: string | null;
-  fee_payload: TypedDataPayload | null;
   permit_payload: TypedDataPayload;
   permit_value: string;
   permit_deadline: string;
@@ -151,8 +148,8 @@ export function revokeLinkedSubscription(
   });
 }
 
-/// The cross-chain enable plan: which source chains to grant a delegation on, the
-/// one-time setup-fee payload, and the Arc permit payload.
+/// The cross-chain enable plan: which source chains to grant a delegation on, and
+/// the Arc permit payload.
 export function fetchGrantPlan(sessionId: string, wallet: string): Promise<GrantPlan> {
   return request<GrantPlan>(`/internal/checkout/${sessionId}/grant-plan?wallet=${wallet}`);
 }
@@ -168,8 +165,9 @@ export function saveDelegation(
   });
 }
 
-/// Proactive enable for an Arc-funded subscriber: collect the one-time setup fee
-/// (the delegations are saved separately). No activation — the Arc checkout does that.
+/// Proactive enable for an Arc-funded subscriber: confirm cross-chain renewals
+/// (the delegations are saved separately). No fee, no activation — the Arc checkout
+/// creates the subscription and links the grants.
 export function enableCrossChain(
   sessionId: string,
   body: {
@@ -177,11 +175,8 @@ export function enableCrossChain(
     wallet_address: string;
     email?: string;
     email_token?: string;
-    fee_chain: string;
-    fee_payload: TypedDataPayload;
-    fee_signature: string;
   }
-): Promise<{ enabled: boolean; fee_tx_hash: string }> {
+): Promise<{ enabled: boolean }> {
   return request(`/internal/checkout/${sessionId}/cross-chain/enable`, {
     method: "POST",
     body: JSON.stringify(body),
@@ -201,8 +196,8 @@ export function revokeGrant(
   });
 }
 
-/// Fund + activate the subscription cross-chain. The fee fields are sent only on a
-/// fresh enable; when cross-chain is already enabled they're omitted (no re-charge).
+/// Fund + activate the subscription cross-chain. No subscriber fee — the platform
+/// covers gas + bridge from the 2% fee on each charge.
 export function activateCrossChain(
   sessionId: string,
   body: {
@@ -210,9 +205,6 @@ export function activateCrossChain(
     wallet_address: string;
     email?: string;
     email_token?: string;
-    fee_chain?: string;
-    fee_payload?: TypedDataPayload;
-    fee_signature?: string;
     permit_signature: string;
     permit_value: string;
     permit_deadline: string;
