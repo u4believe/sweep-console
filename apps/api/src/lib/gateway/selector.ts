@@ -11,6 +11,7 @@
 
 import type { Hex } from "viem";
 import { scanWalletBalances } from "./balances";
+import { getSourceChain, getSourceClient } from "./chains";
 
 export type SelectedChain =
   | { kind: "arc" }
@@ -26,6 +27,12 @@ export interface SelectOptions {
   amount: bigint;
   /** Restrict to these chain keys ("arc" + source keys). Omit ⇒ any supported. */
   allowedChainKeys?: string[];
+  /**
+   * For ERC-7715 source redeems: only pick a source chain where the subscriber's
+   * smart account is actually deployed (7702-authorized). A codeless account makes
+   * redeemDelegations revert with empty data. Arc is exempt (allowance/permit path).
+   */
+  requireDeployedAccount?: boolean;
 }
 
 export async function selectPaymentChain(
@@ -41,7 +48,23 @@ export async function selectPaymentChain(
     return { chain: { kind: "arc" }, available: balances.arcBalance, sufficient: true };
   }
 
-  const candidates = balances.chains.filter((c) => !allowed || allowed.has(c.chainKey));
+  let candidates = balances.chains.filter((c) => !allowed || allowed.has(c.chainKey));
+
+  // Drop source chains where the subscriber's smart account isn't deployed — a
+  // redeem there would call codeless and revert with empty data.
+  if (opts.requireDeployedAccount && candidates.length > 0) {
+    const deployed = await Promise.all(
+      candidates.map(async (c) => {
+        try {
+          const code = await getSourceClient(getSourceChain(c.chainKey)).getCode({ address: subscriber });
+          return !!code && code !== "0x";
+        } catch {
+          return false;
+        }
+      })
+    );
+    candidates = candidates.filter((_, i) => deployed[i]);
+  }
 
   // First source chain that alone covers the full amount.
   const pick = candidates.find((c) => c.walletBalance >= amount);

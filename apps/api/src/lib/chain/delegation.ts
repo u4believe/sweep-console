@@ -148,6 +148,25 @@ async function boundedGas(
   }
 }
 
+// Surface the actual revert bytes from a viem ContractFunctionExecutionError so a
+// failure is decodable later (e.g. an enforcer custom-error selector) instead of a
+// useless "reverted for an unknown reason". An empty revert has no raw data.
+function revertDetail(e: unknown): string {
+  const x = e as {
+    shortMessage?: string;
+    message?: string;
+    signature?: string;
+    cause?: { raw?: string; data?: unknown; signature?: string };
+  };
+  const raw =
+    x.cause?.raw ??
+    x.cause?.signature ??
+    (typeof x.cause?.data === "string" ? x.cause.data : undefined) ??
+    x.signature;
+  const short = x.shortMessage ?? x.message?.split("\n")[0] ?? String(e);
+  return raw ? `${short} [raw: ${raw}]` : short;
+}
+
 export interface RedeemResult {
   txHash: Hex;
   blockNumber: bigint;
@@ -192,13 +211,20 @@ async function redeemSingle(
     ["address", "uint256", "bytes"],
     [call.target, call.value, call.callData]
   );
-  const { request } = await publicClient.simulateContract({
-    address: delegationManager,
-    abi: DELEGATION_MANAGER_ABI,
-    functionName: "redeemDelegations",
-    args: [[context], [SINGLE_DEFAULT_MODE], [executionCallData]],
-    account,
-  });
+  // Simulate first so a revert surfaces its actual reason (and raw bytes) — the
+  // most common cause is the subscriber's smart account not being deployed on this
+  // source chain (empty revert). selectPaymentChain should already exclude those.
+  const sim = await publicClient
+    .simulateContract({
+      address: delegationManager,
+      abi: DELEGATION_MANAGER_ABI,
+      functionName: "redeemDelegations",
+      args: [[context], [SINGLE_DEFAULT_MODE], [executionCallData]],
+      account,
+    })
+    .catch((e) => {
+      throw new Error(`redeemDelegations reverted on chain ${chainId}: ${revertDetail(e)}`);
+    });
   // Cap the gas to fit the block — without this, some testnet RPCs return a
   // block-sized estimate the sequencer rejects ("exceeds the limit allowed for
   // the block"). redeemDelegations is heavier than a plain transfer, so the
@@ -215,7 +241,7 @@ async function redeemSingle(
       }),
     600_000n
   );
-  const txHash = await walletClient.writeContract({ ...request, gas });
+  const txHash = await walletClient.writeContract({ ...sim.request, gas });
   const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
   if (receipt.status !== "success") {
     throw new Error(`redeemDelegations reverted: ${txHash}`);

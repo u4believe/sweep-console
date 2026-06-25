@@ -150,7 +150,11 @@ export async function executeCrossChainActivation(
       .map((m) => chainKeyForId(m.chainId))
       .filter((k): k is string => !!k && k !== "arc");
 
-    const selection = await selectPaymentChain(subscriber, { amount, allowedChainKeys: grantedKeys });
+    const selection = await selectPaymentChain(subscriber, {
+      amount,
+      allowedChainKeys: grantedKeys,
+      requireDeployedAccount: true,
+    });
     if (!selection.sufficient || selection.chain.kind !== "source") {
       throw new Error(`no granted source chain holds ${amount} for ${subscriber}`);
     }

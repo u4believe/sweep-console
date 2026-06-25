@@ -263,8 +263,13 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
         .map((m) => chainKeyForId(m.chainId))
         .filter((k): k is string => !!k);
 
-      // Single-chain selection among granted chains that currently hold enough.
-      const selection = await selectPaymentChain(sub.walletAddress as Hex, { amount, allowedChainKeys });
+      // Single-chain selection among granted chains that currently hold enough
+      // AND where the subscriber's smart account is deployed (redeemable).
+      const selection = await selectPaymentChain(sub.walletAddress as Hex, {
+        amount,
+        allowedChainKeys,
+        requireDeployedAccount: true,
+      });
       if (!selection.sufficient) {
         console.warn(`[billing/tier2] no granted chain holds ${amount} for ${sub.subscriptionId}`);
         outcomes.push({
