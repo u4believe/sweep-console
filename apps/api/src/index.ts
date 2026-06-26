@@ -20,6 +20,7 @@ import { gatewayRouter } from "./routes/gateway";
 import { delegationRouter } from "./routes/delegation";
 import { devRouter } from "./routes/dev";
 import { circleWebhooksRouter } from "./routes/circle-webhooks";
+import { startBillingEngine } from "./billing/scheduler";
 import { prisma } from "./lib/prisma";
 
 const app = express();
@@ -121,6 +122,14 @@ async function start() {
   const server = app.listen(PORT, () => {
     console.log(`[api] Sweep Console API running on port ${PORT}`);
   });
+
+  // Single-service deploys (e.g. one Railway service) run the billing engine
+  // in-process: escrow settlement (hourly), renewals (daily), trial transitions,
+  // webhook retries. Opt-in so a separate worker can own it instead — never both,
+  // or the crons double up. Without this, payments never leave escrow → pending.
+  if (process.env.BILLING_IN_PROCESS === "true") {
+    startBillingEngine();
+  }
 
   // Release DB connections on shutdown. `tsx watch` SIGTERMs the old process on
   // every file change; without this the connections linger on the pooler and,

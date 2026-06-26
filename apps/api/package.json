@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "billing:run": "tsx src/billing/runner.ts",
+    "billing:start": "node dist/billing/runner.js",
     "db:generate": "prisma generate --schema=../web/prisma/schema.prisma",
     "db:push": "prisma db push --schema=../web/prisma/schema.prisma",
     "circle:register-webhook": "tsx scripts/register-circle-webhook.ts"
