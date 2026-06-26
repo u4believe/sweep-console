@@ -5,7 +5,7 @@
     "buildCommand": "NODE_ENV=development pnpm install --frozen-lockfile && pnpm --filter @sweep/api db:generate && pnpm --filter @sweep/api build"
   },
   "deploy": {
-    "startCommand": "pnpm --filter @sweep/api start",
+    "startCommand": "if [ \"$BILLING_WORKER\" = \"true\" ]; then pnpm --filter @sweep/api billing:start; else pnpm --filter @sweep/api start; fi",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }
