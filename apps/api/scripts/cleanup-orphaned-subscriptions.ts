@@ -25,13 +25,16 @@ async function main() {
   console.log(`Current contract: ${current}`);
   console.log(APPLY ? "Mode: APPLY (writing changes)\n" : "Mode: DRY RUN (no writes — pass --apply to commit)\n");
 
-  // Non-cancelled subs whose contract is set and differs from the current one.
+  // Orphaned = a non-cancelled sub that can't be acted on against the CURRENT
+  // contract: either its contract differs from the current deployment, or it has
+  // none recorded (predates contractAddress stamping). Both are unreachable
+  // on-chain from here, so on-chain settle/renew/cancel revert SubscriptionNotFound.
   const candidates = await prisma.subscription.findMany({
-    where: { status: { in: ACTIVE }, contractAddress: { not: null } },
+    where: { status: { in: ACTIVE } },
     include: { merchant: { select: { name: true } }, plan: { select: { name: true } } },
     orderBy: { createdAt: "desc" },
   });
-  const orphans = candidates.filter((s) => s.contractAddress!.toLowerCase() !== current);
+  const orphans = candidates.filter((s) => !s.contractAddress || s.contractAddress.toLowerCase() !== current);
 
   if (orphans.length === 0) {
     console.log("No orphaned subscriptions found. Nothing to do.");
@@ -43,7 +46,7 @@ async function main() {
   for (const s of orphans) {
     console.log(
       `  ${s.subscriptionId}  status=${s.status}  email=${s.subscriberEmail ?? "<null>"}  ` +
-        `merchant=${s.merchant.name}  plan=${s.plan.name}  contract=${s.contractAddress}`
+        `merchant=${s.merchant.name}  plan=${s.plan.name}  contract=${s.contractAddress ?? "<none>"}`
     );
   }
 
@@ -62,7 +65,7 @@ async function main() {
         data: {
           status: "cancelled",
           cancelledAt: new Date(),
-          cancelReason: "orphaned_contract_redeploy",
+          cancelReason: s.contractAddress ? "orphaned_contract_redeploy" : "orphaned_no_contract",
           escrowBalance: 0n,
           settlementDeadline: null,
         },
