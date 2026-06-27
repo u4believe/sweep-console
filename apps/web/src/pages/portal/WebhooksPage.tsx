@@ -3,11 +3,14 @@ import { useEffect, useState } from "react";
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
 const ALL_EVENTS = [
+  "checkout.session.completed",
   "subscription.created",
   "subscription.renewed",
+  "subscription.past_due",
   "subscription.cancelled",
   "payment.succeeded",
   "payment.failed",
+  "payment.refunded",
 ] as const;
 
 interface Delivery {

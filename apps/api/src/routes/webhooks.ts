@@ -19,6 +19,7 @@ const VALID_EVENTS = [
   "subscription.trial_ending",
   "payment.succeeded",
   "payment.failed",
+  "payment.refunded",
   "passport.activated",
 ] as const;
 
