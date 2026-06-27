@@ -43,6 +43,35 @@ function Step({ n, children }: { n: number; children: ReactNode }) {
   );
 }
 
+// Simple visual of the webhook lifecycle (no external image needed).
+function WebhookFlow() {
+  const box = "flex-1 rounded-xl border border-gray-200 bg-white p-4 text-center shadow-sm";
+  const arrow = "shrink-0 self-center text-lg text-gray-300";
+  return (
+    <div className="my-6 rounded-2xl border border-gray-100 bg-gray-50 p-5">
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row">
+        <div className={box}>
+          <p className="text-sm font-semibold text-gray-900">1 · Event occurs</p>
+          <p className="mt-1 text-xs text-gray-500">A payment succeeds, a renewal runs, a refund is issued…</p>
+        </div>
+        <span className={arrow}>→</span>
+        <div className={box}>
+          <p className="text-sm font-semibold text-gray-900">2 · Sweep POSTs to your URL</p>
+          <p className="mt-1 text-xs text-gray-500">A JSON body plus an <Code>X-Sweep-Signature</Code> header (HMAC-SHA256)</p>
+        </div>
+        <span className={arrow}>→</span>
+        <div className={box}>
+          <p className="text-sm font-semibold text-gray-900">3 · You verify &amp; ack</p>
+          <p className="mt-1 text-xs text-gray-500">Check the signature, do your work, return <Code>2xx</Code></p>
+        </div>
+      </div>
+      <p className="mt-4 text-center text-xs text-gray-400">
+        No <Code>2xx</Code>? Sweep retries automatically — after 5 min, 30 min, 2 h, 5 h, then 10 h.
+      </p>
+    </div>
+  );
+}
+
 const toc = [
   {
     group: "Using Sweep Console",
@@ -65,6 +94,15 @@ const toc = [
       { id: "environment", label: "Environment variables" },
       { id: "circle", label: "Circle integration" },
       { id: "running", label: "Running" },
+    ],
+  },
+  {
+    group: "Webhooks",
+    items: [
+      { id: "webhooks", label: "Set up an endpoint" },
+      { id: "webhooks-events", label: "Events" },
+      { id: "webhooks-payload", label: "Payload & headers" },
+      { id: "webhooks-verify", label: "Verify & respond" },
     ],
   },
 ];
@@ -363,6 +401,134 @@ pnpm --filter @sweep/api billing:run`}</Pre>
               <p>
                 Start with Circle <strong>sandbox</strong> (<Code>CIRCLE_BASE_URL=https://api-sandbox.circle.com</Code>, a{" "}
                 <Code>TEST_API_KEY</Code>) before going live.
+              </p>
+            </Section>
+
+            <Section id="webhooks" title="Webhooks: get notified of events">
+              <p>
+                Rather than polling our API, let Sweep <strong>push events to your server</strong> the moment they
+                happen — a subscription is created, a payment succeeds, a refund is issued. Your app reacts in real
+                time: grant access, update your database, send a receipt.
+              </p>
+              <WebhookFlow />
+              <p className="font-semibold text-gray-800">Create an endpoint — two ways</p>
+              <p>
+                <strong>1. From the dashboard (easiest).</strong> Go to <Code>Portal → Webhooks → Add endpoint</Code>,
+                paste your HTTPS URL, tick the events you care about, and save. You'll be shown a{" "}
+                <strong>signing secret</strong> — copy it now; you'll need it to verify events.
+              </p>
+              <p>
+                <strong>2. From the API.</strong> POST to <Code>/v1/webhooks</Code> with your API key:
+              </p>
+              <Pre>{`curl -X POST https://your-api.example.com/v1/webhooks \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "url": "https://yourapp.com/webhooks/sweep",
+    "events": ["subscription.created", "payment.succeeded", "payment.refunded"]
+  }'`}</Pre>
+              <p>
+                The response includes a <Code>secret</Code> — store it securely; it's how you confirm an incoming
+                event really came from Sweep.
+              </p>
+              <p className="text-sm text-gray-500">
+                Your URL must be <strong>HTTPS</strong> and publicly reachable. For local testing, expose your dev
+                server with a tunnel (e.g. <Code>ngrok</Code>) and register that URL.
+              </p>
+            </Section>
+
+            <Section id="webhooks-events" title="Events you can subscribe to">
+              <p>Pick only what you need — you'll receive just those event types.</p>
+              <div className="rounded-xl border border-gray-200 px-5 py-1">
+                <Row k="checkout.session.completed" v="A checkout finished successfully." />
+                <Row k="subscription.created" v="A new subscription was activated (first charge taken, or trial started)." />
+                <Row k="subscription.renewed" v="A recurring cycle was charged successfully." />
+                <Row k="subscription.past_due" v="A renewal failed; the subscription entered the retry window." />
+                <Row k="subscription.cancelled" v={<>The subscription ended. Carries <Code>refunded_escrow</Code> when escrow was returned on cancel.</>} />
+                <Row k="payment.succeeded" v="A charge settled (first payment or a renewal)." />
+                <Row k="payment.failed" v="A charge attempt failed." />
+                <Row k="payment.refunded" v="A refund was issued to the subscriber (pro-rated from escrow)." />
+              </div>
+            </Section>
+
+            <Section id="webhooks-payload" title="The event payload & headers">
+              <p>
+                Every event is a JSON <Code>POST</Code> with the same envelope; the <Code>data</Code> object varies by
+                event type.
+              </p>
+              <Pre>{`POST /webhooks/sweep
+Content-Type: application/json
+X-Sweep-Event: payment.succeeded
+X-Sweep-Event-Id: evt_8f3a2c...
+X-Sweep-Signature: sha256=2b9c4e7a...
+
+{
+  "event_id": "evt_8f3a2c...",
+  "event_type": "payment.succeeded",
+  "created_at": "2026-06-27T10:15:00.000Z",
+  "merchant_id": "4A56-FD21-8207",
+  "external_ref": "your-user-id-123",
+  "data": {
+    "subscription_id": "sub_abc123",
+    "plan_id": "plan_pro",
+    "amount": 5000000,
+    "currency": "USDC"
+  }
+}`}</Pre>
+              <p>
+                <Code>external_ref</Code> is the user ID you supplied at checkout — use it to map the event back to
+                your own user. Amounts are in USDC <strong>micro-units</strong> (6 decimals): <Code>5000000</Code> ={" "}
+                <Code>5.00 USDC</Code>.
+              </p>
+              <p className="font-semibold text-gray-800">Headers on every delivery</p>
+              <div className="rounded-xl border border-gray-200 px-5 py-1">
+                <Row k="X-Sweep-Event" v="The event type (also in the body)." />
+                <Row k="X-Sweep-Event-Id" v="Unique event ID — retries reuse it, so use it to de-duplicate." />
+                <Row k="X-Sweep-Signature" v={<>HMAC-SHA256 of the raw body, formatted <Code>sha256=&lt;hex&gt;</Code>. Verify this.</>} />
+              </div>
+            </Section>
+
+            <Section id="webhooks-verify" title="Verify signatures & respond">
+              <p>
+                <strong>Always verify the signature</strong> before trusting an event — it proves the request came
+                from Sweep and wasn't tampered with. Compute an HMAC-SHA256 over the <strong>raw request body</strong>{" "}
+                using your endpoint's signing secret, and compare it to the <Code>X-Sweep-Signature</Code> header.
+              </p>
+              <Pre>{`import crypto from "crypto";
+import express from "express";
+
+const app = express();
+const SECRET = process.env.SWEEP_WEBHOOK_SECRET; // the signing secret from setup
+
+// Verify against the RAW body, so capture it as a Buffer (express.raw).
+app.post("/webhooks/sweep", express.raw({ type: "application/json" }), (req, res) => {
+  const signature = String(req.headers["x-sweep-signature"] ?? "");
+  const expected =
+    "sha256=" + crypto.createHmac("sha256", SECRET).update(req.body).digest("hex");
+
+  const valid =
+    signature.length === expected.length &&
+    crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  if (!valid) return res.status(400).send("bad signature");
+
+  const event = JSON.parse(req.body.toString("utf8"));
+  switch (event.event_type) {
+    case "payment.succeeded":      /* grant access for event.external_ref */ break;
+    case "payment.refunded":       /* reverse access / record the refund */  break;
+    case "subscription.cancelled": /* revoke access */                       break;
+  }
+
+  res.status(200).send("ok"); // acknowledge fast
+});`}</Pre>
+              <p className="font-semibold text-gray-800">Responding & retries</p>
+              <p>
+                Return any <Code>2xx</Code> within <strong>10 seconds</strong> to acknowledge. Do slow work (emails,
+                provisioning) <em>after</em> you respond, or hand it to a queue. If you don't return <Code>2xx</Code>,
+                Sweep retries with backoff — after <strong>5 min, 30 min, 2 h, 5 h, then 10 h</strong>.
+              </p>
+              <p>
+                Retries reuse the same <Code>X-Sweep-Event-Id</Code>, so make your handler <strong>idempotent</strong>:
+                record processed event IDs and skip duplicates.
               </p>
             </Section>
           </div>
