@@ -8,6 +8,7 @@ This README covers **(1) how to set the project up locally** and **(2) how the C
 
 ## Table of contents
 
+- [Why Sweep Console](#why-sweep-console)
 - [Architecture](#architecture)
 - [Circle integration](#circle-integration)
   - [1. Programmable Wallets (creator payout wallets)](#1-programmable-wallets-creator-payout-wallets)
@@ -19,6 +20,40 @@ This README covers **(1) how to set the project up locally** and **(2) how the C
 - [Environment variables](#environment-variables)
 - [Scripts reference](#scripts-reference)
 - [Local development notes](#local-development-notes)
+
+---
+
+## Why Sweep Console
+
+For decades, developers have billed a global audience in US dollars over card and bank rails — which quietly breaks down the moment a user is outside the US or a developer wants to keep their full revenue. Sweep Console denominates everything in **USDC**, settles on **Arc**, and moves funds cross-chain via **Circle CCTP V2**, solving these problems at the rail level rather than papering over them.
+
+### For subscribers
+
+**1. Exchange-rate volatility & conversion costs.** Outside the US, weak and volatile local currencies mean the same ~$50 of subscriptions can cost a different amount every billing cycle once banks re-convert and add a margin.
+→ **Sweep prices every plan in USDC.** A $50 plan is 50 USDC, every cycle — pulled directly on-chain, with no bank re-converting at a fresh rate and no conversion margin skimmed on top.
+
+**2. Hidden card fees & failed renewals.** Banks layer foreign-transaction and conversion fees onto every charge, and a recurring charge dies the moment the account isn't pre-funded.
+→ **No card network means no surprise fees** — only the subscription amount moves. The user authorizes once; a failed charge is **retried daily for ~7 days** before anything is cancelled, and Sweep can pull the renewal from **any chain where the user holds USDC**, so a shortfall on one network doesn't break the subscription.
+
+**3. No real refund mechanism.** Traditional rails offer users little path to a refund; where one exists, it commonly takes 3–5 business days and returns less than was paid once fees are taken out.
+→ **On-chain escrow with instant refunds.** First payments are held in escrow for a settlement window (24h by default); cancelling within it returns **100% of the funds in the same transaction** — instant, full amount, nothing deducted — self-serve from the customer portal.
+
+**4. Regional exclusion.** Card and bank rails (SWIFT, Visa, Mastercard) can lock entire regions out of global services overnight.
+→ **Open stablecoin rails.** Anyone with an internet connection and a USDC balance can subscribe — no dependency on correspondent banking or card issuers that arbitrarily exclude a region.
+
+**5. Crypto payments are usually broken.** Most crypto billing has no real auto-renewal, makes users pay their own gas, and forces risky manual bridging.
+→ **Sweep fixes all three:** a single capped, revocable permission enables **true set-and-forget renewals** (no per-cycle signatures); the platform relayer pays **all gas** (users only sign free off-chain messages); and **CCTP V2** lets users pay from the chain they already hold USDC on, bridged to Arc automatically with the **full amount preserved** (the platform absorbs the bridge fee).
+
+### For developers
+
+**1. Unpredictable, eroding revenue.** Card processors take ~2.9% + a fixed fee, climbing to 4–6% on international cards, before VAT/tax obligations.
+→ **A flat 2% protocol fee, enforced on-chain** — creators keep **98%** of every payment, the same every time, with no per-card surcharge, FX margin, or climbing "international" rate.
+
+**2. Exposure to crypto volatility.** Accepting volatile crypto means $100 paid can settle as $90 by the time it lands.
+→ **Everything settles in USDC** — $100 settles as 100 USDC, with no drift between payment and settlement. Dollar-denominated, forecastable revenue.
+
+**3. Juggling wallets across chains.** No single wallet supports every chain, forcing a patchwork of payout wallets, reconciliation headaches, and extra security surface.
+→ **One payout wallet.** A single **Circle Programmable Wallet on Arc** receives all revenue — whatever chain the customer paid from is bridged via CCTP and settled to that one address.
 
 ---
 
