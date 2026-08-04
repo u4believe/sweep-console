@@ -24,6 +24,35 @@ const TYPE_LABELS: Record<string, string> = {
   initial: "Initial", renewal: "Renewal", refund: "Refund",
 };
 
+/// Shows the hash truncated (a full one blows out the column) but copies the
+/// whole thing — a partial hash is useless for looking a tx up on an explorer.
+function TxHash({ hash }: { hash: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      title={hash}
+      aria-label={copied ? "Transaction hash copied" : `Copy transaction hash ${hash}`}
+      onClick={() => {
+        void navigator.clipboard.writeText(hash);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }}
+      className="group inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 -ml-1.5 font-mono text-xs text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition"
+    >
+      <code>{hash.slice(0, 8)}...</code>
+      <span
+        aria-hidden="true"
+        className={`text-[10px] font-sans font-medium transition ${
+          copied ? "text-green-600" : "text-blue-600 opacity-0 group-hover:opacity-100"
+        }`}
+      >
+        {copied ? "Copied!" : "Copy"}
+      </span>
+    </button>
+  );
+}
+
 export function PaymentsPage() {
   const [payments, setPayments] = useState<Payment[] | null>(null);
   const [error, setError] = useState("");
@@ -97,7 +126,7 @@ export function PaymentsPage() {
                   <td className="px-6 py-4 text-gray-500">{new Date(payment.createdAt).toLocaleDateString()}</td>
                   <td className="px-6 py-4">
                     {payment.txHash
-                      ? <code className="font-mono text-xs text-gray-500">{payment.txHash.slice(0, 8)}...</code>
+                      ? <TxHash hash={payment.txHash} />
                       : <span className="text-gray-300">—</span>}
                   </td>
                 </tr>

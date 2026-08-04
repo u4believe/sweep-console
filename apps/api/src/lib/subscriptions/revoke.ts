@@ -17,7 +17,7 @@
 import { prisma } from "../prisma";
 import { ids } from "../ids";
 import { fireWebhook } from "../webhooks/delivery";
-import { cancelOnChain } from "../chain/subscription";
+import { cancelOnChain, describeChainError } from "../chain/subscription";
 import type { Plan, Subscription } from "@prisma/client";
 
 type SubWithPlan = Subscription & { plan: Plan };
@@ -54,6 +54,12 @@ export async function revokeSubscription(
   let cancelTxHash: string | null = null;
   let cancelBlockNumber: bigint | null = null;
   let onChainError: unknown | null = null;
+  // Only the on-chain cancel returns escrow to the subscriber, so the mirror may
+  // only be zeroed when that call actually landed. Zeroing it after a failed
+  // cancel would hide USDC that is still sitting in the contract: the settlement
+  // sweep filters on escrowBalance > 0, so those funds would never be settled to
+  // the merchant nor refunded — stranded and invisible.
+  let escrowReturned = true;
 
   if (sub.onChainSubId) {
     try {
@@ -64,9 +70,10 @@ export async function revokeSubscription(
     } catch (e) {
       if (opts.throwOnChainError) throw e;
       onChainError = e;
+      escrowReturned = false;
       console.error(
-        `[revoke] on-chain cancel failed for ${sub.subscriptionId} (continuing with DB revoke):`,
-        e
+        `[revoke] on-chain cancel failed for ${sub.subscriptionId} — DB revoke continues, but escrow ` +
+          `mirror is left intact because escrow may still be held on-chain: ${describeChainError(e)}`
       );
     }
   }
@@ -78,8 +85,8 @@ export async function revokeSubscription(
         status: "cancelled",
         cancelledAt: new Date(),
         cancelReason: opts.reason,
-        escrowBalance: 0n,
-        settlementDeadline: null,
+        // Left untouched when the on-chain cancel failed — see escrowReturned.
+        ...(escrowReturned ? { escrowBalance: 0n, settlementDeadline: null } : {}),
       },
     }),
     prisma.renewalDelegation.updateMany({

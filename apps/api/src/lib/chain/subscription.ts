@@ -14,6 +14,8 @@ export {
   checkSubscriberFunds,
   getManagerAddress,
   getUsdcAddress,
+  revertErrorName,
+  describeChainError,
   type RenewResult,
   type SettleResult,
   type RefundResult,

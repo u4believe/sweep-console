@@ -169,6 +169,82 @@ export const SUBSCRIPTION_MANAGER_ABI = [
       { name: "pct", type: "uint8", indexed: false },
     ],
   },
+  // Errors — without these viem cannot decode custom reverts and logs a bare
+  // selector (e.g. 0x947e2011) instead of the error name and its args.
+  {
+    type: "error",
+    name: "SubscriptionAlreadyExists",
+    inputs: [{ name: "subId", type: "bytes32" }],
+  },
+  {
+    type: "error",
+    name: "SubscriptionNotFound",
+    inputs: [{ name: "subId", type: "bytes32" }],
+  },
+  {
+    type: "error",
+    name: "SubscriptionNotActive",
+    inputs: [{ name: "subId", type: "bytes32" }],
+  },
+  {
+    type: "error",
+    name: "UnauthorizedCaller",
+    inputs: [{ name: "caller", type: "address" }],
+  },
+  {
+    type: "error",
+    name: "InsufficientAllowance",
+    inputs: [
+      { name: "subscriber", type: "address" },
+      { name: "required", type: "uint256" },
+      { name: "available", type: "uint256" },
+    ],
+  },
+  {
+    type: "error",
+    name: "InsufficientBalance",
+    inputs: [
+      { name: "subscriber", type: "address" },
+      { name: "required", type: "uint256" },
+      { name: "available", type: "uint256" },
+    ],
+  },
+  {
+    type: "error",
+    name: "BillingTooEarly",
+    inputs: [
+      { name: "subId", type: "bytes32" },
+      { name: "nextBillingDate", type: "uint256" },
+      { name: "currentTime", type: "uint256" },
+    ],
+  },
+  {
+    type: "error",
+    name: "SettlementNotDue",
+    inputs: [
+      { name: "subId", type: "bytes32" },
+      { name: "settlementDeadline", type: "uint256" },
+      { name: "currentTime", type: "uint256" },
+    ],
+  },
+  {
+    type: "error",
+    name: "NothingInEscrow",
+    inputs: [{ name: "subId", type: "bytes32" }],
+  },
+  { type: "error", name: "InvalidAmount", inputs: [] },
+  { type: "error", name: "InvalidInterval", inputs: [] },
+  { type: "error", name: "InvalidAddress", inputs: [] },
+  {
+    type: "error",
+    name: "InvalidPercentage",
+    inputs: [{ name: "pct", type: "uint8" }],
+  },
+  {
+    type: "error",
+    name: "FeeTooHigh",
+    inputs: [{ name: "feeBps", type: "uint256" }],
+  },
 ] as const;
 
 export const ERC20_ABI = [

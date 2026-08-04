@@ -6,6 +6,9 @@ import {
   cancelOnChain,
   checkSubscriberFunds,
   settlementWindowSeconds,
+  getOnChainSubscription,
+  revertErrorName,
+  describeChainError,
 } from "../lib/chain/subscription";
 import { fireWebhook } from "../lib/webhooks/delivery";
 import { signWebhook } from "../lib/webhooks/sign";
@@ -39,20 +42,33 @@ export async function settleDuePeriods() {
     }
 
     try {
+      // The DB row is a mirror of on-chain state and can drift — escrow may
+      // already be 0 because the period settled, OR because the subscription was
+      // cancelled outside this API (the contract lets the subscriber call
+      // cancelSubscription() themselves, which refunds escrow to them). Either
+      // way settlePeriod() can never succeed, so reconcile instead of retrying
+      // forever. Status 4 = Cancelled; see ISubscriptionManager.Status.
+      const onChain = await getOnChainSubscription(sub.onChainSubId);
+      if (onChain.escrowBalance === 0n) {
+        if (onChain.status === 4) {
+          await reconcileCancelled(sub.id);
+          console.warn(
+            `[billing] ${sub.subscriptionId} cancelled on-chain (escrow refunded to subscriber) — ` +
+              `marked cancelled, payment refunded. Cancel did not originate from this API.`
+          );
+        } else {
+          await markSettled(sub.id);
+          console.warn(
+            `[billing] ${sub.subscriptionId} already settled on-chain (escrow 0) — reconciled DB, no webhook sent`
+          );
+        }
+        continue;
+      }
+
       const { txHash, blockNumber, merchantShare, platformFee } =
         await settlePeriodOnChain(sub.onChainSubId);
 
-      await prisma.$transaction([
-        prisma.subscription.update({
-          where: { id: sub.id },
-          data: { escrowBalance: 0n, settlementDeadline: null },
-        }),
-        // The escrowed payment was recorded as "pending" — settlement completes it
-        prisma.payment.updateMany({
-          where: { subscriptionId: sub.id, status: "pending" },
-          data: { status: "succeeded" },
-        }),
-      ]);
+      await markSettled(sub.id);
 
       await fireWebhook(sub.merchantId, sub.externalRef, sub.merchant.merchantId, "payment.succeeded", {
         subscription_id: sub.subscriptionId,
@@ -69,9 +85,68 @@ export async function settleDuePeriods() {
 
       console.log(`[billing] Settled ${sub.subscriptionId} tx=${txHash}`);
     } catch (e) {
-      console.error(`[billing] settlePeriod failed for ${sub.subscriptionId}:`, e);
+      // Lost a race with another replica, or state changed between the read
+      // above and the write. Re-read to decide how to reconcile.
+      if (revertErrorName(e) === "NothingInEscrow") {
+        const after = await getOnChainSubscription(sub.onChainSubId);
+        if (after.status === 4) {
+          await reconcileCancelled(sub.id);
+          console.warn(`[billing] ${sub.subscriptionId} cancelled mid-sweep — reconciled as refunded`);
+        } else {
+          await markSettled(sub.id);
+          console.warn(`[billing] ${sub.subscriptionId} settled concurrently — reconciled DB, no webhook sent`);
+        }
+        continue;
+      }
+      // Chain deadline hasn't passed even though ours has (clock skew, or the
+      // window was extended on-chain). Retries on the next sweep.
+      if (revertErrorName(e) === "SettlementNotDue") {
+        console.warn(`[billing] ${sub.subscriptionId} not yet due on-chain — will retry`);
+        continue;
+      }
+      console.error(`[billing] settlePeriod failed for ${sub.subscriptionId}: ${describeChainError(e)}`);
     }
   }
+}
+
+/// Clears the escrow mirror and completes the "pending" payment recorded at
+/// checkout. Safe to run more than once for the same subscription.
+async function markSettled(subscriptionRowId: string) {
+  await prisma.$transaction([
+    prisma.subscription.update({
+      where: { id: subscriptionRowId },
+      data: { escrowBalance: 0n, settlementDeadline: null },
+    }),
+    // The escrowed payment was recorded as "pending" — settlement completes it
+    prisma.payment.updateMany({
+      where: { subscriptionId: subscriptionRowId, status: "pending" },
+      data: { status: "succeeded" },
+    }),
+  ]);
+}
+
+/// The subscription was cancelled directly on-chain (not through this API), so
+/// the contract already refunded escrow to the subscriber. The merchant was
+/// never paid — the pending payment must NOT be marked succeeded or it inflates
+/// reported revenue. No webhook: we can't source a trustworthy tx hash or
+/// refunded amount from a state read, and subscription.cancelled carries both.
+async function reconcileCancelled(subscriptionRowId: string) {
+  await prisma.$transaction([
+    prisma.subscription.update({
+      where: { id: subscriptionRowId },
+      data: {
+        escrowBalance: 0n,
+        settlementDeadline: null,
+        status: "cancelled",
+        cancelledAt: new Date(),
+        cancelReason: "cancelled_on_chain",
+      },
+    }),
+    prisma.payment.updateMany({
+      where: { subscriptionId: subscriptionRowId, status: "pending" },
+      data: { status: "refunded" },
+    }),
+  ]);
 }
 
 // ─── Renewals ─────────────────────────────────────────────────────────────────

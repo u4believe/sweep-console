@@ -4,6 +4,8 @@ import {
   defineChain,
   http,
   decodeEventLog,
+  BaseError,
+  ContractFunctionRevertedError,
   type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -118,6 +120,31 @@ function decodeManagerLogs(logs: { data: Hex; topics: [] | [Hex, ...Hex[]] }[]):
     }
   }
   return decoded;
+}
+
+/// Extracts the custom error name from a reverted contract call, e.g.
+/// "NothingInEscrow". Returns undefined for non-revert failures (RPC timeouts,
+/// nonce problems) so callers can tell "the chain said no" from "the call
+/// never landed". Requires the `error` entries in SUBSCRIPTION_MANAGER_ABI.
+export function revertErrorName(e: unknown): string | undefined {
+  if (!(e instanceof BaseError)) return undefined;
+  const revert = e.walk((err) => err instanceof ContractFunctionRevertedError);
+  if (!(revert instanceof ContractFunctionRevertedError)) return undefined;
+  return revert.data?.errorName;
+}
+
+/// One-line description of a chain failure, for logs. viem's default toString()
+/// dumps the entire ABI and args, which floods the log aggregator on every
+/// retry; this keeps the useful part (error name + decoded args, or the short
+/// message) and drops the rest.
+export function describeChainError(e: unknown): string {
+  if (!(e instanceof BaseError)) return e instanceof Error ? e.message : String(e);
+  const revert = e.walk((err) => err instanceof ContractFunctionRevertedError);
+  if (revert instanceof ContractFunctionRevertedError && revert.data) {
+    const args = (revert.data.args ?? []).map((a) => String(a)).join(", ");
+    return `reverted ${revert.data.errorName}(${args})`;
+  }
+  return e.shortMessage ?? e.message;
 }
 
 // ─── Billing-engine surface ───────────────────────────────────────────────────

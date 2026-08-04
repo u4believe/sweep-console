@@ -325,6 +325,23 @@ model RenewalClaim {
   @@map("renewal_claims")
 }
 
+// ─── Indexer Cursor ────────────────────────────────────────────────────────────
+//
+// Last block an event indexer has fully processed, so a restart resumes where it
+// left off instead of rescanning from deploy (or silently skipping the gap).
+// Keyed by (name, chainId) so testnet and mainnet cursors coexist, and so a
+// second indexer can be added without colliding.
+model IndexerCursor {
+  id        String   @id @default(cuid())
+  name      String // "subscription_manager"
+  chainId   Int
+  lastBlock BigInt
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, chainId])
+  @@map("indexer_cursors")
+}
+
 // ─── Renewal Delegation (Tier 2 — ERC-7710) ────────────────────────────────────
 //
 // A subscriber's one-time ERC-7715 grant: authorises the relayer (delegate) to

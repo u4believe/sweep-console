@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import { processRenewals, retryFailed, transitionTrials, retryWebhooks, settleDuePeriods } from "./engine";
 import { runDelegatedRenewalsOnce } from "./delegated-renewal";
+import { runIndexerOnce } from "./indexer";
 
 // Registers every billing cron job. Pure side-effect-on-call (no auto-start on
 // import) so it can be driven from TWO places without double-registering:
@@ -39,6 +40,14 @@ export function startBillingEngine(): void {
   cron.schedule("0 * * * *", async () => {
     console.log("[cron] settleDuePeriods triggered");
     await settleDuePeriods().catch((e) => console.error("[cron] settleDuePeriods error:", e));
+  });
+
+  // Event indexer — reconciles contract state the API never saw (a subscriber
+  // calling cancelSubscription() directly, or a tx that landed after our commit
+  // failed). Runs often: until it catches a cancel, the DB still shows the
+  // subscription active and its escrow pending.
+  cron.schedule("*/5 * * * *", async () => {
+    await runIndexerOnce().catch((e) => console.error("[cron] indexer error:", e));
   });
 
   cron.schedule("*/10 * * * *", async () => {
