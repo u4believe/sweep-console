@@ -14,8 +14,7 @@ import { prisma } from "../lib/prisma";
 import { ok, err } from "../lib/response";
 import { verifyEmailToken, normalizeEmail } from "../lib/checkout/identity";
 import { revokeSubscription } from "../lib/subscriptions/revoke";
-import { scanWalletBalances } from "../lib/gateway/balances";
-import { getSourceChain } from "../lib/gateway/chains";
+import { supportedSourceChains } from "../lib/gateway/chains";
 import { getDelegateAddress, decodePeriodTransferTerms } from "../lib/chain/delegation";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
 
@@ -142,7 +141,7 @@ const grantPlanSchema = proofSchema.extend({ wallet: z.string().regex(ADDRESS_RE
 customerPortalRouter.post("/subscriptions/:id/grant-plan", async (req, res) => {
   const parsed = grantPlanSchema.safeParse(req.body);
   if (!parsed.success) return err(res, "Invalid payload", 422);
-  const { email, email_token, wallet } = parsed.data;
+  const { email, email_token } = parsed.data;
   if (!verifyEmailToken(email_token, email)) return err(res, "Verify your email first.", 403);
 
   const sub = await loadOwnedSubscription(email, req.params.id as string);
@@ -155,21 +154,17 @@ customerPortalRouter.post("/subscriptions/:id/grant-plan", async (req, res) => {
     const periodDuration = INTERVAL_SECONDS[interval] ?? INTERVAL_SECONDS.monthly;
     const delegate = getDelegateAddress();
 
-    const balances = await scanWalletBalances(wallet as Hex);
-    const targets = balances.chains
-      .filter((c) => c.walletBalance >= amount)
-      .map((c) => {
-        const src = getSourceChain(c.chainKey);
-        return {
-          chain_id: src.chain.id,
-          chain_key: src.key,
-          name: src.name,
-          token: src.usdc,
-          period_amount: amount.toString(),
-          period_duration: periodDuration,
-          delegate,
-        };
-      });
+    // Every supported source chain, regardless of current USDC balance — see
+    // the equivalent checkout-side grant-plan in routes/delegation.ts.
+    const targets = supportedSourceChains().map((src) => ({
+      chain_id: src.chain.id,
+      chain_key: src.key,
+      name: src.name,
+      token: src.usdc,
+      period_amount: amount.toString(),
+      period_duration: periodDuration,
+      delegate,
+    }));
 
     return ok(res, { targets });
   } catch (e) {

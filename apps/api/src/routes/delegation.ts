@@ -10,8 +10,7 @@ import { z } from "zod";
 import type { Address, Hex } from "viem";
 import { prisma } from "../lib/prisma";
 import { ok, err } from "../lib/response";
-import { scanWalletBalances } from "../lib/gateway/balances";
-import { getSourceChain } from "../lib/gateway/chains";
+import { supportedSourceChains } from "../lib/gateway/chains";
 import { getDelegateAddress, decodePeriodTransferTerms } from "../lib/chain/delegation";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
 import {
@@ -30,11 +29,13 @@ const ALLOWANCE_PERIODS = 12n;
 
 // ─── GET /internal/checkout/:session_id/grant-plan ───────────────────────────
 //
-// Which chains the subscriber should grant a renewal delegation on: every
-// supported SOURCE chain (Base/Arbitrum/OP Sepolia) whose wallet currently holds
-// at least one period. Arc is NOT a delegation target — it's the settlement chain
-// and doesn't support ERC-7715 (`wallet_requestExecutionPermissions`); Arc-funded
-// renewals run on the allowance/permit model instead. The client requests a
+// Which chains the subscriber should grant a renewal delegation on: EVERY
+// supported SOURCE chain (Base/Arbitrum/OP Sepolia), regardless of current USDC
+// balance there — a chain funded after checkout should still be usable for
+// renewals without a second grant flow. Arc is NOT a delegation target — it's
+// the settlement chain and doesn't support ERC-7715
+// (`wallet_requestExecutionPermissions`); Arc-funded renewals run on the
+// allowance/permit model instead. The client requests a
 // `wallet_requestExecutionPermissions` per target and POSTs each context back.
 delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, res) => {
   const wallet = String(req.query.wallet ?? "");
@@ -63,14 +64,12 @@ delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, re
       delegate,
     });
 
-    // Source chains only — Arc can't host an ERC-7710 delegation.
-    const targets: ReturnType<typeof target>[] = [];
-    const balances = await scanWalletBalances(wallet as Hex);
-    for (const c of balances.chains) {
-      if (c.walletBalance < amount) continue; // only chains that can fund a renewal
-      const src = getSourceChain(c.chainKey);
-      targets.push(target(src.chain.id, src.key, src.name, src.usdc));
-    }
+    // Every supported source chain, regardless of current USDC balance — the
+    // subscriber may fund a chain later, and the mandate just sits unused until
+    // then. Arc itself is excluded — it can't host an ERC-7710 delegation.
+    const targets: ReturnType<typeof target>[] = supportedSourceChains().map((src) =>
+      target(src.chain.id, src.key, src.name, src.usdc)
+    );
 
     // Cross-chain is "enabled" — skip re-granting + the whole toggle — in two cases:
     //   1. THIS checkout session already has grants (per-session dedup), or

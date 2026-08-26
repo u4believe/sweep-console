@@ -189,11 +189,11 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
       {phase === "insufficient" && (
         <div className="space-y-2">
           <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
-            Cross-chain isn't available: you need USDC on a supported chain (Base, Arbitrum, or
-            Optimism Sepolia) your wallet can authorize.
+            Cross-chain isn't available: your wallet can't authorize renewals on any of the
+            supported chains (Base, Arbitrum, or Optimism Sepolia).
           </p>
           <button onClick={loadPlan} className="text-sm text-brand-600 hover:underline">
-            Re-check balances
+            Try again
           </button>
         </div>
       )}

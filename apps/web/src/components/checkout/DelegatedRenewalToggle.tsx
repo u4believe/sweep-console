@@ -2,10 +2,12 @@
 // primary flow) who also wants renewals to fall back to their USDC on other chains
 // when their Arc balance runs dry.
 //
-// It grants an ERC-7715 delegation on each funded SOURCE chain (Base/Arbitrum/
-// Optimism Sepolia — Arc is the L1 settlement chain, not a CCTP source, so it's
-// never a target). No fee. It does NOT activate: the Arc checkout creates the
-// subscription (and the permit/allowance), and links these delegations.
+// It grants an ERC-7715 delegation on every SOURCE chain the wallet supports
+// (Base/Arbitrum/Optimism Sepolia — Arc is the L1 settlement chain, not a CCTP
+// source, so it's never a target), regardless of current USDC balance there —
+// a chain funded later still has a mandate ready to use. No fee. It does NOT
+// activate: the Arc checkout creates the subscription (and the permit/
+// allowance), and links these delegations.
 //
 // Self-gating: renders only when the feature flag is on AND the wallet advertises
 // ERC-7715 support; otherwise it's invisible and checkout proceeds Arc-only.
@@ -102,7 +104,7 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
       const plan = await fetchGrantPlan(sessionId, walletAddress);
       const targets = plan.targets.filter((t) => supportedChainIds.includes(t.chain_id));
       if (targets.length === 0) {
-        setError("You need USDC on a supported chain (Base, Arbitrum, or Optimism Sepolia) your wallet can authorize.");
+        setError("Your wallet doesn't support authorizing renewals on any of the supported chains (Base, Arbitrum, or Optimism Sepolia).");
         setState("fallback");
         return;
       }
