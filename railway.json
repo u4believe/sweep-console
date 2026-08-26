@@ -2,7 +2,7 @@
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "NODE_ENV=development pnpm install --frozen-lockfile && pnpm --filter @sweep/api db:generate && pnpm --filter @sweep/api build"
+    "buildCommand": "NODE_ENV=development pnpm install --frozen-lockfile && pnpm --filter @sweep/api db:generate && pnpm --filter @sweep/api db:push && pnpm --filter @sweep/api build"
   },
   "deploy": {
     "startCommand": "echo \"[boot] BILLING_WORKER=[$BILLING_WORKER]\"; if [ \"$BILLING_WORKER\" = \"true\" ]; then echo '[boot] role=worker (billing)'; pnpm --filter @sweep/api billing:start; else echo '[boot] role=api'; pnpm --filter @sweep/api start; fi",
