@@ -111,7 +111,6 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
       // One ERC-7715 delegation per funded source chain. No fee — the platform
       // covers gas + bridge from the 2% fee on each charge.
       await grantRenewalMandates(
-        connectorClient,
         walletAddress,
         targets,
         (input) => saveDelegation(sessionId, input),

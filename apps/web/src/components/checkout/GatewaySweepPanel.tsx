@@ -12,7 +12,7 @@ import {
   type TypedDataPayload,
 } from "@/lib/gateway";
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
-import { grantRenewalMandate } from "@/lib/delegation/grant";
+import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 
 // Cross-chain checkout via CCTP V2 (delegation-gated).
 //
@@ -21,8 +21,6 @@ import { grantRenewalMandate } from "@/lib/delegation/grant";
 // chain and (2) the Arc permit — no fee. The platform then funds + activates the
 // subscription from a source chain via CCTP — covering gas + bridge fees, so the
 // subscriber is charged only the exact subscription amount.
-
-const MANDATE_LIFETIME_SEC = 31_536_000; // 1 year
 
 interface Props {
   sessionId: string;
@@ -145,32 +143,12 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
       if (!enabled && connectorClient) {
         // One ERC-7715 delegation per funded source chain, saved server-side. No
         // fee — the platform covers gas + bridge from the 2% fee on each charge.
-        const now = Math.floor(Date.now() / 1000);
-        for (const t of targets) {
-          const mandate = await grantRenewalMandate(connectorClient, {
-            chainId: t.chain_id,
-            token: t.token,
-            delegate: t.delegate,
-            periodAmountMicro: BigInt(t.period_amount),
-            periodDurationSec: t.period_duration,
-            startTimeSec: now,
-            expirySec: now + MANDATE_LIFETIME_SEC,
-            justification: `Cross-chain subscription renewals on ${t.name} — capped to one period each cycle, revocable anytime.`,
-          });
-          await saveDelegation(sessionId, {
-            wallet_address: walletAddress,
-            account_address: mandate.accountAddress,
-            delegate_address: t.delegate,
-            chain_id: t.chain_id,
-            token: t.token,
-            delegation_manager: mandate.delegationManager,
-            context: mandate.context,
-            dependencies: mandate.dependencies,
-            period_amount: t.period_amount,
-            period_duration: t.period_duration,
-            expiry: mandate.expirySec,
-          });
-        }
+        // Shared loop — switches the wallet to each target chain before requesting
+        // its grant (a single stale client reused across chains is what used to
+        // surface as "Request cancelled" on the 2nd+ chain).
+        await grantRenewalMandates(walletAddress, targets, (input) =>
+          saveDelegation(sessionId, input)
+        );
       }
 
       // Final — Arc permit (recurring allowance + activation escrow). Always signed.

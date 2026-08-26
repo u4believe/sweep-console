@@ -141,7 +141,7 @@ export function ManageSubscriptionsPage() {
         setError("You need USDC on a supported chain (Base, Arbitrum, or Optimism) your wallet can authorize.");
         return;
       }
-      await grantRenewalMandates(connectorClient, address, usable, (input) =>
+      await grantRenewalMandates(address, usable, (input) =>
         portalSaveGrant(email.trim(), emailToken, s.id, input)
       );
       setNotice("Cross-chain renewals enabled. Renewals can now fall back to your USDC on other chains.");
