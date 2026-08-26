@@ -156,10 +156,14 @@ delegationRouter.post("/internal/checkout/:session_id/delegation", async (req, r
     if (!terms) {
       return err(res, `Delegation has no erc20 period-transfer permission for token ${d.token}`, 400);
     }
-    if (terms.periodAmount < session.plan.amount) {
+    // Compare against the CHOSEN tier's price (same resolution as grant-plan
+    // used to build the request) — not the plan's default amount, which can
+    // legitimately differ from the tier the subscriber actually granted for.
+    const tier = await resolveTier(session.plan, session.tierId);
+    if (terms.periodAmount < tier.amount) {
       return err(
         res,
-        `Granted cap ${terms.periodAmount} is below the plan price ${session.plan.amount} — renewals would be rejected`,
+        `Granted cap ${terms.periodAmount} is below the plan price ${tier.amount} — renewals would be rejected`,
         400
       );
     }
