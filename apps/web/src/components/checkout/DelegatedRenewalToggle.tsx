@@ -104,7 +104,7 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
   }, [address, chainId, connectorClient, sessionId, walletAddress]);
 
   const onEnable = async () => {
-    if (!address || !connectorClient) return;
+    if (!address || !connectorClient || enablingRef.current) return;
     setError("");
     setState("granting");
     enablingRef.current = true;
@@ -119,8 +119,10 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
       setProgress({ done: 0, total: targets.length });
 
       // One ERC-7715 delegation per funded source chain. No fee — the platform
-      // covers gas + bridge from the 2% fee on each charge.
-      await grantRenewalMandates(
+      // covers gas + bridge from the 2% fee on each charge. A single chain
+      // failing doesn't abort the rest — grantRenewalMandates keeps going and
+      // reports back which (if any) didn't make it.
+      const failures = await grantRenewalMandates(
         walletAddress,
         targets,
         (input) => saveDelegation(sessionId, input),
@@ -134,6 +136,10 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
         email_token: emailToken ?? undefined,
       });
       setState("linked");
+      if (failures.length > 0) {
+        const names = failures.map((f) => f.target.name).join(", ");
+        setError(`Enabled — but couldn't authorize renewals on ${names}. Renewals will fall back to your other authorized chains (or Arc) instead.`);
+      }
     } catch (e) {
       setError(describeError(e));
       setState("fallback");

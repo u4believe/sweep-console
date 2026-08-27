@@ -140,7 +140,7 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
   };
 
   const onApprove = async () => {
-    if (!plan) return;
+    if (!plan || approvingRef.current) return;
     const enabled = plan.already_enabled;
     // Fresh enable needs grants (and a 7715-capable wallet).
     if (!enabled && (!connectorClient || targets.length === 0)) return;
@@ -150,11 +150,11 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
 
     try {
       if (!enabled && connectorClient) {
-        // One ERC-7715 delegation per funded source chain, saved server-side. No
-        // fee — the platform covers gas + bridge from the 2% fee on each charge.
-        // Shared loop — switches the wallet to each target chain before requesting
-        // its grant (a single stale client reused across chains is what used to
-        // surface as "Request cancelled" on the 2nd+ chain).
+        // One ERC-7715 delegation per supported source chain, saved server-side.
+        // No fee — the platform covers gas + bridge from the 2% fee on each
+        // charge. Shared loop — switches the wallet to each target chain before
+        // requesting its grant, and keeps going even if one chain fails; the
+        // actual payment below just needs ONE granted chain with funds.
         await grantRenewalMandates(walletAddress, targets, (input) =>
           saveDelegation(sessionId, input)
         );
