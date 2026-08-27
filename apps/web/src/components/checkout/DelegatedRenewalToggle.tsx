@@ -12,7 +12,7 @@
 // Self-gating: renders only when the feature flag is on AND the wallet advertises
 // ERC-7715 support; otherwise it's invisible and checkout proceeds Arc-only.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAccount, useChainId, useConnectorClient } from "wagmi";
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
@@ -50,6 +50,12 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [error, setError] = useState("");
   const [revoking, setRevoking] = useState(false);
+  // Set for the duration of onEnable. grantRenewalMandates switches the wallet's
+  // active chain before every grant, which changes both chainId and
+  // useConnectorClient() — without this guard that re-fires the effect below
+  // mid-loop, resetting `state` (and briefly unmounting this whole component,
+  // since state === "checking" returns null) partway through granting.
+  const enablingRef = useRef(false);
 
   const shortWallet = `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}`;
 
@@ -67,6 +73,7 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
   };
 
   useEffect(() => {
+    if (enablingRef.current) return; // our own chain switches during granting — not a real change
     if (!TIER2_ENABLED || !address || !connectorClient) {
       setState("checking");
       return;
@@ -100,6 +107,7 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
     if (!address || !connectorClient) return;
     setError("");
     setState("granting");
+    enablingRef.current = true;
     try {
       const plan = await fetchGrantPlan(sessionId, walletAddress);
       const targets = plan.targets.filter((t) => supportedChainIds.includes(t.chain_id));
@@ -129,6 +137,8 @@ export function DelegatedRenewalToggle({ sessionId, sessionToken, walletAddress,
     } catch (e) {
       setError(describeError(e));
       setState("fallback");
+    } finally {
+      enablingRef.current = false;
     }
   };
 

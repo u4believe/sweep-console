@@ -58,6 +58,13 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
   const [targets, setTargets] = useState<GrantTarget[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Set for the duration of onApprove. grantRenewalMandates switches the wallet's
+  // active chain before every grant, which changes what useConnectorClient()
+  // returns — without this guard that re-fires the effect below mid-loop,
+  // stomping the in-progress UI and racing its own wallet RPC call against the
+  // grant loop's pending one (this is what silently killed grants after the
+  // first chain).
+  const approvingRef = useRef(false);
 
   const loadPlan = async () => {
     setPhase("planning");
@@ -83,6 +90,7 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
   };
 
   useEffect(() => {
+    if (approvingRef.current) return; // our own chain switches during granting — not a real change
     loadPlan();
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -138,6 +146,7 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
     if (!enabled && (!connectorClient || targets.length === 0)) return;
     setErrorMsg("");
     setPhase("signing");
+    approvingRef.current = true;
 
     try {
       if (!enabled && connectorClient) {
@@ -170,6 +179,8 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
     } catch (e) {
       setErrorMsg(describeError(e));
       setPhase("error");
+    } finally {
+      approvingRef.current = false;
     }
   };
 
