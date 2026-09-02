@@ -42,3 +42,6 @@ pnpm-debug.log*
 Screenshot *.png
 *.zip
 apps/api/q*.cjs
+
+# Rollback snapshots written by one-off data repairs. Real subscriber emails.
+*-snapshot.json
