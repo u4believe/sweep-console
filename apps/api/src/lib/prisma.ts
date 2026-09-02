@@ -15,7 +15,7 @@ const BASE_DELAY_MS = 300;
  * constraint violation — is deliberately NOT retried: the write may already
  * have landed, and a second attempt would be a second write.
  */
-function isConnectFailure(e: unknown): boolean {
+export function isConnectFailure(e: unknown): boolean {
   if (!(e instanceof Error)) return false;
   // Thrown when the client cannot establish a connection at all.
   if (e.name === "PrismaClientInitializationError") return true;

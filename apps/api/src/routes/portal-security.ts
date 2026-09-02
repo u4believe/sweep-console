@@ -8,7 +8,7 @@ import { Router } from "express";
 import type { Response } from "express";
 import { z } from "zod";
 import QRCode from "qrcode";
-import { prisma } from "../lib/prisma";
+import { prisma, isConnectFailure } from "../lib/prisma";
 import { ok, err } from "../lib/response";
 import type { PortalRequest } from "../middleware/portalAuth";
 import {
@@ -33,6 +33,18 @@ const ACTIONS = Object.keys(STEP_UP_ACTIONS) as [StepUpAction, ...StepUpAction[]
 function fail(res: Response, e: unknown, context: string) {
   if (e instanceof StepUpError) return err(res, e.message, e.httpStatus);
   console.error(context, e);
+  // A pooler that never accepted the connection is not the same failure as a bug
+  // in this route, and rendering both as "Something went wrong" left no way to
+  // tell them apart — the retry that actually helps looked identical to the one
+  // that never would. 503 also tells a client this is worth retrying.
+  if (isConnectFailure(e)) {
+    return err(
+      res,
+      "Couldn't reach the database. Nothing was changed — try again in a moment.",
+      503,
+      "database_unavailable"
+    );
+  }
   return err(res, "Something went wrong. Try again.", 500);
 }
 

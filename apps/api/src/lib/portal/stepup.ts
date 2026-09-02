@@ -187,7 +187,11 @@ export async function beginTotpEnrolment(merchantDbId: string, email: string): P
   const secret = authenticator.generateSecret();
   await prisma.merchant.update({
     where: { id: merchantDbId },
-    data: { totpSecret: encryptSecret(secret), totpConfirmedAt: null },
+    // recoveryCodes is cleared with the rest: a fresh enrolment invalidates the
+    // old sheet (confirmTotpEnrolment issues a new one), and leaving the old
+    // codes behind meant an account mid-re-enrolment carried live proofs for an
+    // authenticator that no longer existed.
+    data: { totpSecret: encryptSecret(secret), totpConfirmedAt: null, recoveryCodes: [] },
   });
   return { uri: authenticator.keyuri(email, "SweepConsole", secret), secret };
 }
@@ -403,8 +407,17 @@ async function verifyTotpCode(merchantDbId: string, code: string): Promise<void>
 async function verifyRecoveryCode(merchantDbId: string, code: string): Promise<void> {
   const merchant = await prisma.merchant.findUniqueOrThrow({
     where: { id: merchantDbId },
-    select: { recoveryCodes: true },
+    select: { recoveryCodes: true, totpConfirmedAt: true },
   });
+  // A recovery code is the authenticator's backup, never a factor of its own.
+  // availableMethods already declines to OFFER recovery when TOTP is off, but
+  // that is advice to the UI — /step-up/verify takes the method from the caller,
+  // so the rule has to be enforced here too. Without this, codes left over from
+  // a previous enrolment would still satisfy a totp-only action on an account
+  // with no authenticator at all.
+  if (!merchant.totpConfirmedAt) {
+    throw new StepUpError("No authenticator is set up on this account.", 409);
+  }
   const wanted = hmac(`recovery:${merchantDbId}:${code.toLowerCase()}`);
   const remaining = merchant.recoveryCodes.filter((stored) => !equalHex(stored, wanted));
   if (remaining.length === merchant.recoveryCodes.length) throw new StepUpError("That recovery code isn't valid.", 401);
