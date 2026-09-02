@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/auth";
-import { Logo } from "@/components/ui/Logo";
+import { OnboardingLayout } from "@/layouts/OnboardingLayout";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
 // Shown once, right after a brand-new Google account is created — it has no
 // company name yet (Google only gives us the person's display name).
 export function OnboardingPage() {
-  const { user, refresh } = useAuth();
+  const { user, refresh, logout } = useAuth();
   const navigate = useNavigate();
   const [name, setName] = useState(user?.name ?? "");
   const [loading, setLoading] = useState(false);
@@ -44,48 +44,59 @@ export function OnboardingPage() {
   const firstName = user?.name?.trim().split(" ")[0];
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-brand-50 via-white to-white px-4 py-12">
-      <div className="mb-8 flex flex-col items-center gap-3">
-        <Logo height={48} />
-        <h1 className="text-2xl font-bold tracking-tight text-gray-900">Sweep Console</h1>
-      </div>
+    <OnboardingLayout
+      // Google proved the address at sign-in, so steps 01 and 02 are already
+      // behind this page — it only collects what Google can't give us.
+      step={2}
+      // The only answer left to change is which Google account signed in, and
+      // undoing that means ending the session. Labelled for what it does.
+      back={{
+        label: "Use a different account",
+        onClick: () => {
+          void logout().then(() => navigate("/signup", { replace: true }));
+        },
+      }}
+      kicker={firstName ? `Welcome, ${firstName}` : "Welcome"}
+      title="What should subscribers call you?"
+      body="This is the name shown on your checkout page and on every receipt. You can change it later in Settings."
+    >
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <div className="field">
+          <label htmlFor="company">Company name — shown to subscribers at checkout</label>
+          <input
+            id="company"
+            className="input"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            maxLength={100}
+            placeholder="Acme Inc."
+            autoFocus
+          />
+        </div>
 
-      <form onSubmit={handleSubmit} className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-8 shadow-xl">
-        <h2 className="text-xl font-bold text-gray-900">
-          Welcome{firstName ? `, ${firstName}` : ""} 👋
-        </h2>
-        <p className="mt-1 text-sm text-gray-500">
-          One quick thing — what&apos;s your business or company name? This is what your subscribers see
-          on the checkout page.
-        </p>
+        {error && (
+          <p className="m-0" style={{ fontSize: 13, color: "var(--color-accent-700)" }}>{error}</p>
+        )}
 
-        {error && <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">{error}</p>}
-
-        <label htmlFor="company" className="mb-1 mt-5 block text-sm font-medium text-gray-700">Company name</label>
-        <input
-          id="company"
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-          maxLength={100}
-          placeholder="Acme Inc."
-          autoFocus
-          className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-        />
-
-        <button
-          type="submit"
-          disabled={loading || name.trim().length === 0}
-          className="mt-5 w-full rounded-xl bg-gray-900 py-2.5 text-sm font-semibold text-white transition hover:bg-black disabled:opacity-50"
+        <div
+          className="flex flex-wrap items-center gap-3"
+          style={{ borderTop: "2px solid var(--color-divider)", paddingTop: 20 }}
         >
-          {loading ? "Saving…" : "Continue to dashboard"}
-        </button>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            style={{ padding: "12px 20px" }}
+            disabled={loading || name.trim().length === 0}
+          >
+            {loading ? "Saving…" : "Continue to dashboard"}
+          </button>
+          <span style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
+            Test mode is on by default.
+          </span>
+        </div>
       </form>
-
-      <footer className="mt-10 text-center text-xs text-gray-400">
-        A payment infrastructure for developers · Powered by stablecoins
-      </footer>
-    </div>
+    </OnboardingLayout>
   );
 }

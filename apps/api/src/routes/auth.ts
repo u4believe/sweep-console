@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { randomBytes } from "crypto";
-import { addHours } from "date-fns";
+import { addHours, addMinutes } from "date-fns";
 import jwt from "jsonwebtoken";
 import type { Response } from "express";
 import { prisma } from "../lib/prisma";
@@ -9,6 +9,12 @@ import { ok, err, validationError } from "../lib/response";
 import { ids } from "../lib/ids";
 import { hashPassword, verifyPassword } from "../lib/password";
 import { sendEmail, verificationEmailHtml, passwordResetEmailHtml } from "../lib/email";
+
+// A reset link is a live path into the account, so it should not sit valid in a
+// mailbox for an hour. Fifteen minutes, not two: email delivery routinely takes
+// most of a minute, and the attacker this guards against is already reading the
+// inbox and clicks immediately — a shorter window mostly locks out the owner.
+const PASSWORD_RESET_TTL_MINUTES = 15;
 import { getJwtSecret, verifyPortalSession, type SessionPayload, type PortalRequest } from "../middleware/portalAuth";
 import { verifyTurnstile, clientIp } from "../lib/turnstile";
 
@@ -390,7 +396,7 @@ authRouter.post("/forgot-password", async (req, res) => {
     await prisma.passwordReset.deleteMany({ where: { email } });
     const token = randomBytes(32).toString("hex");
     await prisma.passwordReset.create({
-      data: { token, email, expiresAt: addHours(new Date(), 1) },
+      data: { token, email, expiresAt: addMinutes(new Date(), PASSWORD_RESET_TTL_MINUTES) },
     });
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
@@ -400,8 +406,8 @@ authRouter.post("/forgot-password", async (req, res) => {
       await sendEmail({
         to: email,
         subject: "Reset your Sweep Console password",
-        text: `Reset your password:\n${resetUrl}\n\nThis link expires in 1 hour. If you didn't request this, ignore this email.`,
-        html: passwordResetEmailHtml(merchant.name, resetUrl),
+        text: `Reset your password:\n${resetUrl}\n\nThis link expires in ${PASSWORD_RESET_TTL_MINUTES} minutes. If you didn't request this, ignore this email.`,
+        html: passwordResetEmailHtml(merchant.name, resetUrl, PASSWORD_RESET_TTL_MINUTES),
       });
       console.log(`[auth/forgot-password] Reset email sent to ${email}`);
     } catch (e) {

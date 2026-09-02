@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { AuthTabs, OrDivider } from "@/components/auth/AuthTabs";
 import { GoogleButton } from "@/components/auth/GoogleButton";
 import { Turnstile, TURNSTILE_ENABLED } from "@/components/Turnstile";
+import { OnboardingLayout } from "@/layouts/OnboardingLayout";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
+/** Step 01 of onboarding — create the account. */
 export function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -36,71 +37,73 @@ export function SignupPage() {
 
   if (sent) {
     return (
-      <div className="rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-xl">
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-brand-100">
-          <svg className="h-7 w-7 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-          </svg>
+      <OnboardingLayout
+        step={2}
+        back={{ onClick: () => setSent(false), label: "Use a different email" }}
+        kicker="Check your inbox"
+        title="We've sent you a verification link."
+        body="Open it to set your name and password and finish creating your account. Didn't arrive? Check your spam folder."
+      >
+        <div style={{ borderTop: "2px solid var(--color-divider)", paddingTop: 20 }}>
+          <Link to="/login" className="btn btn-secondary" style={{ padding: "11px 18px" }}>
+            Back to login
+          </Link>
         </div>
-        <h2 className="text-xl font-semibold text-gray-900">Check your inbox</h2>
-        <p className="mt-2 text-sm text-gray-500">
-          We&apos;ve sent a verification link to your email. Click it to set your name and password and finish creating your account.
-        </p>
-        <p className="mt-2 text-xs text-gray-400">Didn&apos;t receive it? Check your spam folder.</p>
-        <Link to="/login" className="mt-5 inline-block text-sm font-medium text-brand-700 hover:underline">
-          Back to login
-        </Link>
-      </div>
+      </OnboardingLayout>
     );
   }
 
   return (
-    <div className="rounded-2xl border border-gray-100 bg-white p-8 shadow-xl">
-      <AuthTabs current="signup" />
-
-      <div className="mb-5">
-        <h2 className="text-xl font-bold text-gray-900">Create your account</h2>
-        <p className="mt-1 text-sm text-gray-500">Start accepting USDC subscriptions.</p>
-      </div>
-
-      {error && (
-        <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">{error}</p>
-      )}
-
-      <GoogleButton label="Sign up with Google" onError={setError} />
-
-      <div className="my-5">
-        <OrDivider label="Or sign up with email" />
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label htmlFor="email" className="mb-1 block text-sm font-medium text-gray-700">Email address</label>
+    <OnboardingLayout
+      step={1}
+      back={{ to: "/", label: "Back to home" }}
+      kicker="Create your account"
+      title="Start accepting USDC subscriptions."
+      body="We'll email you a link to set your name and password. Test mode is on by default — nothing is charged until you go live."
+    >
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <div className="field">
+          <label htmlFor="email">Work email</label>
           <input
             id="email"
             name="email"
+            className="input"
             type="email"
             required
             placeholder="you@example.com"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
 
         <Turnstile onVerify={setCaptcha} onExpire={() => setCaptcha("")} resetSignal={captchaReset} />
 
+        {error && (
+          <p className="m-0" style={{ fontSize: 13, color: "var(--color-accent-700)" }}>{error}</p>
+        )}
+
         <button
           type="submit"
+          className="btn btn-primary"
+          style={{ padding: "12px 20px", alignSelf: "flex-start" }}
           disabled={loading || (TURNSTILE_ENABLED && !captcha)}
-          className="w-full rounded-lg bg-gray-900 py-2.5 font-medium text-white transition hover:bg-black disabled:opacity-50"
         >
           {loading ? "Sending…" : "Send verification email"}
         </button>
-      </form>
 
-      <p className="mt-5 text-center text-sm text-gray-500">
-        Already have an account?{" "}
-        <Link to="/login" className="font-medium text-brand-700 hover:underline">Login</Link>
-      </p>
-    </div>
+        <div
+          className="flex flex-wrap items-center gap-3"
+          style={{ borderTop: "1px solid var(--color-divider)", paddingTop: 16 }}
+        >
+          <GoogleButton label="Continue with Google" onError={setError} />
+          <span style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
+            Google accounts skip the email step.
+          </span>
+        </div>
+
+        <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
+          Already have an account?{" "}
+          <Link to="/login" style={{ color: "var(--color-accent)" }}>Log in</Link>
+        </p>
+      </form>
+    </OnboardingLayout>
   );
 }

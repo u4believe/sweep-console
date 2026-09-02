@@ -226,6 +226,13 @@ Frontend (`apps/web/.env`):
 
 See [`.env.example`](.env.example) for the complete, commented list.
 
+### Handling secrets
+
+- **Only `VITE_*` variables are safe to expose.** They are compiled into the frontend bundle and readable by anyone. Everything else must stay server-side.
+- **`PLATFORM_PRIVATE_KEY` is the highest-value secret in the repo.** It is the contract's arbiter and pays gas for every renewal. Hold it in your host's secret manager (not a checked-in `.env`), fund it with only an operating balance, and rotate it — plus the on-chain arbiter — if it is ever exposed.
+- **`JWT_SECRET` and `PLATFORM_API_SIGNING_SECRET` should be distinct, high-entropy values**, since they sign different trust domains (user sessions vs. merchant API keys / OTPs).
+- Never commit a real `.env`; it is gitignored, and only `.env.example` placeholders belong in version control.
+
 ---
 
 ## Scripts reference

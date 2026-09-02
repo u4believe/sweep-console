@@ -1,45 +1,99 @@
+/*
+ * The Modernist design system is the source of truth for the app's look.
+ * These two imports are vendored from the Claude Design project — edit them
+ * there and re-import, not here. See styles/modernist.css for provenance.
+ *
+ * They sit above the Tailwind directives so postcss-import can inline them
+ * (CSS requires @import to lead the file). Tailwind's preflight therefore
+ * lands *after* the design system and would otherwise flatten its typography,
+ * which is why the base layer below re-asserts it.
+ */
+@import "./styles/modernist.css";
+@import "./styles/arc-blue.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --brand: 234 91% 60%;
-  }
-
-  * {
-    box-sizing: border-box;
-  }
-
+  /*
+   * Re-assert the design system's type scale over Tailwind's preflight, which
+   * resets headings to `font-size: inherit; font-weight: inherit`. Values are
+   * copied from modernist.css — keep them in step if that file is re-imported.
+   */
   body {
-    font-family: Inter, system-ui, sans-serif;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
   }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    font-weight: var(--font-heading-weight);
+    line-height: 1.12;
+    letter-spacing: -0.015em;
+    margin: 0 0 var(--space-2);
+  }
+  h1 { font-size: 42px; }
+  h2 { font-size: 32px; }
+  h3 { font-size: 25px; }
+  h4 { font-size: 20px; }
+  h5 { font-size: 16px; }
+  h6 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
+
+  a { color: var(--color-accent); text-underline-offset: 3px; }
+
+  :focus { outline: none; }
+  :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  ::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
 }
 
 @layer components {
-  .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-5 py-3
-           text-sm font-semibold text-white shadow-sm transition-colors
-           hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50;
-  }
+  /*
+   * ─── MIGRATION SHIM — REMOVE WHEN THE PORT IS COMPLETE ──────────────────
+   *
+   * The app's pre-existing markup uses `.btn-primary`, `.card`, `.badge` and
+   * `.input-field` as standalone classes. The design system instead expects
+   * `.btn .btn-primary` (`.btn` carries the padding and flex), and names its
+   * tag and field classes `.tag` and `.input`.
+   *
+   * These rules keep un-ported screens usable during the migration. Each
+   * ported page should drop the legacy name and use the design system's own
+   * classes; once no page references them, delete this whole block.
+   */
 
-  .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200
-           bg-white px-5 py-3 text-sm font-semibold text-gray-700 shadow-sm transition-colors
-           hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50;
+  /* Bare `.btn-primary` / `.btn-secondary` pick up `.btn`'s box. */
+  .btn-primary:not(.btn),
+  .btn-secondary:not(.btn) {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    cursor: pointer; text-decoration: none;
+    font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+    font-size: 14px; line-height: 1.2;
+    border: 1px solid transparent;
+    padding: var(--space-2) calc(var(--space-3) * 1.2);
+    border-radius: var(--radius-md);
   }
+  .btn-primary:not(.btn):disabled,
+  .btn-secondary:not(.btn):disabled { opacity: 0.45; cursor: not-allowed; }
 
-  .card {
-    @apply rounded-2xl border border-gray-200 bg-white shadow-sm;
-  }
-
+  /* Legacy aliases onto the design system's real classes. */
+  /* `.badge` mirrors `.tag` + `.tag-neutral` (copied, not @apply'd — those
+     classes come from the imported plain CSS, which @apply cannot reach). */
   .badge {
-    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+    display: inline-flex; align-items: center; font-size: 11px;
+    letter-spacing: 0.02em; padding: 3px 10px;
+    border-radius: calc(var(--radius-md) * 0.75);
+    background: var(--color-neutral-100); color: var(--color-neutral-800);
   }
-
   .input-field {
-    @apply rounded-lg border border-gray-200 px-4 py-2.5 text-sm text-gray-900
-           placeholder:text-gray-400 focus:border-brand-500 focus:outline-none
-           focus:ring-1 focus:ring-brand-500 disabled:cursor-not-allowed disabled:opacity-50;
+    width: 100%; min-height: 36px; padding: 6px 10px; font: inherit;
+    font-size: 14px; color: var(--color-text); caret-color: var(--color-accent);
+    background: var(--color-surface);
+    border: 1px solid var(--color-divider); border-radius: var(--radius-md);
   }
+  .input-field:hover { border-color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+  .input-field:focus-visible { border-color: var(--color-accent); outline-offset: 0; }
 }

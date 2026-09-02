@@ -1,0 +1,37 @@
+/*
+ * Arc Blue — the accent override for the Modernist base.
+ *
+ * VENDORED VERBATIM from `Sweep Console - Arc Blue.dc.html` in the Claude
+ * Design project (667ed663-e3a1-47b6-b50b-7495bf95bcc0), where it is applied
+ * as a <style> block after the design system's own stylesheet.
+ *
+ * Load order matters: this must come after ./modernist.css so the accent ramps
+ * win. Everything else — neutrals, type, spacing, radii, shadows — is inherited
+ * from the base unchanged.
+ */
+
+/* Arc docs blue. The docs' own #4d8ee9 only reaches 2.95:1 on this ground, and
+   accent text is set inline throughout, so the BASE token is the accessible
+   step (#2f6fc9, 4.43:1) and #4d8ee9 lives on as step 500. */
+:root {
+  --color-accent: #2f6fc9;
+  --color-accent-100: #eff5fd;
+  --color-accent-200: #dbe9fa;
+  --color-accent-300: #bcd6f5;
+  --color-accent-400: #8ab8ee;
+  --color-accent-500: #4d8ee9;
+  --color-accent-600: #2359a6;
+  --color-accent-700: #1a4381;
+  --color-accent-800: #143160;
+  --color-accent-900: #12233f;
+  --color-accent-2: #2f6fc9;
+  --color-accent-2-100: #eff5fd;
+  --color-accent-2-200: #dbe9fa;
+  --color-accent-2-300: #bcd6f5;
+  --color-accent-2-400: #8ab8ee;
+  --color-accent-2-500: #4d8ee9;
+  --color-accent-2-600: #2359a6;
+  --color-accent-2-700: #1a4381;
+  --color-accent-2-800: #143160;
+  --color-accent-2-900: #12233f;
+}

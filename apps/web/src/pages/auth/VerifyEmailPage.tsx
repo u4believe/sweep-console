@@ -1,8 +1,13 @@
 import { useState, useId, Suspense } from "react";
 import { useSearchParams, Link } from "react-router-dom";
+import { OnboardingLayout } from "@/layouts/OnboardingLayout";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
+/**
+ * Step 02 of onboarding — the email is proven by the link's token, so what's
+ * left is naming the account and setting a password.
+ */
 function VerifyForm() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token") ?? "";
@@ -17,32 +22,41 @@ function VerifyForm() {
 
   if (!token) {
     return (
-      <div className="rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-xl">
-        <p className="font-medium text-red-600">Invalid verification link.</p>
-        <Link to="/signup" className="mt-3 inline-block text-sm font-medium text-brand-700 hover:underline">Back to sign up</Link>
-      </div>
+      <OnboardingLayout
+        step={2}
+        kicker="Verification"
+        title="That link isn't valid."
+        body="The verification link is missing its token, or has already been used. Request a fresh one from sign-up."
+      >
+        <div style={{ borderTop: "2px solid var(--color-divider)", paddingTop: 20 }}>
+          <Link to="/signup" className="btn btn-primary" style={{ padding: "11px 18px" }}>
+            Back to sign up
+          </Link>
+        </div>
+      </OnboardingLayout>
     );
   }
 
   if (done) {
     return (
-      <div className="rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-xl">
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-brand-100">
-          <svg className="h-7 w-7 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
-        <h2 className="text-xl font-bold text-gray-900">Account created!</h2>
-        <p className="mt-1 text-sm text-gray-500">
-          Sign in and head to <strong>API Keys</strong> in the sidebar to generate your first test key.
-        </p>
-        <Link
-          to="/login"
-          className="mt-5 block w-full rounded-lg bg-gray-900 py-2.5 text-center font-medium text-white transition hover:bg-black"
+      <OnboardingLayout
+        step={3}
+        kicker="Account created"
+        title="You're in. Next, link a payout wallet."
+        body="Settlements go straight to your own wallet — Sweep Console never holds your balance. You can link it from Settings once you're signed in."
+      >
+        <div
+          className="flex flex-wrap items-center gap-3"
+          style={{ borderTop: "2px solid var(--color-divider)", paddingTop: 20 }}
         >
-          Login
-        </Link>
-      </div>
+          <Link to="/login" className="btn btn-primary" style={{ padding: "12px 20px" }}>
+            Log in
+          </Link>
+          <span style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
+            Then head to Settings to link your wallet.
+          </span>
+        </div>
+      </OnboardingLayout>
     );
   }
 
@@ -66,76 +80,82 @@ function VerifyForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="rounded-2xl border border-gray-100 bg-white p-8 shadow-xl">
-      <div className="mb-5">
-        <h2 className="text-xl font-bold text-gray-900">Finish setting up</h2>
-        <p className="mt-1 text-sm text-gray-500">Your email is verified. Add your name and a password to create your account.</p>
-      </div>
-
-      {error && (
-        <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">{error}</p>
-      )}
-
-      <div className="space-y-4">
-        <div>
-          <label htmlFor={nameId} className="mb-1 block text-sm font-medium text-gray-700">Full name or company</label>
+    <OnboardingLayout
+      step={2}
+      // Going back means starting over with another address — the token in
+      // this link is bound to the one already proven, so say so plainly.
+      back={{ to: "/signup", label: "Use a different email" }}
+      kicker="Email verified"
+      title="Finish setting up."
+      body="Add the name your subscribers will see at checkout, and a password for signing in."
+    >
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <div className="field">
+          <label htmlFor={nameId}>Company name — shown to subscribers at checkout</label>
           <input
             id={nameId}
+            className="input"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
             placeholder="Acme Inc."
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
 
-        <div>
-          <label htmlFor={passwordId} className="mb-1 block text-sm font-medium text-gray-700">Password</label>
-          <div className="relative">
+        <div className="field">
+          <label htmlFor={passwordId}>Password</label>
+          <div className="flex gap-2">
             <input
               id={passwordId}
+              className="input"
               type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              required minLength={8} placeholder="Min. 8 characters"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              required
+              minLength={8}
+              placeholder="Min. 8 characters"
             />
             <button
               type="button"
+              className="btn btn-secondary shrink-0"
+              style={{ padding: "6px 12px", fontSize: 12 }}
               onClick={() => setShowPassword((s) => !s)}
-              className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-gray-600"
               aria-label={showPassword ? "Hide password" : "Show password"}
             >
-              {showPassword ? (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 4.411m0 0L21 21" />
-                </svg>
-              ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-              )}
+              {showPassword ? "Hide" : "Show"}
             </button>
           </div>
         </div>
-      </div>
 
-      <button
-        type="submit"
-        disabled={loading || password.length < 8 || name.trim().length === 0}
-        className="mt-5 w-full rounded-lg bg-gray-900 py-2.5 font-medium text-white transition hover:bg-black disabled:opacity-50"
-      >
-        {loading ? "Creating account…" : "Create account"}
-      </button>
-    </form>
+        {error && (
+          <p className="m-0" style={{ fontSize: 13, color: "var(--color-accent-700)" }}>{error}</p>
+        )}
+
+        <div style={{ borderTop: "2px solid var(--color-divider)", paddingTop: 20 }}>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            style={{ padding: "12px 20px" }}
+            disabled={loading || password.length < 8 || name.trim().length === 0}
+          >
+            {loading ? "Creating account…" : "Create account"}
+          </button>
+        </div>
+      </form>
+    </OnboardingLayout>
   );
 }
 
 export function VerifyEmailPage() {
   return (
-    <Suspense fallback={<div className="rounded-2xl border border-gray-100 bg-white p-8 text-center text-gray-400 shadow-xl">Loading…</div>}>
+    <Suspense
+      fallback={
+        <OnboardingLayout step={2} kicker="Verification" title="Loading…" body="One moment.">
+          <span />
+        </OnboardingLayout>
+      }
+    >
       <VerifyForm />
     </Suspense>
   );

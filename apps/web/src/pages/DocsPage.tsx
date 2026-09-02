@@ -86,17 +86,6 @@ const toc = [
     ],
   },
   {
-    group: "Developer setup",
-    items: [
-      { id: "architecture", label: "Architecture" },
-      { id: "prerequisites", label: "Prerequisites" },
-      { id: "setup", label: "Setup" },
-      { id: "environment", label: "Environment variables" },
-      { id: "circle", label: "Circle integration" },
-      { id: "running", label: "Running" },
-    ],
-  },
-  {
     group: "Webhooks",
     items: [
       { id: "webhooks", label: "Set up an endpoint" },
@@ -166,7 +155,7 @@ export function DocsPage() {
                 </Step>
                 <Step n={2}>
                   <strong>Email:</strong> enter your email → we send a verification link → open it → set your name + a
-                  password. <strong>Google:</strong> the email is already verified, so there's <em>no link</em> — you're signed in straight away.
+                  password. <strong>Google:</strong> you're signed in straight away — no link to open.
                 </Step>
                 <Step n={3}>
                   In the dashboard, <strong>create your plan</strong>. Each creator has <strong>one plan</strong> with optional
@@ -212,8 +201,8 @@ export function DocsPage() {
                 attached to it.
               </p>
               <ul className="list-disc space-y-1.5 pl-5">
-                <li><strong>Subscribers</strong> verify with a 6-digit one-time code before paying. A returning, already-recognized wallet can skip the step.</li>
-                <li><strong>Creators</strong> verify via a link emailed at sign-up (where they set their password). <strong>Google sign-up is pre-verified</strong>, so no link is sent.</li>
+                <li><strong>Subscribers</strong> verify with a 6-digit one-time code before paying. Returning subscribers may not be asked to verify again.</li>
+                <li><strong>Creators</strong> verify via a link emailed at sign-up, where they set their password. Signing up with Google skips that step.</li>
               </ul>
             </Section>
 
@@ -270,141 +259,19 @@ export function DocsPage() {
                 <li><strong>Email not verified.</strong> Payment is blocked until you enter the 6-digit code sent to your email.</li>
                 <li><strong>Chain switching.</strong> To sign, your wallet must be on Arc — the app switches it for you; just approve the prompt.</li>
                 <li><strong>Cross-chain takes a moment.</strong> CCTP Fast usually settles in under a minute — keep the page open.</li>
-                <li><strong>Gas.</strong> Paying is gasless (the platform covers it). The rare fallback path (if gasless is unavailable) uses two wallet transactions and a small amount of Arc gas.</li>
+                <li><strong>Gas.</strong> Paying is gasless on every chain — the platform submits each transaction and covers gas and the bridge fee. The one exception is a wallet&apos;s <strong>one-time smart-account setup</strong> on a source chain (Base / Arbitrum / Optimism), which the wallet submits itself and costs the subscriber a few cents. Arc never needs it, and it is never charged again.</li>
               </ul>
             </Section>
           </div>
 
-          {/* ── Developer setup ─────────────────────────────────────────── */}
+          {/* ── Webhooks ────────────────────────────────────────────────── */}
           <div className="mt-16">
-            <p className="text-sm font-semibold uppercase tracking-wide text-brand-600">Developer setup</p>
-            <h2 className="mt-1 text-3xl font-bold tracking-tight text-gray-900">Run the project locally</h2>
+            <p className="text-sm font-semibold uppercase tracking-wide text-brand-600">Webhooks</p>
+            <h2 className="mt-1 text-3xl font-bold tracking-tight text-gray-900">Get notified of events</h2>
           </div>
 
           <div className="mt-8 space-y-10">
-            <Section id="architecture" title="Architecture">
-              <p>A pnpm monorepo with three workspaces:</p>
-              <Pre>{`SweepConsole/
-├── apps/
-│   ├── api/        # Express + TypeScript backend (REST API, billing, Circle/CCTP)
-│   └── web/        # Vite + React frontend (creator portal + subscriber checkout)
-└── packages/
-    └── contracts/  # Foundry (Solidity) — SubscriptionManager on Arc`}</Pre>
-              <ul className="list-disc space-y-1.5 pl-5">
-                <li><strong>Frontend</strong> — Vite, React, Tailwind, wagmi + RainbowKit, Circle Web SDK.</li>
-                <li><strong>Backend</strong> — Node, Express, <Code>tsx</Code>, Prisma, viem.</li>
-                <li><strong>Database</strong> — PostgreSQL (schema in <Code>apps/web/prisma/schema.prisma</Code>).</li>
-                <li><strong>Contracts</strong> — Foundry, Solidity <Code>0.8.24</Code>; <Code>SubscriptionManager</Code> handles escrow, allowance renewals, and gasless <Code>subscribeWithPermit</Code> on Arc.</li>
-              </ul>
-            </Section>
-
-            <Section id="prerequisites" title="Prerequisites">
-              <ul className="list-disc space-y-1.5 pl-5">
-                <li><strong>Node</strong> ≥ 20 and <strong>pnpm</strong> ≥ 9.</li>
-                <li><strong>PostgreSQL</strong> (e.g. Supabase — pooled <Code>DATABASE_URL</Code> on <Code>:6543</Code> + direct <Code>DIRECT_URL</Code> on <Code>:5432</Code>).</li>
-                <li><strong>Foundry</strong> (<Code>forge</Code>) to compile/deploy the contract.</li>
-                <li>A <strong>Circle Developer account</strong> — API key, a W3S App ID, and CCTP testnet access.</li>
-                <li>A <strong>WalletConnect</strong> project ID, SMTP credentials, and a <strong>Google OAuth</strong> client ID (optional, for Google sign-in).</li>
-              </ul>
-            </Section>
-
-            <Section id="setup" title="Setup">
-              <Pre>{`# 1. Clone + install
-git clone <your-repo-url> SweepConsole
-cd SweepConsole
-pnpm install
-
-# 2. Configure environment
-cp .env.example apps/api/.env     # backend
-cp .env.example apps/web/.env     # frontend — only VITE_* are read here
-
-# 3. Database — generate the Prisma client + create the schema
-pnpm --filter @sweep/api db:generate
-pnpm --filter @sweep/api db:push
-
-# 4. Deploy the SubscriptionManager contract to Arc
-cd packages/contracts && forge build
-forge script script/Deploy.s.sol --rpc-url <arc-testnet-rpc> --broadcast -vvvv
-#   put the deployed address into SUBSCRIPTION_MANAGER_ADDRESS in apps/api/.env
-cd ../..
-
-# 5. Register the Circle webhook (optional — needs a public URL / tunnel)
-pnpm --filter @sweep/api circle:register-webhook`}</Pre>
-            </Section>
-
-            <Section id="environment" title="Environment variables">
-              <p>The most important values (see <Code>.env.example</Code> for the full, commented list):</p>
-              <div className="rounded-xl border border-gray-200 px-5 py-2">
-                <p className="border-b border-gray-100 py-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Backend — apps/api/.env</p>
-                <Row k="DATABASE_URL / DIRECT_URL" v="Postgres (pooled / direct). Prisma uses the direct URL." />
-                <Row k="JWT_SECRET" v="Session JWT + API-key/OTP signing." />
-                <Row k="GOOGLE_CLIENT_ID" v={<>Google OAuth client ID — verifies "Continue with Google" (anti-replay).</>} />
-                <Row k="CIRCLE_API_KEY" v={<>Circle API key (<Code>TEST_API_KEY:…</Code> for sandbox).</>} />
-                <Row k="NEXT_PUBLIC_CIRCLE_APP_ID" v="W3S App ID for user-controlled wallets." />
-                <Row k="PLATFORM_PRIVATE_KEY" v="Platform/relayer key — submits renewals, covers gas." />
-                <Row k="SUBSCRIPTION_MANAGER_ADDRESS" v="Deployed contract address on Arc." />
-                <Row k="PLATFORM_TREASURY_ADDRESS / PLATFORM_FEE_BPS" v="Platform fee split." />
-                <Row k="SETTLEMENT_WINDOW_HOURS" v="First-payment escrow / refund window (default 24)." />
-                <Row k="SUPPORTED_SOURCE_CHAINS" v={<><Code>base,arbitrum,optimism</Code> — CCTP source chains.</>} />
-              </div>
-              <div className="rounded-xl border border-gray-200 px-5 py-2">
-                <p className="border-b border-gray-100 py-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Frontend — apps/web/.env</p>
-                <Row k="VITE_API_URL" v={<>Backend URL (<Code>http://localhost:4000</Code>).</>} />
-                <Row k="VITE_CIRCLE_APP_ID" v="W3S App ID (Circle Web SDK)." />
-                <Row k="VITE_GOOGLE_CLIENT_ID" v="Google OAuth client ID (same value as backend)." />
-                <Row k="VITE_WALLETCONNECT_PROJECT_ID" v="WalletConnect connectors." />
-              </div>
-            </Section>
-
-            <Section id="circle" title="Circle integration">
-              <p>
-                All Circle HTTP calls go through helpers in <Code>apps/api/src/lib/circle.ts</Code>. Three Circle products are
-                integrated:
-              </p>
-              <h3 className="pt-2 text-lg font-semibold text-gray-900">1 · Programmable Wallets</h3>
-              <p>
-                Creators can <strong>"Create a wallet"</strong> — a Circle <strong>user-controlled</strong> Programmable Wallet that
-                receives USDC payouts. The PIN stays with the creator; the platform never holds keys. The flow registers a Circle
-                user (<Code>/v1/w3s/users</Code>), mints a session token (<Code>/users/token</Code>), runs first-time PIN + wallet
-                setup (<Code>/user/initialize</Code>), and signs withdrawals via <Code>/user/transactions/transfer</Code>.
-              </p>
-              <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                <strong>Gotcha:</strong> the transfer endpoint needs a top-level <Code>feeLevel</Code> for dynamic gas estimation —
-                omit it and Circle returns <Code>400 API parameter invalid</Code>, which is why deposits worked but withdrawals
-                failed until <Code>feeLevel: "MEDIUM"</Code> was added.
-              </p>
-              <h3 className="pt-2 text-lg font-semibold text-gray-900">2 · CCTP V2 (cross-chain)</h3>
-              <p>
-                USDC on another chain is bridged to Arc: burn on the source chain (<Code>TokenMessengerV2.depositForBurn</Code>,
-                Fast Transfer), fetch the attestation from Circle's <strong>Iris</strong> API, then mint on Arc
-                (<Code>MessageTransmitterV2.receiveMessage</Code>). The same bridge powers the first cross-chain payment and
-                cross-chain renewals.
-              </p>
-              <h3 className="pt-2 text-lg font-semibold text-gray-900">3 · Webhooks</h3>
-              <p>
-                Transaction notifications arrive at <Code>POST /circle-webhooks</Code> (subscribed via{" "}
-                <Code>/v2/notifications/subscriptions</Code>), each verified against the ECDSA signing key from{" "}
-                <Code>/v2/notifications/publicKey/{"{keyId}"}</Code> before acting.
-              </p>
-            </Section>
-
-            <Section id="running" title="Running">
-              <p>Three processes, each in its own terminal:</p>
-              <Pre>{`# Backend API  → http://localhost:4000
-pnpm --filter @sweep/api dev
-
-# Frontend     → http://localhost:3000   (strict port)
-pnpm dev
-
-# Billing engine (cron: renewals, settlement, retries)
-pnpm --filter @sweep/api billing:run`}</Pre>
-              <p>
-                Start with Circle <strong>sandbox</strong> (<Code>CIRCLE_BASE_URL=https://api-sandbox.circle.com</Code>, a{" "}
-                <Code>TEST_API_KEY</Code>) before going live.
-              </p>
-            </Section>
-
-            <Section id="webhooks" title="Webhooks: get notified of events">
+            <Section id="webhooks" title="Set up an endpoint">
               <p>
                 Rather than polling our API, let Sweep <strong>push events to your server</strong> the moment they
                 happen — a subscription is created, a payment succeeds, a refund is issued. Your app reacts in real
@@ -466,7 +333,7 @@ X-Sweep-Signature: sha256=2b9c4e7a...
   "event_id": "evt_8f3a2c...",
   "event_type": "payment.succeeded",
   "created_at": "2026-06-27T10:15:00.000Z",
-  "merchant_id": "4A56-FD21-8207",
+  "merchant_id": "XXXX-XXXX-XXXX",
   "external_ref": "your-user-id-123",
   "data": {
     "subscription_id": "sub_abc123",
