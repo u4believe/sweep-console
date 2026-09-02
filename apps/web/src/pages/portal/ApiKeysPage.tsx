@@ -1,4 +1,7 @@
 import { useEffect, useState, useId } from "react";
+import { PageHeader } from "@/components/portal/PageHeader";
+import { ErrorNote, Kicker, Mono, Section } from "@/components/portal/primitives";
+import { apiFetch, wasCancelled } from "@/lib/stepup";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -13,14 +16,15 @@ function CopyButton({ value }: { value: string }) {
   return (
     <button
       type="button"
+      className="btn btn-secondary shrink-0"
+      style={{ padding: "6px 12px", fontSize: 12 }}
       onClick={() => {
         void navigator.clipboard.writeText(value);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
       }}
-      className="shrink-0 rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition"
     >
-      {copied ? "Copied!" : "Copy"}
+      {copied ? "Copied" : "Copy"}
     </button>
   );
 }
@@ -30,7 +34,6 @@ export function ApiKeysPage() {
   const [loadError, setLoadError] = useState("");
   const [newKey, setNewKey] = useState<string | null>(null);
   const [name, setName] = useState("");
-  const [showForm, setShowForm] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState("");
   const nameId = useId();
@@ -51,161 +54,169 @@ export function ApiKeysPage() {
     setGenError("");
     setNewKey(null);
 
-    const res = await fetch(`${API_URL}/portal/api-keys/regenerate`, {
+    // Guarded: a new key outlives the session that minted it, so apiFetch
+    // will ask the merchant to confirm before this goes through.
+    const res = await apiFetch(`/portal/api-keys/regenerate`, {
       method: "POST",
-      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name.trim() || "Default" }),
     });
+    const cancelled = await wasCancelled(res);
     const json = await res.json() as { key?: string; name?: string; prefix?: string; error?: { message?: string } };
     setGenerating(false);
 
     if (!res.ok) {
-      setGenError(json.error?.message ?? "Failed to generate key");
+      if (!cancelled) setGenError(json.error?.message ?? "Failed to generate key");
       return;
     }
 
     setNewKey(json.key ?? "");
     setKeyInfo({ hasTestKey: true, name: json.name ?? "Default", prefix: json.prefix ?? null });
-    setShowForm(false);
     setName("");
   }
 
   if (loadError) {
-    return <div className="rounded-xl bg-red-50 p-6 text-sm text-red-600">{loadError}</div>;
-  }
-
-  if (!keyInfo) {
     return (
-      <div className="space-y-4">
-        {Array.from({ length: 2 }).map((_, i) => (
-          <div key={i} className="card p-6 animate-pulse space-y-3">
-            <div className="h-4 w-32 rounded bg-gray-200" />
-            <div className="h-3 w-64 rounded bg-gray-100" />
-          </div>
-        ))}
-      </div>
+      <>
+        <PageHeader kicker="Developers" title="API keys" />
+        <ErrorNote>{loadError}</ErrorNote>
+      </>
     );
   }
 
   return (
-    <div>
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">API Keys</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Test keys let you integrate SweepConsole without real payments.
-          </p>
-        </div>
-        {!showForm && (
-          <button
-            onClick={() => { setShowForm(true); setNewKey(null); setGenError(""); }}
-            className="btn-primary text-sm"
-          >
-            Create API key
-          </button>
-        )}
-      </div>
+    <>
+      <PageHeader kicker="Developers" title="API keys" />
 
-      {/* One-time key reveal */}
-      {newKey && (
-        <div className="mb-6 rounded-xl border border-green-200 bg-green-50 p-5">
-          <p className="mb-2 text-sm font-semibold text-green-800">
-            Your new test API key — copy it now, it won&apos;t be shown again.
-          </p>
-          <div className="flex items-center gap-3 rounded-lg bg-white border border-green-200 px-4 py-3">
-            <code className="flex-1 break-all font-mono text-sm text-gray-900">{newKey}</code>
-            <CopyButton value={newKey} />
-          </div>
-          <p className="mt-2 text-xs text-green-700">
-            The previous key (if any) has been invalidated.
-          </p>
-        </div>
-      )}
-
-      {/* Generate / Regenerate form */}
-      {showForm && (
-        <form onSubmit={handleGenerate} className="mb-6 card p-6 space-y-4">
-          <h2 className="text-base font-semibold text-gray-900">Create API key</h2>
-          {keyInfo.hasTestKey && (
-            <p className="rounded-lg bg-yellow-50 px-4 py-3 text-sm text-yellow-700">
-              Regenerating will immediately invalidate your current key. Any integration using it will break.
-            </p>
-          )}
-          {genError && (
-            <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">{genError}</p>
-          )}
-          <div>
-            <label htmlFor={nameId} className="block mb-1.5 text-sm font-medium text-gray-700">
-              Key name <span className="text-gray-400">(optional)</span>
-            </label>
-            <input
-              id={nameId}
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Local dev, Staging server"
-              maxLength={50}
-              className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-          <div className="flex gap-3">
-            <button
-              type="submit"
-              disabled={generating}
-              className="btn-primary text-sm disabled:opacity-50"
-            >
-              {generating ? "Generating…" : "Create API key"}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setShowForm(false); setGenError(""); setName(""); }}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* Current key status */}
-      <div className="card p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <p className="font-medium text-gray-900">{keyInfo.name}</p>
-              <span className="badge bg-yellow-100 text-yellow-700">Test</span>
+      {!keyInfo ? (
+        <Section bordered={false}>
+          <div className="mb-3 h-4 w-40 animate-pulse" style={{ background: "var(--color-neutral-300)" }} />
+          <div className="h-3 w-64 animate-pulse" style={{ background: "var(--color-neutral-300)" }} />
+        </Section>
+      ) : (
+        <>
+          {/* One-time key reveal. */}
+          {newKey && (
+            <div style={{ padding: "24px 32px 0" }}>
+              <div
+                style={{
+                  border: "2px solid var(--color-accent)",
+                  background: "var(--color-accent-100)",
+                  padding: "18px 20px",
+                }}
+              >
+                <p
+                  className="m-0 mb-1"
+                  style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15 }}
+                >
+                  Your new test API key — copy it now
+                </p>
+                <p className="m-0 mb-3" style={{ fontSize: 12.5, color: "var(--color-accent-800)" }}>
+                  Shown only once. The previous key, if any, has been invalidated.
+                </p>
+                <div
+                  className="flex items-center gap-3"
+                  style={{
+                    background: "var(--color-bg)",
+                    border: "1px solid var(--color-divider)",
+                    padding: "10px 14px",
+                  }}
+                >
+                  <code
+                    className="flex-1"
+                    style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12.5, wordBreak: "break-all" }}
+                  >
+                    {newKey}
+                  </code>
+                  <CopyButton value={newKey} />
+                </div>
+              </div>
             </div>
-            {keyInfo.prefix ? (
-              <p className="mt-1 font-mono text-sm text-gray-500">
-                {keyInfo.prefix}••••••••••••••••••••••••••••••••
-              </p>
-            ) : (
-              <p className="mt-1 text-sm text-gray-400">No key created yet.</p>
-            )}
-          </div>
-          {keyInfo.hasTestKey && (
-            <span className="shrink-0 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">
-              Active
-            </span>
           )}
-        </div>
 
-        {!keyInfo.hasTestKey && (
-          <p className="mt-4 text-sm text-gray-500">
-            Click <strong>Create key</strong> above to generate your first test API key.
-          </p>
-        )}
+          {/* Current key. */}
+          <Section title="Current key">
+            <div style={{ borderTop: "1px solid var(--color-divider)", paddingTop: 14 }}>
+              <div className="flex flex-wrap items-start gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="m-0" style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 17 }}>
+                      {keyInfo.name}
+                    </p>
+                    <span className="tag tag-outline">Test</span>
+                  </div>
+                  {keyInfo.prefix ? (
+                    <p className="m-0 mt-1.5">
+                      <Mono size={13}>{keyInfo.prefix}••••••••••••••••••••••••••••••••</Mono>
+                    </p>
+                  ) : (
+                    <p className="m-0 mt-1.5" style={{ fontSize: 13, color: "var(--color-neutral-600)" }}>
+                      No key created yet.
+                    </p>
+                  )}
+                </div>
+                {keyInfo.hasTestKey && (
+                  <span className="tag tag-accent ml-auto shrink-0">Active</span>
+                )}
+              </div>
 
-        <div className="mt-5 border-t border-gray-100 pt-5">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Usage</p>
-          <pre className="overflow-x-auto rounded-lg bg-gray-900 p-4 text-xs text-green-400">{`Authorization: Bearer ${keyInfo.prefix ? keyInfo.prefix + "••••••••••••••••" : "test_your_key_here"}`}</pre>
-        </div>
-      </div>
+              <div style={{ borderTop: "1px solid var(--color-divider)", marginTop: 18, paddingTop: 14 }}>
+                <Kicker>Usage</Kicker>
+                <pre
+                  className="m-0 overflow-x-auto"
+                  style={{
+                    background: "var(--color-neutral-900)",
+                    color: "var(--color-neutral-100)",
+                    padding: "14px 16px",
+                    fontFamily: "ui-monospace, Menlo, monospace",
+                    fontSize: 12.5,
+                  }}
+                >
+{`Authorization: Bearer ${keyInfo.prefix ? keyInfo.prefix + "••••••••••••••••" : "test_your_key_here"}`}
+                </pre>
+              </div>
+            </div>
+          </Section>
 
-      <div className="mt-4 rounded-xl bg-blue-50 border border-blue-100 p-4 text-sm text-blue-700">
-        <strong>Beta note:</strong> Only test keys are available during the beta period. Live keys will be enabled when you go live.
-      </div>
-    </div>
+          {/* Create / rotate. */}
+          <Section title={keyInfo.hasTestKey ? "Rotate key" : "Create key"}>
+            <form onSubmit={handleGenerate} className="max-w-lg">
+              {keyInfo.hasTestKey && (
+                <p className="m-0 mb-3" style={{ fontSize: 13, color: "var(--color-accent-700)" }}>
+                  Rotating immediately invalidates the current key — any integration using it will break.
+                </p>
+              )}
+              {genError && (
+                <p className="m-0 mb-3" style={{ fontSize: 13, color: "var(--color-accent-700)" }}>{genError}</p>
+              )}
+
+              <div className="field" style={{ marginBottom: 14 }}>
+                <label htmlFor={nameId}>Key name (optional)</label>
+                <input
+                  id={nameId}
+                  className="input"
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Local dev, Staging server"
+                  maxLength={50}
+                />
+              </div>
+
+              <button type="submit" className="btn btn-primary" disabled={generating}>
+                {generating ? "Generating…" : keyInfo.hasTestKey ? "Rotate API key" : "Create API key"}
+              </button>
+            </form>
+          </Section>
+
+          <Section bordered={false}>
+            <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
+              <strong>Beta note:</strong> only test keys are available during the beta period. Live
+              keys are enabled when you go live.
+            </p>
+          </Section>
+        </>
+      )}
+    </>
   );
 }

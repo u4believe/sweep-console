@@ -1,4 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { PageHeader } from "@/components/portal/PageHeader";
+import {
+  EmptyNote,
+  ErrorNote,
+  FilterTabs,
+  Mono,
+  Section,
+  StatusTag,
+  TableSkeleton,
+  shortAddress,
+} from "@/components/portal/primitives";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -13,17 +24,20 @@ interface Subscription {
   isTestMode: boolean;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  active: "bg-green-100 text-green-700",
-  trialing: "bg-blue-100 text-blue-700",
-  past_due: "bg-yellow-100 text-yellow-700",
-  cancelled: "bg-gray-100 text-gray-500",
-  paused: "bg-orange-100 text-orange-700",
-};
+type Filter = "all" | "active" | "trialing" | "past_due" | "cancelled";
+
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "active", label: "Active" },
+  { id: "trialing", label: "Trialing" },
+  { id: "past_due", label: "Past due" },
+  { id: "cancelled", label: "Cancelled" },
+];
 
 export function SubscriptionsPage() {
   const [subs, setSubs] = useState<Subscription[] | null>(null);
   const [error, setError] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
 
   useEffect(() => {
     fetch(`${API_URL}/portal/subscriptions`, { credentials: "include" })
@@ -35,66 +49,81 @@ export function SubscriptionsPage() {
       .catch(() => setError("Could not reach the API server"));
   }, []);
 
-  if (error) return <div className="rounded-xl bg-red-50 p-6 text-sm text-red-600">{error}</div>;
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { all: subs?.length ?? 0 };
+    for (const s of subs ?? []) c[s.status] = (c[s.status] ?? 0) + 1;
+    return c;
+  }, [subs]);
+
+  const shown = useMemo(
+    () => (filter === "all" ? subs ?? [] : (subs ?? []).filter((s) => s.status === filter)),
+    [subs, filter]
+  );
 
   return (
-    <div>
-      <h1 className="mb-6 text-2xl font-bold text-gray-900">Subscriptions</h1>
+    <>
+      <PageHeader kicker="Customers" title="Subscriptions" />
 
-      {subs === null ? (
-        <div className="card overflow-hidden animate-pulse">
-          <div className="h-10 bg-gray-50 border-b border-gray-100" />
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="px-6 py-4 border-b border-gray-100 flex gap-6">
-              <div className="h-4 w-28 rounded bg-gray-100" />
-              <div className="h-4 w-20 rounded bg-gray-100" />
-            </div>
-          ))}
-        </div>
-      ) : subs.length === 0 ? (
-        <div className="card flex flex-col items-center py-16 text-center">
-          <p className="text-gray-400">No subscriptions yet.</p>
-          <p className="mt-1 text-sm text-gray-400">Subscribers will appear here once they complete checkout.</p>
-        </div>
+      {error ? (
+        <ErrorNote>{error}</ErrorNote>
       ) : (
-        <div className="card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="border-b border-gray-100 bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-              <tr>
-                <th className="px-6 py-3">Subscriber</th>
-                <th className="px-6 py-3">Plan</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Period End</th>
-                <th className="px-6 py-3">Wallet</th>
-                <th className="px-6 py-3">ID</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {subs.map((sub) => (
-                <tr key={sub.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <p className="text-gray-900">{sub.email ?? "—"}</p>
-                    <p className="font-mono text-xs text-gray-400">{sub.externalRef}</p>
-                  </td>
-                  <td className="px-6 py-4 text-gray-700">{sub.planName}</td>
-                  <td className="px-6 py-4">
-                    <span className={`badge ${STATUS_COLORS[sub.status] ?? "bg-gray-100 text-gray-500"}`}>
-                      {sub.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-gray-600">{new Date(sub.currentPeriodEnd).toLocaleDateString()}</td>
-                  <td className="px-6 py-4 font-mono text-xs text-gray-500">
-                    {sub.walletAddress.slice(0, 6)}...{sub.walletAddress.slice(-4)}
-                  </td>
-                  <td className="px-6 py-4">
-                    <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-600">{sub.id}</code>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <FilterTabs
+            tabs={FILTERS.map((f) => ({ ...f, count: counts[f.id] ?? 0 }))}
+            active={filter}
+            onSelect={setFilter}
+          />
+
+          <Section bordered={false}>
+            {subs === null ? (
+              <TableSkeleton cols={6} />
+            ) : shown.length === 0 ? (
+              <EmptyNote
+                title={filter === "all" ? "No subscriptions yet." : `No ${FILTERS.find((f) => f.id === filter)?.label.toLowerCase()} subscriptions.`}
+                hint={filter === "all" ? "Subscribers appear here once they complete checkout." : undefined}
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Subscriber</th>
+                      <th>Plan</th>
+                      <th>Status</th>
+                      <th>Renews</th>
+                      <th>Wallet</th>
+                      <th>ID</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shown.map((sub) => (
+                      <tr key={sub.id}>
+                        <td>
+                          <p className="m-0">{sub.email ?? "—"}</p>
+                          <Mono size={11}>
+                            <span style={{ color: "var(--color-neutral-600)" }}>{sub.externalRef}</span>
+                          </Mono>
+                        </td>
+                        <td>{sub.planName}</td>
+                        <td><StatusTag status={sub.status} /></td>
+                        <td style={{ color: "var(--color-neutral-700)" }}>
+                          {new Date(sub.currentPeriodEnd).toLocaleDateString()}
+                        </td>
+                        <td style={{ color: "var(--color-neutral-700)" }}>
+                          <Mono>{shortAddress(sub.walletAddress)}</Mono>
+                        </td>
+                        <td style={{ color: "var(--color-neutral-700)" }}>
+                          <Mono>{sub.id}</Mono>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Section>
+        </>
       )}
-    </div>
+    </>
   );
 }

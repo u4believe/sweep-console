@@ -1,68 +1,31 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { PageHeader } from "@/components/portal/PageHeader";
+import {
+  EmptyNote,
+  ErrorNote,
+  KpiBand,
+  Mono,
+  Section,
+  TableSkeleton,
+  type Kpi,
+} from "@/components/portal/primitives";
+import { type Plan, type PaymentLink } from "./plan-model";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
-
-interface Tier {
-  id: string;
-  name: string;
-  amount: number;
-  interval: string;
-  trial_days: number;
-}
-
-interface Plan {
-  id: string;
-  name: string;
-  description: string | null;
-  amount: number;
-  currency: string;
-  interval: string;
-  trial_days: number;
-  subscribers: number;
-  default_tier_name?: string | null;
-  tiers?: Tier[];
-}
-
-interface PaymentLink {
-  id: string;
-  url: string;
-  plan_id: string;
-}
 
 const INTERVAL_LABELS: Record<string, string> = {
   daily: "Daily", weekly: "Weekly", monthly: "Monthly", yearly: "Yearly",
 };
 
-function LinkCell({ url }: { url: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="flex items-center gap-2">
-      <code className="max-w-[200px] truncate rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-600">
-        {url.replace(/^https?:\/\//, "")}
-      </code>
-      <button
-        onClick={() => { navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-        className="rounded px-2 py-0.5 text-xs font-medium text-brand-600 hover:bg-brand-50"
-      >
-        {copied ? "Copied!" : "Copy"}
-      </button>
-    </div>
-  );
-}
-
 export function PlansPage() {
+  const navigate = useNavigate();
   const [plans, setPlans] = useState<Plan[] | null>(null);
   const [links, setLinks] = useState<Record<string, string>>({});
   const [creating, setCreating] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<Plan | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [tierModal, setTierModal] = useState<Plan | null>(null);
-  const [tierForm, setTierForm] = useState({ name: "", amount: "", interval: "monthly", trial_days: "0" });
-  const [addingTier, setAddingTier] = useState(false);
   const [error, setError] = useState("");
 
-  const loadPlans = () =>
+  useEffect(() => {
     fetch(`${API_URL}/portal/plans`, { credentials: "include" })
       .then((r) => r.json())
       .then((json: { data?: Plan[]; error?: { message?: string } }) => {
@@ -71,292 +34,173 @@ export function PlansPage() {
       })
       .catch(() => setError("Could not reach the API server"));
 
-  useEffect(() => {
-    loadPlans();
-
     // Pre-populate any payment links the merchant already created
     fetch(`${API_URL}/portal/payment-links`, { credentials: "include" })
       .then((r) => r.json())
       .then((json: { data?: PaymentLink[] }) => {
-        if (json.data) {
-          setLinks(Object.fromEntries(json.data.map((l) => [l.plan_id, l.url])));
-        }
+        if (json.data) setLinks(Object.fromEntries(json.data.map((l) => [l.plan_id, l.url])));
       })
       .catch(() => { /* non-critical */ });
   }, []);
 
-  const createLink = async (planId: string) => {
+  async function createLink(planId: string) {
     setCreating(planId);
     try {
       const res = await fetch(`${API_URL}/portal/payment-links`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ plan_id: planId }),
       });
-      const json = await res.json();
-      if (res.ok && json.url) {
-        setLinks((prev) => ({ ...prev, [planId]: json.url as string }));
-      } else {
-        setError(json.error?.message ?? "Failed to create payment link");
-      }
-    } catch {
-      setError("Could not reach the API server");
+      const json = await res.json() as { data?: PaymentLink; url?: string; error?: { message?: string } };
+      const url = json.data?.url ?? json.url;
+      if (url) setLinks((prev) => ({ ...prev, [planId]: url }));
     } finally {
       setCreating(null);
     }
-  };
+  }
 
-  const doDelete = async () => {
-    if (!confirmDelete) return;
-    setDeleting(true);
-    try {
-      const res = await fetch(`${API_URL}/portal/plans/${confirmDelete.id}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        throw new Error(json.error?.message ?? "Failed to delete plan");
-      }
-      setPlans((prev) => (prev ? prev.filter((p) => p.id !== confirmDelete.id) : prev));
-      setConfirmDelete(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to delete plan");
-    } finally {
-      setDeleting(false);
-    }
-  };
+  const kpis: Kpi[] = useMemo(() => {
+    const rows = plans ?? [];
+    const subs = rows.reduce((n, p) => n + p.subscribers, 0);
+    const mrr = rows.reduce((sum, p) => sum + p.mrr, 0);
+    return [
+      { label: "Active plans", value: String(rows.length) },
+      { label: "Subscribers", value: String(subs) },
+      { label: "MRR", value: (mrr / 1_000_000).toFixed(2), unit: "USDC", accent: true },
+    ];
+  }, [plans]);
 
-  const addTier = async () => {
-    if (!tierModal) return;
-    const amount = Math.round(parseFloat(tierForm.amount) * 1_000_000);
-    if (!tierForm.name.trim() || !Number.isFinite(amount) || amount <= 0) {
-      setError("A tier needs a name and a positive amount.");
-      return;
-    }
-    setAddingTier(true);
-    try {
-      const res = await fetch(`${API_URL}/portal/plans/${tierModal.id}/tiers`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          name: tierForm.name.trim(),
-          amount,
-          interval: tierForm.interval,
-          trial_days: Number(tierForm.trial_days) || 0,
-        }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error?.message ?? "Failed to add tier");
-      }
-      await loadPlans();
-      setTierModal(null);
-      setTierForm({ name: "", amount: "", interval: "monthly", trial_days: "0" });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to add tier");
-    } finally {
-      setAddingTier(false);
-    }
-  };
-
-  if (error) return <div className="rounded-xl bg-red-50 p-6 text-sm text-red-600">{error}</div>;
+  if (error) {
+    return (
+      <>
+        <PageHeader kicker="Catalogue" title="Plans" />
+        <ErrorNote>{error}</ErrorNote>
+      </>
+    );
+  }
 
   return (
-    <div>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Plans</h1>
-        <Link to="/plans/new" className="btn-primary">+ New Plan</Link>
-      </div>
+    <>
+      <PageHeader
+        kicker="Catalogue"
+        title="Plans"
+        action={<Link to="/plans/new" className="btn btn-primary">New plan</Link>}
+      />
 
-      {plans === null ? (
-        <div className="card overflow-hidden animate-pulse">
-          <div className="h-10 bg-gray-50 border-b border-gray-100" />
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="px-6 py-4 border-b border-gray-100 flex gap-6">
-              <div className="h-4 w-32 rounded bg-gray-100" />
-              <div className="h-4 w-20 rounded bg-gray-100" />
-            </div>
-          ))}
-        </div>
-      ) : plans.length === 0 ? (
-        <div className="card flex flex-col items-center py-16 text-center">
-          <p className="text-gray-400">No plans yet.</p>
-          <p className="mt-1 text-sm text-gray-400">Create a plan to start accepting subscriptions.</p>
-          <Link to="/plans/new" className="btn-primary mt-4 text-sm">Create your first plan</Link>
-        </div>
-      ) : (
-        <div className="card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="border-b border-gray-100 bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-              <tr>
-                <th className="px-6 py-3">Plan</th>
-                <th className="px-6 py-3">Price</th>
-                <th className="px-6 py-3">Interval</th>
-                <th className="px-6 py-3">Trial</th>
-                <th className="px-6 py-3">Subscribers</th>
-                <th className="px-6 py-3">Payment link</th>
-                <th className="px-6 py-3"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {plans.map((plan) => (
-                <tr key={plan.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <p className="font-medium text-gray-900">{plan.name}</p>
-                    <code className="font-mono text-xs text-gray-400">{plan.id}</code>
-                    <div className="mt-1 flex flex-wrap items-center gap-1">
-                      <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
-                        {plan.default_tier_name || plan.name} ${(plan.amount / 1_000_000).toFixed(2)}/{plan.interval}
-                        <span className="ml-1 text-gray-400">· default</span>
-                      </span>
-                      {(plan.tiers ?? []).map((t) => (
-                        <span key={t.id} className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
-                          {t.name} ${(t.amount / 1_000_000).toFixed(2)}/{t.interval}
-                        </span>
-                      ))}
-                      <button
-                        onClick={() => setTierModal(plan)}
-                        className="text-xs font-medium text-brand-600 hover:underline"
-                      >
-                        + Add tier
-                      </button>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 font-medium text-gray-900">
-                    ${(plan.amount / 1_000_000).toFixed(2)} {plan.currency}
-                  </td>
-                  <td className="px-6 py-4 text-gray-600">{INTERVAL_LABELS[plan.interval]}</td>
-                  <td className="px-6 py-4 text-gray-600">
-                    {plan.trial_days > 0 ? `${plan.trial_days} days` : "None"}
-                  </td>
-                  <td className="px-6 py-4 text-gray-600">{plan.subscribers}</td>
-                  <td className="px-6 py-4">
-                    {links[plan.id] ? (
-                      <LinkCell url={links[plan.id]!} />
-                    ) : (
-                      <button
-                        onClick={() => createLink(plan.id)}
-                        disabled={creating === plan.id}
-                        className="rounded-lg border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                      >
-                        {creating === plan.id ? "Creating…" : "Create link"}
-                      </button>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <button
-                      onClick={() => setConfirmDelete(plan)}
-                      className="text-xs font-medium text-red-600 hover:underline"
-                    >
-                      Delete
-                    </button>
-                  </td>
+      <KpiBand items={kpis} loading={plans === null} size={34} />
+
+      <Section bordered={false}>
+        {plans === null ? (
+          <TableSkeleton rows={3} cols={6} />
+        ) : plans.length === 0 ? (
+          <EmptyNote title="No plans yet." hint="Create a plan to start accepting subscriptions." />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Plan</th>
+                  <th>Tiers</th>
+                  <th>Price</th>
+                  <th>Interval</th>
+                  <th>Trial</th>
+                  <th>Subscribers</th>
+                  <th>Checkout link</th>
+                  <th />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {tierModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-semibold text-gray-900">Add a tier to {tierModal.name}</h3>
-            <p className="mt-1 text-xs text-gray-500">
-              Tiers are additive — existing subscribers keep their terms. New tiers can't change a tier already in use.
-            </p>
-            <div className="mt-4 space-y-3">
-              <input
-                value={tierForm.name}
-                onChange={(e) => setTierForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Tier name (e.g. Pro)"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none"
-              />
-              <div className="flex gap-2">
-                <input
-                  value={tierForm.amount}
-                  onChange={(e) => setTierForm((f) => ({ ...f, amount: e.target.value }))}
-                  placeholder="Amount (USDC, e.g. 25)"
-                  inputMode="decimal"
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none"
-                />
-                <select
-                  value={tierForm.interval}
-                  onChange={(e) => setTierForm((f) => ({ ...f, interval: e.target.value }))}
-                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none"
-                >
-                  <option value="daily">daily</option>
-                  <option value="weekly">weekly</option>
-                  <option value="monthly">monthly</option>
-                  <option value="yearly">yearly</option>
-                </select>
-              </div>
-              <input
-                value={tierForm.trial_days}
-                onChange={(e) => setTierForm((f) => ({ ...f, trial_days: e.target.value }))}
-                placeholder="Trial days (0 for none)"
-                inputMode="numeric"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none"
-              />
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                onClick={() => setTierModal(null)}
-                disabled={addingTier}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={addTier}
-                disabled={addingTier}
-                className="btn-primary px-4 py-2 text-sm disabled:opacity-50"
-              >
-                {addingTier ? "Adding…" : "Add tier"}
-              </button>
-            </div>
+              </thead>
+              <tbody>
+                {plans.map((plan) => (
+                  <tr key={plan.id}>
+                    <td style={{ cursor: "pointer" }} onClick={() => navigate(`/plans/${plan.id}`)}>
+                      <p className="m-0" style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15 }}>
+                        {plan.name}
+                      </p>
+                      <Mono size={11}>
+                        <span style={{ color: "var(--color-neutral-600)" }}>{plan.id}</span>
+                      </Mono>
+                    </td>
+                    <td>
+                      {/* Every option a subscriber can pick, priced, as pills that
+                          wrap onto as many rows as the plan needs. Ordered by price
+                          the way checkout orders them, so the cell reads as a price
+                          ladder rather than in insertion order. The plan's own terms
+                          are the default option and carry the marker. */}
+                      <div className="flex flex-wrap gap-1.5" style={{ maxWidth: 260 }}>
+                        {[
+                          {
+                            key: "default",
+                            name: plan.default_tier_name || plan.name,
+                            amount: plan.amount,
+                            interval: plan.interval,
+                            isDefault: true,
+                          },
+                          ...(plan.tiers ?? []).map((t) => ({
+                            key: t.id,
+                            name: t.name,
+                            amount: t.amount,
+                            interval: t.interval,
+                            isDefault: false,
+                          })),
+                        ]
+                          .sort((a, b) => a.amount - b.amount)
+                          .map((t) => (
+                            <span key={t.key} className="tag tag-neutral" style={{ whiteSpace: "nowrap" }}>
+                              {t.name} {(t.amount / 1_000_000).toFixed(2)}
+                              {/* The Interval column states the plan's own interval;
+                                  name it here only for a tier that bills differently,
+                                  which that column cannot show. */}
+                              {t.interval !== plan.interval && ` ${INTERVAL_LABELS[t.interval] ?? t.interval}`}
+                              {t.isDefault && " · default"}
+                            </span>
+                          ))}
+                      </div>
+                    </td>
+                    <td style={{ fontFamily: "var(--font-heading)", fontWeight: 800 }}>
+                      {(plan.amount / 1_000_000).toFixed(2)}
+                    </td>
+                    <td style={{ color: "var(--color-neutral-700)" }}>{INTERVAL_LABELS[plan.interval]}</td>
+                    <td style={{ color: "var(--color-neutral-700)" }}>
+                      {plan.trial_days > 0 ? `${plan.trial_days} days` : "None"}
+                    </td>
+                    <td style={{ fontFamily: "var(--font-heading)", fontWeight: 800 }}>{plan.subscribers}</td>
+                    <td>
+                      {links[plan.id] ? (
+                        <Mono size={11.5}>
+                          <span style={{ color: "var(--color-neutral-700)" }}>
+                            {links[plan.id]!.replace(/^https?:\/\//, "")}
+                          </span>
+                        </Mono>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{ padding: "5px 10px", fontSize: 12 }}
+                          onClick={() => createLink(plan.id)}
+                          disabled={creating === plan.id}
+                        >
+                          {creating === plan.id ? "Creating…" : "Create link"}
+                        </button>
+                      )}
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ fontSize: 12 }}
+                        onClick={() => navigate(`/plans/${plan.id}`)}
+                      >
+                        Open →
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
-      )}
-
-      {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-semibold text-gray-900">Delete {confirmDelete.name}?</h3>
-            <p className="mt-2 text-sm text-gray-600">
-              {confirmDelete.subscribers > 0 ? (
-                <>
-                  This will <strong>cancel and refund {confirmDelete.subscribers} active
-                  subscriber{confirmDelete.subscribers === 1 ? "" : "s"}</strong> — any escrowed
-                  funds are returned to them on-chain, and they're emailed that billing has stopped.
-                  This can&apos;t be undone.
-                </>
-              ) : (
-                <>This plan has no active subscribers. It will be closed and kept for your records. This can&apos;t be undone.</>
-              )}
-            </p>
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                onClick={() => setConfirmDelete(null)}
-                disabled={deleting}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={doDelete}
-                disabled={deleting}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-              >
-                {deleting ? "Closing…" : "Delete plan"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+        )}
+      </Section>
+    </>
   );
 }

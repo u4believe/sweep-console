@@ -7,11 +7,15 @@ import type { Prisma } from "@prisma/client";
 import { prisma, withRetry } from "../lib/prisma";
 import { ids } from "../lib/ids";
 import { ok, created, err, validationError } from "../lib/response";
-import { verifyPassword } from "../lib/password";
-import { sendEmail } from "../lib/email";
+import { sendEmail, payoutWalletEmailHtml } from "../lib/email";
 import { verifyPortalSession } from "../middleware/portalAuth";
 import type { PortalRequest } from "../middleware/portalAuth";
 import { closePlanSubscriptions, findSubsToClose } from "../lib/plan-lifecycle";
+import { requireStepUp } from "../lib/portal/stepup";
+import { WEBHOOK_EVENTS, WEBHOOK_EVENT_DESCRIPTIONS } from "../lib/webhooks/events";
+import { assertDeliverableUrl, WebhookUrlError } from "../lib/webhooks/url-guard";
+import { securityRouter } from "./portal-security";
+import { INTERVAL_SECONDS } from "../lib/checkout/complete";
 
 function hmacKey(rawKey: string): string {
   const secret = process.env.PLATFORM_API_SIGNING_SECRET;
@@ -34,6 +38,10 @@ import {
 export const portalRouter = Router();
 
 portalRouter.use(verifyPortalSession);
+
+// Enrolment, recovery codes, and the challenge/verify pair that requireStepUp
+// below sends clients to when it answers 401 step_up_required.
+portalRouter.use("/security", securityRouter);
 
 // ─── GET /portal/dashboard ────────────────────────────────────────────────────
 
@@ -74,6 +82,13 @@ portalRouter.get("/dashboard", async (req, res) => {
 });
 
 // ─── GET /portal/me ───────────────────────────────────────────────────────────
+//
+// Deliberately does NOT return Merchant.webhookSecret. Deliveries are signed
+// with the PER-ENDPOINT secret (WebhookEndpoint.secret — see lib/webhooks/
+// delivery.ts), so the merchant-level one signs nothing; Settings used to
+// display it beside a verification snippet, which would reject every event a
+// merchant checked with it. Don't ship a credential-shaped value to the
+// browser that no receiver can use.
 
 portalRouter.get("/me", async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
@@ -84,12 +99,12 @@ portalRouter.get("/me", async (req, res) => {
         merchantId: true,
         name: true,
         email: true,
-        webhookSecret: true,
         walletAddress: true,
         walletType: true,
         addressVerifiedAt: true,
         pendingWalletAddress: true,
         isLive: true,
+        createdAt: true,
       },
     });
     return ok(res, { data: merchant });
@@ -101,6 +116,20 @@ portalRouter.get("/me", async (req, res) => {
 
 // ─── GET/POST /portal/plans ───────────────────────────────────────────────────
 
+/// The loosely-typed bag on Plan.metadata that carries the default tier's
+/// presentation. Mirrors the reader in routes/public.ts.
+function planMeta(metadata: unknown): { defaultTierName?: string; defaultFeatures?: string[] } | null {
+  return (metadata as { defaultTierName?: string; defaultFeatures?: string[] } | null) ?? null;
+}
+
+/// Seconds in each billing interval, for normalising to a monthly run-rate.
+const MONTH_SECONDS = INTERVAL_SECONDS.monthly;
+
+/// One period's amount as a monthly run-rate, in USDC micro-units.
+function monthlyMicro(amountMicro: bigint, interval: string): number {
+  return Number(amountMicro) * (MONTH_SECONDS / (INTERVAL_SECONDS[interval] ?? MONTH_SECONDS));
+}
+
 portalRouter.get("/plans", async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
   try {
@@ -108,7 +137,16 @@ portalRouter.get("/plans", async (req, res) => {
       where: { merchantId: dbId, archived: false },
       orderBy: { createdAt: "desc" },
       include: {
-        _count: { select: { subscriptions: true } },
+        // Live subscriptions only, carrying the amount/interval each one was
+        // actually sold at. An unfiltered `_count` counted cancelled, past-due
+        // and expired subscriptions as paying, and pricing MRR off the plan's
+        // default ignored tiers entirely — together those overstated MRR by 83%
+        // across this database, and by 600 USDC/month on a merchant whose
+        // subscriptions were ALL cancelled.
+        subscriptions: {
+          where: { status: { in: ["active", "trialing"] } },
+          select: { amount: true, interval: true },
+        },
         tiers: { where: { archived: false }, orderBy: { amount: "asc" } },
       },
     });
@@ -121,9 +159,19 @@ portalRouter.get("/plans", async (req, res) => {
         currency: p.currency,
         interval: p.interval,
         trial_days: p.trialDays,
-        subscribers: p._count.subscriptions,
-        default_tier_name:
-          (p.metadata as unknown as { defaultTierName?: string } | null)?.defaultTierName ?? null,
+        subscribers: p.subscriptions.length,
+        // Computed here, not in the browser: only the server sees each
+        // subscription's own amount and interval, which is what a plan with
+        // tiers is actually earning.
+        mrr: p.subscriptions.reduce(
+          (sum, s) => sum + monthlyMicro(s.amount ?? p.amount, s.interval ?? p.interval),
+          0
+        ),
+        default_tier_name: planMeta(p.metadata)?.defaultTierName ?? null,
+        // The default tier's feature list, so the portal's plan preview can show
+        // the same card the checkout renders (public.ts serves it as defaultFeatures).
+        default_features: planMeta(p.metadata)?.defaultFeatures ?? null,
+        recommended_tier_id: p.recommendedTierId,
         tiers: p.tiers.map((t) => ({
           id: t.id,
           name: t.name,
@@ -207,7 +255,7 @@ portalRouter.post("/plans", async (req, res) => {
 
 // Delete (close) a plan: soft-delete + self-enforced cancel/refund/notify of every
 // subscriber. Responds immediately with how many subs are being closed.
-portalRouter.delete("/plans/:id", async (req, res) => {
+portalRouter.delete("/plans/:id", requireStepUp("plan.delete"), async (req, res) => {
   const dbId = (req as unknown as PortalRequest).merchantDbId;
   try {
     const plan = await prisma.plan.findFirst({
@@ -232,6 +280,42 @@ portalRouter.delete("/plans/:id", async (req, res) => {
   } catch (e) {
     console.error("[portal/plans DELETE]", e);
     return err(res, "Failed to delete plan", 500);
+  }
+});
+
+// ─── Recommended tier ─────────────────────────────────────────────────────────
+// Which tier checkout badges. Presentational only: it changes no price, no
+// interval, and no existing subscription — and every other tier stays buyable.
+// "default" marks the plan's own terms, which have no PlanTier row; null clears
+// the badge entirely.
+const recommendedSchema = z.object({
+  recommended_tier_id: z.string().min(1).nullable(),
+});
+
+portalRouter.patch("/plans/:id/recommended", async (req, res) => {
+  const dbId = (req as unknown as PortalRequest).merchantDbId;
+  const parsed = recommendedSchema.safeParse(req.body);
+  if (!parsed.success) return err(res, "recommended_tier_id must be a tier id, \"default\", or null", 422);
+
+  try {
+    const plan = await prisma.plan.findFirst({
+      where: { planId: req.params.id as string, merchantId: dbId, archived: false },
+      include: { tiers: { where: { archived: false }, select: { id: true } } },
+    });
+    if (!plan) return err(res, "Plan not found", 404);
+
+    const wanted = parsed.data.recommended_tier_id;
+    // Only a live tier on THIS plan can be recommended — otherwise checkout
+    // would badge nothing and the setting would look silently broken.
+    if (wanted !== null && wanted !== "default" && !plan.tiers.some((t) => t.id === wanted)) {
+      return err(res, "That tier does not belong to this plan", 404);
+    }
+
+    await prisma.plan.update({ where: { id: plan.id }, data: { recommendedTierId: wanted } });
+    return ok(res, { recommended_tier_id: wanted });
+  } catch (e) {
+    console.error("[portal/plans recommended PATCH]", e);
+    return err(res, "Failed to set the recommended tier", 500);
   }
 });
 
@@ -282,21 +366,165 @@ portalRouter.post("/plans/:id/tiers", async (req, res) => {
   }
 });
 
+// A tier's PRICE, INTERVAL and TRIAL are its billing terms: subscriptions snapshot
+// them at checkout, and the checkout page sells against them. They are immutable
+// for the life of the tier — to sell different terms, add another tier.
+//
+// What remains is presentation and applies from the next checkout onward, so it
+// can be corrected in place: the tier's name and its feature copy. Editing one
+// tier never touches any other.
+const updateTierSchema = z
+  .object({
+    name: z.string().min(1).max(60).optional(),
+    features: z.array(z.string().max(200)).max(20).optional(),
+  })
+  .strict() // surfaces an attempt to edit a locked term instead of ignoring it
+  .refine((d) => Object.keys(d).length > 0, { message: "No editable fields provided" });
+
+/// The billing terms, named in the refusal so the caller knows which field was
+/// rejected rather than getting a bare "unrecognized key".
+const LOCKED_TIER_TERMS = ["amount", "interval", "trial_days"];
+
+function lockedTermIn(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  return LOCKED_TIER_TERMS.find((k) => k in (body as Record<string, unknown>)) ?? null;
+}
+
+portalRouter.patch("/plans/:id/tiers/:tierId", async (req, res) => {
+  const dbId = (req as unknown as PortalRequest).merchantDbId;
+
+  const locked = lockedTermIn(req.body);
+  if (locked) {
+    return err(
+      res,
+      `A tier's price, interval and trial are fixed once it exists (${locked}). Add a new tier to sell different terms.`,
+      422
+    );
+  }
+
+  const parsed = updateTierSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return validationError(res, Object.fromEntries(
+      Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [k, v?.[0] ?? "Invalid"])
+    ));
+  }
+
+  try {
+    const plan = await prisma.plan.findFirst({
+      where: { planId: req.params.id as string, merchantId: dbId, archived: false },
+      select: { id: true },
+    });
+    if (!plan) return err(res, "Plan not found", 404);
+
+    const d = parsed.data;
+    // Scope the update by planId too, so a tierId from another merchant's plan
+    // can't be written through this route.
+    const result = await prisma.planTier.updateMany({
+      where: { id: req.params.tierId as string, planId: plan.id, archived: false },
+      data: {
+        ...(d.name !== undefined ? { name: d.name } : {}),
+        ...(d.features !== undefined ? { features: d.features as Prisma.InputJsonValue } : {}),
+      },
+    });
+    if (result.count === 0) return err(res, "Tier not found", 404);
+
+    const tier = await prisma.planTier.findUnique({ where: { id: req.params.tierId as string } });
+    return ok(res, {
+      id: tier!.id,
+      name: tier!.name,
+      amount: Number(tier!.amount),
+      interval: tier!.interval,
+      trial_days: tier!.trialDays,
+      features: tier!.features ?? null,
+    });
+  } catch (e) {
+    console.error("[portal/plans tiers PATCH]", e);
+    return err(res, "Failed to update tier", 500);
+  }
+});
+
+// The DEFAULT tier is the plan's own terms — there is no PlanTier row behind it,
+// so it is edited here rather than through /tiers/:tierId. Same contract as a
+// tier: name, trial length and feature copy are presentation and editable; price
+// and interval are the billing terms and are fixed once the plan exists.
+//
+// The name and features live on plan.metadata (defaultTierName / defaultFeatures,
+// which is where the checkout reads them from); the trial is a real plan column.
+portalRouter.patch("/plans/:id/default-tier", async (req, res) => {
+  const dbId = (req as unknown as PortalRequest).merchantDbId;
+
+  const locked = lockedTermIn(req.body);
+  if (locked) {
+    return err(
+      res,
+      `The default tier's price, interval and trial are the plan's own terms and are fixed (${locked}). Add a tier to sell different terms.`,
+      422
+    );
+  }
+
+  const parsed = updateTierSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return validationError(res, Object.fromEntries(
+      Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [k, v?.[0] ?? "Invalid"])
+    ));
+  }
+
+  try {
+    const plan = await prisma.plan.findFirst({
+      where: { planId: req.params.id as string, merchantId: dbId, archived: false },
+      select: { id: true, metadata: true },
+    });
+    if (!plan) return err(res, "Plan not found", 404);
+
+    const d = parsed.data;
+    // Merge, don't replace: metadata carries keys this route knows nothing about.
+    const metadata = {
+      ...((plan.metadata as Record<string, unknown> | null) ?? {}),
+      ...(d.name !== undefined ? { defaultTierName: d.name } : {}),
+      ...(d.features !== undefined ? { defaultFeatures: d.features } : {}),
+    };
+
+    const updated = await prisma.plan.update({
+      where: { id: plan.id },
+      data: { metadata: metadata as Prisma.InputJsonValue },
+    });
+
+    const meta = planMeta(updated.metadata);
+    return ok(res, {
+      id: "default",
+      name: meta?.defaultTierName ?? updated.name,
+      amount: Number(updated.amount),
+      interval: updated.interval,
+      trial_days: updated.trialDays,
+      features: meta?.defaultFeatures ?? null,
+    });
+  } catch (e) {
+    console.error("[portal/plans default-tier PATCH]", e);
+    return err(res, "Failed to update the default tier", 500);
+  }
+});
+
 // Archive a tier (append-only model: tiers aren't edited, only retired). Existing
 // subscriptions snapshot their terms, so archiving never changes a live sub.
-portalRouter.delete("/plans/:id/tiers/:tierId", async (req, res) => {
+portalRouter.delete("/plans/:id/tiers/:tierId", requireStepUp("tier.delete"), async (req, res) => {
   const dbId = (req as unknown as PortalRequest).merchantDbId;
   try {
     const plan = await prisma.plan.findFirst({
       where: { planId: req.params.id as string, merchantId: dbId },
-      select: { id: true },
+      select: { id: true, recommendedTierId: true },
     });
     if (!plan) return err(res, "Plan not found", 404);
+    const tierId = req.params.tierId as string;
     await prisma.planTier.updateMany({
-      where: { id: req.params.tierId as string, planId: plan.id },
+      where: { id: tierId, planId: plan.id },
       data: { archived: true },
     });
-    return ok(res, { archived: true });
+    // Retiring the recommended tier must clear the badge too — otherwise the
+    // plan points at an archived tier and checkout silently badges nothing.
+    if (plan.recommendedTierId === tierId) {
+      await prisma.plan.update({ where: { id: plan.id }, data: { recommendedTierId: null } });
+    }
+    return ok(res, { archived: true, recommended_cleared: plan.recommendedTierId === tierId });
   } catch (e) {
     console.error("[portal/plans tiers DELETE]", e);
     return err(res, "Failed to archive tier", 500);
@@ -433,14 +661,36 @@ portalRouter.get("/subscriptions", async (req, res) => {
 
 // ─── GET /portal/payments ─────────────────────────────────────────────────────
 
+/**
+ * Payment history for the signed-in merchant.
+ *
+ * `?days=N` scopes to the last N days and `?limit=N` raises the row cap. Both
+ * exist for the dashboard chart: a flat `take: 100` silently truncates the
+ * series once a merchant has more than 100 payments, so the chart would under-
+ * report settled value without saying so — and the wider the window, the worse
+ * it gets. Callers that pass neither (the Payments table) keep the old
+ * behaviour exactly.
+ */
 portalRouter.get("/payments", async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
+
+  const days = Number(req.query.days);
+  const scopedDays = Number.isFinite(days) ? Math.min(Math.max(Math.trunc(days), 1), 90) : null;
+
+  const limit = Number(req.query.limit);
+  const take = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 2000) : 100;
+
   try {
     const payments = await prisma.payment.findMany({
-      where: { merchantId: dbId },
+      where: {
+        merchantId: dbId,
+        ...(scopedDays
+          ? { createdAt: { gte: new Date(Date.now() - scopedDays * 86_400_000) } }
+          : {}),
+      },
       include: { subscription: { include: { plan: { select: { name: true } } } } },
       orderBy: { createdAt: "desc" },
-      take: 100,
+      take,
     });
     return ok(res, {
       data: payments.map((p) => ({
@@ -474,6 +724,7 @@ portalRouter.get("/webhooks", async (req, res) => {
       orderBy: { createdAt: "desc" },
     });
     return ok(res, {
+      available_events: WEBHOOK_EVENTS.map((e) => ({ id: e, description: WEBHOOK_EVENT_DESCRIPTIONS[e] })),
       data: endpoints.map((ep) => ({
         id: ep.endpointId,
         url: ep.url,
@@ -499,7 +750,7 @@ portalRouter.get("/webhooks", async (req, res) => {
 // any funds can be pushed to them: the server issues a nonce, the developer
 // signs it with the wallet (personal_sign), and the server checks the signature
 // before setting addressVerifiedAt. Changing an already-linked address
-// additionally requires the account password (step-up auth).
+// additionally requires step-up auth (see lib/portal/stepup.ts).
 
 const NONCE_TTL_MINUTES = 10;
 
@@ -514,51 +765,58 @@ function walletVerificationMessage(address: string, nonce: string): string {
 }
 
 // Step 1 — register the address and receive the message to sign.
-portalRouter.post("/wallet/external", async (req, res) => {
-  const dbId = (req as PortalRequest).merchantDbId;
-  const address = (req.body.walletAddress as string | undefined)?.trim();
-  const password = req.body.password as string | undefined;
+// Setting the FIRST payout address is not a step-up action — there is nothing
+// yet to redirect, and the merchant doing it is mid-onboarding. Changing an
+// address that already receives money is, so the gate is conditional. This is
+// the same line the old password prompt drew.
+const stepUpForWalletChange = requireStepUp("wallet.change");
 
-  if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
-    return err(res, "Invalid wallet address. Must be a 0x-prefixed 20-byte hex string.", 400);
-  }
+portalRouter.post(
+  "/wallet/external",
+  async (req, res, next) => {
+    const dbId = (req as PortalRequest).merchantDbId;
+    const merchant = await prisma.merchant.findUnique({
+      where: { id: dbId },
+      select: { walletAddress: true },
+    });
+    if (!merchant?.walletAddress) return next();
+    return stepUpForWalletChange(req, res, next);
+  },
+  async (req, res) => {
+    const dbId = (req as PortalRequest).merchantDbId;
+    const address = (req.body.walletAddress as string | undefined)?.trim();
 
-  try {
-    const merchant = await withRetry(() =>
-      prisma.merchant.findUniqueOrThrow({
-        where: { id: dbId },
-        select: { walletAddress: true, passwordHash: true },
-      })
-    );
-
-    // Changing an existing payout address requires step-up auth
-    if (merchant.walletAddress) {
-      if (!password || !(await verifyPassword(password, merchant.passwordHash))) {
-        return err(res, "Enter your account password to change the payout address.", 401);
-      }
+    if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+      return err(res, "Invalid wallet address. Must be a 0x-prefixed 20-byte hex string.", 400);
     }
 
-    const nonce = randomBytes(16).toString("hex");
-    const expiresAt = addMinutes(new Date(), NONCE_TTL_MINUTES);
+    // Ownership of the account is proven by requireStepUp above, not by a
+    // password: accounts created through Google have passwordHash: null and
+    // could never have satisfied a password prompt, so the old check locked
+    // exactly the merchants it was meant to protect out of their own payouts.
+    try {
+      const nonce = randomBytes(16).toString("hex");
+      const expiresAt = addMinutes(new Date(), NONCE_TTL_MINUTES);
 
-    await prisma.merchant.update({
-      where: { id: dbId },
-      data: {
-        pendingWalletAddress: address.toLowerCase(),
-        walletNonce: nonce,
-        walletNonceExpiresAt: expiresAt,
-      },
-    });
+      await prisma.merchant.update({
+        where: { id: dbId },
+        data: {
+          pendingWalletAddress: address.toLowerCase(),
+          walletNonce: nonce,
+          walletNonceExpiresAt: expiresAt,
+        },
+      });
 
-    return ok(res, {
-      message: walletVerificationMessage(address.toLowerCase(), nonce),
-      expiresAt: expiresAt.toISOString(),
-    });
-  } catch (e) {
-    console.error("[portal/wallet/external]", e);
-    return err(res, "Failed to start wallet verification", 500);
+      return ok(res, {
+        message: walletVerificationMessage(address.toLowerCase(), nonce),
+        expiresAt: expiresAt.toISOString(),
+      });
+    } catch (e) {
+      console.error("[portal/wallet/external]", e);
+      return err(res, "Failed to start wallet verification", 500);
+    }
   }
-});
+);
 
 // Step 2 — verify the personal_sign signature and activate the payout address.
 portalRouter.post("/wallet/external/verify", async (req, res) => {
@@ -617,9 +875,9 @@ portalRouter.post("/wallet/external/verify", async (req, res) => {
     // Best-effort security notification — a payout-address change moves money
     sendEmail({
       to: merchant.email,
-      subject: "SweepConsole payout wallet updated",
-      html: `<p>Hi ${merchant.name},</p><p>Your payout wallet was verified and set to <code>${merchant.pendingWalletAddress}</code>. If you did not make this change, reset your password immediately.</p>`,
-      text: `Your SweepConsole payout wallet was verified and set to ${merchant.pendingWalletAddress}. If you did not make this change, reset your password immediately.`,
+      subject: "Your Sweep Console payout wallet was updated",
+      html: payoutWalletEmailHtml(merchant.name, merchant.pendingWalletAddress),
+      text: `Your Sweep Console payout wallet was verified and set to ${merchant.pendingWalletAddress}. If you did not make this change, reset your password immediately and turn on an authenticator app.`,
     }).catch((e) => console.warn("[portal/wallet/external/verify] notification email failed:", e));
 
     return ok(res, {
@@ -632,7 +890,7 @@ portalRouter.post("/wallet/external/verify", async (req, res) => {
   }
 });
 
-portalRouter.post("/wallet/unlink", async (req, res) => {
+portalRouter.post("/wallet/unlink", requireStepUp("wallet.unlink"), async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
   try {
     await prisma.merchant.update({
@@ -775,7 +1033,7 @@ portalRouter.post("/wallet/circle/confirm", async (req, res) => {
   }
 });
 
-portalRouter.post("/wallet/relink-circle", async (req, res) => {
+portalRouter.post("/wallet/relink-circle", requireStepUp("wallet.change"), async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
   try {
     const merchant = await prisma.merchant.findUniqueOrThrow({
@@ -927,7 +1185,7 @@ const withdrawSchema = z.object({
   amount: z.string().regex(/^\d+(\.\d+)?$/, "Invalid amount").refine((v) => parseFloat(v) > 0, "Amount must be positive"),
 });
 
-portalRouter.post("/wallet/circle/withdraw", async (req, res) => {
+portalRouter.post("/wallet/circle/withdraw", requireStepUp("payout.withdraw"), async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
   const parsed = withdrawSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -970,18 +1228,11 @@ portalRouter.post("/wallet/circle/withdraw", async (req, res) => {
 
 // ─── POST /portal/webhooks ────────────────────────────────────────────────────
 
-const ALLOWED_EVENTS = [
-  "subscription.created",
-  "subscription.renewed",
-  "subscription.cancelled",
-  "payment.succeeded",
-  "payment.failed",
-  "payment.refunded",
-] as const;
-
 const createWebhookSchema = z.object({
+  // Shape only. Whether we are willing to POST there is decided by
+  // assertDeliverableUrl below, which resolves the host — zod cannot do DNS.
   url: z.string().url("Must be a valid URL").max(500),
-  events: z.array(z.enum(ALLOWED_EVENTS)).min(1, "Select at least one event"),
+  events: z.array(z.enum(WEBHOOK_EVENTS)).min(1, "Select at least one event"),
 });
 
 portalRouter.post("/webhooks", async (req, res) => {
@@ -993,7 +1244,16 @@ portalRouter.post("/webhooks", async (req, res) => {
     ));
   }
   const { url, events } = parsed.data;
-  const { randomBytes } = await import("crypto");
+
+  // Registering an endpoint makes this server dial an address the merchant
+  // chose — see lib/webhooks/url-guard.ts.
+  try {
+    await assertDeliverableUrl(url);
+  } catch (e) {
+    if (e instanceof WebhookUrlError) return validationError(res, { url: e.message });
+    throw e;
+  }
+
   const secret = `whsec_${randomBytes(24).toString("hex")}`;
   try {
     const endpoint = await prisma.webhookEndpoint.create({
@@ -1036,9 +1296,53 @@ portalRouter.delete("/webhooks/:id", async (req, res) => {
   }
 });
 
+// ─── Webhook signing secrets ─────────────────────────────────────────────────
+//
+// Each endpoint carries its own secret, and it is what actually signs deliveries
+// (lib/webhooks/delivery.ts). It is a bearer credential: anyone holding it can
+// forge events into the merchant's system, so it is never included in the
+// endpoint listing — it is fetched deliberately, one endpoint at a time, behind
+// a confirmation.
+
+portalRouter.post("/webhooks/:id/secret", requireStepUp("webhook.reveal"), async (req, res) => {
+  const dbId = (req as unknown as PortalRequest).merchantDbId;
+  try {
+    const endpoint = await prisma.webhookEndpoint.findFirst({
+      where: { endpointId: req.params.id as string, merchantId: dbId, isActive: true },
+      select: { secret: true },
+    });
+    if (!endpoint) return err(res, "Endpoint not found", 404);
+    return ok(res, { secret: endpoint.secret });
+  } catch (e) {
+    console.error("[portal/webhooks secret]", e);
+    return err(res, "Failed to read signing secret", 500);
+  }
+});
+
+/// Replaces the secret. Deliveries signed with the old one stop verifying the
+/// moment this returns, so the client asks first and hands back the new value
+/// once — there is no undo and no second copy.
+portalRouter.post("/webhooks/:id/roll", requireStepUp("webhook.roll"), async (req, res) => {
+  const dbId = (req as unknown as PortalRequest).merchantDbId;
+  try {
+    const endpoint = await prisma.webhookEndpoint.findFirst({
+      where: { endpointId: req.params.id as string, merchantId: dbId, isActive: true },
+      select: { id: true },
+    });
+    if (!endpoint) return err(res, "Endpoint not found", 404);
+
+    const secret = `whsec_${randomBytes(24).toString("hex")}`;
+    await prisma.webhookEndpoint.update({ where: { id: endpoint.id }, data: { secret } });
+    return ok(res, { secret });
+  } catch (e) {
+    console.error("[portal/webhooks roll]", e);
+    return err(res, "Failed to roll signing secret", 500);
+  }
+});
+
 // ─── POST /portal/api-keys/regenerate ────────────────────────────────────────
 
-portalRouter.post("/api-keys/regenerate", async (req, res) => {
+portalRouter.post("/api-keys/regenerate", requireStepUp("apikey.regenerate"), async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
   try {
     const parsed = apiKeyRegenerateSchema.safeParse(req.body);

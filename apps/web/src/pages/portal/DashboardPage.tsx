@@ -1,5 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { WalletSetupBanner } from "@/components/portal/WalletSetupBanner";
+import { PageHeader } from "@/components/portal/PageHeader";
+import {
+  ErrorNote,
+  Kicker,
+  KpiBand,
+  Mono,
+  Section,
+  StatusTag,
+  type Kpi,
+} from "@/components/portal/primitives";
+import { WithdrawSection } from "./WithdrawSection";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -12,193 +24,218 @@ interface DashboardData {
   walletType: string;
 }
 
-interface BalanceData {
-  usdcBalance: string;
-  tokenId: string | null;
-  walletId: string;
-  updatedAt: string | null;
-  fromCache: boolean;
+interface Payment {
+  id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  type: string;
+  planName: string | null;
+  txHash: string | null;
+  createdAt: string;
+}
+
+interface Subscription {
+  id: string;
+  status: string;
+  currentPeriodEnd: string;
+}
+
+const HOUR_MS = 3_600_000;
+const DAY_MS = 86_400_000;
+
+type RangeKey = "day" | "week" | "14d" | "month";
+
+interface ChartRange {
+  key: RangeKey;
+  /** Control label — kept to 2–3 characters so the row stays compact. */
+  label: string;
+  /** Reads after "Settled USDC · ". */
+  heading: string;
+  buckets: number;
+  /**
+   * A day of daily buckets would be a single bar, so the 24-hour range buckets
+   * by hour instead. Everything wider buckets by day.
+   */
+  unit: "hour" | "day";
+}
+
+const RANGES: ChartRange[] = [
+  { key: "day", label: "24h", heading: "last 24 hours", buckets: 24, unit: "hour" },
+  { key: "week", label: "7d", heading: "last 7 days", buckets: 7, unit: "day" },
+  { key: "14d", label: "14d", heading: "last 14 days", buckets: 14, unit: "day" },
+  { key: "month", label: "30d", heading: "last 30 days", buckets: 30, unit: "day" },
+];
+
+/** The widest range decides what the chart has to fetch. */
+const MAX_RANGE_DAYS = 30;
+
+/** One bucket of settled value, in USDC micro-units. */
+interface Bar {
+  start: Date;
+  total: number;
+}
+
+function buildChart(payments: Payment[], range: ChartRange): Bar[] {
+  const step = range.unit === "hour" ? HOUR_MS : DAY_MS;
+
+  // Align to the start of the current hour/day, so buckets land on clean
+  // boundaries and the last one is the period in progress.
+  const anchor = new Date();
+  if (range.unit === "hour") anchor.setMinutes(0, 0, 0);
+  else anchor.setHours(0, 0, 0, 0);
+
+  const firstStart = anchor.getTime() - (range.buckets - 1) * step;
+
+  const bars: Bar[] = Array.from({ length: range.buckets }, (_, i) => ({
+    start: new Date(firstStart + i * step),
+    total: 0,
+  }));
+
+  for (const p of payments) {
+    if (p.status !== "succeeded" || p.type === "refund") continue;
+    const d = new Date(p.createdAt);
+    if (Number.isNaN(d.getTime())) continue;
+
+    // Truncate the payment to the same boundary before differencing, so a DST
+    // shift moves both ends together instead of dropping a bucket.
+    if (range.unit === "hour") d.setMinutes(0, 0, 0);
+    else d.setHours(0, 0, 0, 0);
+
+    const idx = Math.round((d.getTime() - firstStart) / step);
+    if (idx >= 0 && idx < range.buckets) bars[idx]!.total += p.amount;
+  }
+  return bars;
+}
+
+const SHORT_DATE = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+const SHORT_HOUR = new Intl.DateTimeFormat(undefined, { hour: "numeric" });
+const FULL_HOUR = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric" });
+
+const axisLabel = (b: Bar, unit: ChartRange["unit"]) =>
+  unit === "hour" ? SHORT_HOUR.format(b.start) : SHORT_DATE.format(b.start);
+
+/**
+ * Settled value per day as a bar column chart. Bars sit on a 2px baseline;
+ * a day with no settlement keeps a 2px stub so the rhythm of the grid reads
+ * continuously rather than leaving holes.
+ */
+function SettledChart({ bars, unit }: { bars: Bar[]; unit: ChartRange["unit"] }) {
+  const max = Math.max(...bars.map((b) => b.total), 1);
+  // 30 columns cannot carry the 5px gutter the 7-day view is drawn with.
+  const gap = bars.length > 20 ? 3 : bars.length > 10 ? 4 : 6;
+  const mid = bars[Math.floor((bars.length - 1) / 2)]!;
+  return (
+    <>
+      <div
+        className="flex items-end"
+        style={{ height: 150, gap, borderBottom: "2px solid var(--color-divider)", paddingTop: 14 }}
+      >
+        {bars.map((b) => (
+          <div
+            key={b.start.toISOString()}
+            title={`${unit === "hour" ? FULL_HOUR.format(b.start) : SHORT_DATE.format(b.start)} · ${(b.total / 1_000_000).toFixed(2)} USDC`}
+            style={{
+              flex: 1,
+              height: b.total > 0 ? `${Math.max((b.total / max) * 100, 4)}%` : 2,
+              background: b.total > 0 ? "var(--color-accent)" : "var(--color-neutral-300)",
+            }}
+          />
+        ))}
+      </div>
+      <div
+        className="mt-[7px] flex justify-between"
+        style={{ fontSize: 10, color: "var(--color-neutral-600)", fontFamily: "ui-monospace, Menlo, monospace" }}
+      >
+        <span>{axisLabel(bars[0]!, unit)}</span>
+        <span>{axisLabel(mid, unit)}</span>
+        <span>{axisLabel(bars[bars.length - 1]!, unit)}</span>
+      </div>
+    </>
+  );
+}
+
+/** Range picker for the settled chart. */
+function RangeTabs({ value, onChange }: { value: RangeKey; onChange: (k: RangeKey) => void }) {
+  return (
+    <div className="flex" role="tablist" aria-label="Chart range" style={{ border: "1px solid var(--color-divider)" }}>
+      {RANGES.map((r) => {
+        const on = r.key === value;
+        return (
+          <button
+            key={r.key}
+            type="button"
+            role="tab"
+            aria-selected={on}
+            onClick={() => onChange(r.key)}
+            style={{
+              border: 0,
+              background: on ? "var(--color-text)" : "transparent",
+              color: on ? "var(--color-bg)" : "var(--color-neutral-700)",
+              fontFamily: "ui-monospace, Menlo, monospace",
+              fontSize: 10.5,
+              letterSpacing: "0.04em",
+              padding: "4px 9px",
+              cursor: "pointer",
+            }}
+          >
+            {r.label}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-      className="ml-2 rounded px-2 py-0.5 text-xs font-medium text-blue-600 hover:bg-blue-50 transition"
+      type="button"
+      className="btn btn-ghost"
+      style={{ fontSize: 12 }}
+      onClick={() => {
+        void navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }}
     >
-      {copied ? "Copied!" : "Copy"}
+      {copied ? "Copied" : "Copy"}
     </button>
   );
 }
 
-function timeAgo(iso: string): string {
-  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (secs < 60) return "just now";
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-  return `${Math.floor(secs / 3600)}h ago`;
-}
+/**
+ * The next day on which any active subscription renews, with how many renew
+ * that day. Derived from subscription period ends rather than a schedule
+ * endpoint, so it reflects exactly what the billing engine will pick up.
+ */
+function nextRenewalBatch(subs: Subscription[]): { day: Date; count: number } | null {
+  const upcoming = subs
+    .filter((s) => s.status === "active" || s.status === "trialing")
+    .map((s) => new Date(s.currentPeriodEnd))
+    .filter((d) => !Number.isNaN(d.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime());
 
-function WithdrawSection({ walletId }: { walletId: string }) {
-  const [balance, setBalance] = useState<BalanceData | null>(null);
-  const [balanceErr, setBalanceErr] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
-  const [dest, setDest] = useState("");
-  const [amount, setAmount] = useState("");
-  const [withdrawing, setWithdrawing] = useState(false);
-  const [withdrawErr, setWithdrawErr] = useState("");
-  const [withdrawSuccess, setWithdrawSuccess] = useState(false);
+  const first = upcoming[0];
+  if (!first) return null;
 
-  function loadBalance(force = false) {
-    const url = `${API_URL}/portal/wallet/circle/balance${force ? "?refresh=1" : ""}`;
-    return fetch(url, { credentials: "include" })
-      .then((r) => r.json())
-      .then((json: { data?: BalanceData; error?: { message?: string } }) => {
-        if (json.data) setBalance(json.data);
-        else setBalanceErr(json.error?.message ?? "Failed to fetch balance");
-      })
-      .catch(() => setBalanceErr("Could not reach the API server"));
-  }
-
-  useEffect(() => { void loadBalance(); }, [walletId]);
-
-  async function handleRefresh() {
-    setRefreshing(true);
-    setBalanceErr("");
-    await loadBalance(true);
-    setRefreshing(false);
-  }
-
-  async function handleWithdraw(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setWithdrawing(true);
-    setWithdrawErr("");
-
-    try {
-      const res = await fetch(`${API_URL}/portal/wallet/circle/withdraw`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ destinationAddress: dest, amount }),
-      });
-      const data = await res.json() as {
-        userToken?: string; encryptionKey?: string; challengeId?: string; appId?: string;
-        error?: { message?: string };
-      };
-      if (!res.ok) throw new Error(data.error?.message ?? "Withdrawal failed");
-
-      const { W3SSdk } = await import("@circle-fin/w3s-pw-web-sdk");
-      const sdk = new W3SSdk();
-      const effectiveAppId = import.meta.env.VITE_CIRCLE_APP_ID ?? data.appId ?? "";
-      sdk.setAppSettings({ appId: effectiveAppId });
-      sdk.setAuthentication({ userToken: data.userToken!, encryptionKey: data.encryptionKey! });
-
-      sdk.execute(data.challengeId!, (err) => {
-        setWithdrawing(false);
-        if (err) { setWithdrawErr(`Transfer failed: ${err.message ?? "Unknown error"}`); return; }
-        setWithdrawSuccess(true);
-        setDest("");
-        setAmount("");
-        // Refresh balance after a short delay
-        setTimeout(() => {
-          fetch(`${API_URL}/portal/wallet/circle/balance`, { credentials: "include" })
-            .then((r) => r.json())
-            .then((json: { data?: BalanceData }) => { if (json.data) setBalance(json.data); });
-        }, 3000);
-      });
-    } catch (e) {
-      setWithdrawing(false);
-      setWithdrawErr(e instanceof Error ? e.message : "Something went wrong");
-    }
-  }
-
-  return (
-    <div className="mt-8 bg-white rounded-xl border border-gray-200 p-6">
-      <h2 className="mb-1 text-lg font-semibold text-gray-900">Withdraw Revenue</h2>
-      <p className="mb-5 text-sm text-gray-500">
-        Transfer USDC from your Circle wallet to any EVM address.
-      </p>
-
-      <div className="mb-5 flex items-center gap-4 flex-wrap">
-        <div className="rounded-lg bg-green-50 border border-green-100 px-5 py-3">
-          <p className="text-xs text-gray-500 mb-0.5">Available balance</p>
-          {balanceErr ? (
-            <p className="text-sm text-red-600">{balanceErr}</p>
-          ) : balance === null ? (
-            <div className="h-6 w-24 rounded bg-gray-200 animate-pulse" />
-          ) : (
-            <p className="text-2xl font-bold text-green-700">
-              {parseFloat(balance.usdcBalance).toFixed(2)}{" "}
-              <span className="text-base font-medium">USDC</span>
-            </p>
-          )}
-          {balance?.updatedAt && (
-            <p className="mt-1 text-xs text-gray-400">
-              Updated {timeAgo(balance.updatedAt)}
-              {balance.fromCache && " · cached"}
-            </p>
-          )}
-        </div>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing || balance === null}
-          className="self-start mt-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40 transition"
-        >
-          {refreshing ? "Refreshing…" : "Refresh"}
-        </button>
-      </div>
-
-      {withdrawSuccess && (
-        <div className="mb-4 rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700 font-medium">
-          Transfer submitted — it may take a few minutes to confirm on-chain.
-        </div>
-      )}
-
-      {withdrawErr && (
-        <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">{withdrawErr}</p>
-      )}
-
-      <form onSubmit={handleWithdraw} className="space-y-4 max-w-lg">
-        <div>
-          <label className="block mb-1.5 text-sm font-medium text-gray-700">Destination address</label>
-          <input
-            type="text"
-            value={dest}
-            onChange={(e) => setDest(e.target.value)}
-            placeholder="0x..."
-            required
-            pattern="^0x[a-fA-F0-9]{40}$"
-            title="Must be a 0x-prefixed EVM address (42 characters)"
-            className="w-full rounded-lg border border-gray-200 px-4 py-2.5 font-mono text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-        <div>
-          <label className="block mb-1.5 text-sm font-medium text-gray-700">Amount (USDC)</label>
-          <input
-            type="number"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="10.00"
-            required
-            min="0.01"
-            step="0.01"
-            className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={withdrawing || !balance || parseFloat(balance.usdcBalance) === 0}
-          className="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition"
-        >
-          {withdrawing ? "Awaiting confirmation…" : "Withdraw"}
-        </button>
-      </form>
-    </div>
-  );
+  const dayKey = first.toDateString();
+  return { day: first, count: upcoming.filter((d) => d.toDateString() === dayKey).length };
 }
 
 export function DashboardPage() {
+  const navigate = useNavigate();
   const [data, setData] = useState<DashboardData | null>(null);
+  // Chart rows and the activity list are fetched separately on purpose. The
+  // chart needs every payment in the widest window (a flat cap silently
+  // truncates the series and under-reports settled value); the activity list
+  // needs the newest five REGARDLESS of age, which a windowed query cannot give
+  // it — a merchant quiet for a month would otherwise see "No payments yet".
+  const [chartPayments, setChartPayments] = useState<Payment[]>([]);
+  const [recent, setRecent] = useState<Payment[]>([]);
+  const [rangeKey, setRangeKey] = useState<RangeKey>("14d");
+  const [subs, setSubs] = useState<Subscription[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -209,80 +246,177 @@ export function DashboardPage() {
         else setError(json.error?.message ?? "Failed to load dashboard");
       })
       .catch(() => setError("Could not reach the API server"));
+
+    fetch(`${API_URL}/portal/payments?days=${MAX_RANGE_DAYS}&limit=2000`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((json: { data?: Payment[] }) => { if (json.data) setChartPayments(json.data); })
+      .catch(() => { /* the chart degrades to empty */ });
+
+    fetch(`${API_URL}/portal/payments?limit=5`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((json: { data?: Payment[] }) => { if (json.data) setRecent(json.data); })
+      .catch(() => { /* the activity table degrades to empty */ });
+
+    fetch(`${API_URL}/portal/subscriptions`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((json: { data?: Subscription[] }) => { if (json.data) setSubs(json.data); })
+      .catch(() => { /* the renewal panel degrades to empty */ });
   }, []);
 
-  if (error) return <div className="rounded-xl bg-red-50 p-6 text-sm text-red-600">{error}</div>;
+  const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[2]!;
+  // Every range is derived from the one 30-day fetch, so switching is instant
+  // and never shows a loading state — and each is real data for its own window,
+  // not a rescale of the 14-day series.
+  const bars = useMemo(() => buildChart(chartPayments, range), [chartPayments, range]);
+  const settled = useMemo(() => bars.reduce((n, b) => n + b.total, 0), [bars]);
+  const batch = useMemo(() => nextRenewalBatch(subs), [subs]);
 
-  const cards = data
+  const kpis: Kpi[] = data
     ? [
-        { label: "Active Subscriptions", value: data.activeSubs, color: "text-blue-700" },
-        { label: "Total Revenue (USDC)", value: `$${(data.totalRevenue / 1_000_000).toFixed(2)}`, color: "text-green-700" },
-        { label: "Active Plans", value: data.plans, color: "text-purple-700" },
-        { label: "Failed Payments", value: data.failedPayments, color: "text-red-700" },
+        { label: "Active subscriptions", value: String(data.activeSubs) },
+        { label: "Total revenue", value: (data.totalRevenue / 1_000_000).toFixed(2), unit: "USDC" },
+        { label: "Active plans", value: String(data.plans) },
+        { label: "Failed payments", value: String(data.failedPayments), accent: data.failedPayments > 0 },
       ]
     : [];
 
+  if (error) {
+    return (
+      <>
+        <PageHeader kicker="Overview" title="Dashboard" />
+        <ErrorNote>{error}</ErrorNote>
+      </>
+    );
+  }
+
   return (
-    <div>
-      <h1 className="mb-6 text-2xl font-bold text-gray-900">Dashboard</h1>
+    <>
+      <PageHeader kicker="Overview" title="Dashboard" />
 
       {data && !data.walletAddress && (
-        <WalletSetupBanner hasCircleWallet={data.walletType === "circle"} />
-      )}
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {data
-          ? cards.map((card) => (
-              <div key={card.label} className="bg-white rounded-xl border border-gray-200 p-6">
-                <p className="text-sm font-medium text-gray-500">{card.label}</p>
-                <p className={`mt-2 text-3xl font-bold ${card.color}`}>{card.value}</p>
-              </div>
-            ))
-          : Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="bg-white rounded-xl border border-gray-200 p-6 animate-pulse">
-                <div className="h-3 w-24 rounded bg-gray-200" />
-                <div className="mt-3 h-8 w-16 rounded bg-gray-200" />
-              </div>
-            ))}
-      </div>
-
-      {/* Linked wallet card */}
-      {data?.walletAddress && (
-        <div className="mt-6 bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div>
-              <p className="text-sm font-medium text-gray-500 mb-1">Linked Payout Wallet</p>
-              <div className="flex items-center">
-                <span className="font-mono text-sm text-gray-900 break-all">{data.walletAddress}</span>
-                <CopyButton text={data.walletAddress} />
-              </div>
-            </div>
-            <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${data.walletType === "circle" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600"}`}>
-              {data.walletType === "circle" ? "Circle Wallet" : "External Wallet"}
-            </span>
-          </div>
+        <div style={{ padding: "20px 32px", borderBottom: "2px solid var(--color-divider)" }}>
+          <WalletSetupBanner hasCircleWallet={data.walletType === "circle"} />
         </div>
       )}
 
-      {/* Withdraw section — Circle wallets only */}
+      <KpiBand items={kpis} loading={data === null} />
+
+      {/* Settled chart beside the payout wallet and the next renewal batch. */}
+      <div className="grid lg:grid-cols-[1.5fr_1fr]" style={{ borderBottom: "2px solid var(--color-divider)" }}>
+        <section style={{ padding: "26px 32px", borderRight: "1px solid var(--color-divider)" }}>
+          <div className="mb-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-2">
+            <h3 className="m-0" style={{ fontSize: 20, letterSpacing: "-0.02em" }}>
+              Settled USDC · {range.heading}
+            </h3>
+            <span style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>
+              {(settled / 1_000_000).toFixed(2)} total
+            </span>
+            <span className="ml-auto">
+              <RangeTabs value={rangeKey} onChange={setRangeKey} />
+            </span>
+          </div>
+          <SettledChart bars={bars} unit={range.unit} />
+        </section>
+
+        <section style={{ padding: "26px 32px" }}>
+          <h3 className="m-0 mb-3.5" style={{ fontSize: 20, letterSpacing: "-0.02em" }}>Payout wallet</h3>
+          <div style={{ borderTop: "1px solid var(--color-divider)", paddingTop: 12 }}>
+            {data?.walletAddress ? (
+              <>
+                <p
+                  className="m-0 mb-1 break-all"
+                  style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12.5 }}
+                >
+                  {data.walletAddress}
+                </p>
+                <div className="mt-2.5 flex items-center gap-2.5">
+                  <span className="tag tag-neutral">
+                    {data.walletType === "circle" ? "Circle wallet" : "External wallet"}
+                  </span>
+                  <span className="tag tag-outline">Verified</span>
+                  <span className="ml-auto"><CopyButton text={data.walletAddress} /></span>
+                </div>
+              </>
+            ) : (
+              <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
+                No payout wallet linked yet.
+              </p>
+            )}
+          </div>
+
+          <div style={{ borderTop: "1px solid var(--color-divider)", marginTop: 18, paddingTop: 14 }}>
+            <Kicker>Next renewal batch</Kicker>
+            {batch ? (
+              <>
+                <p
+                  className="m-0"
+                  style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 26, letterSpacing: "-0.02em" }}
+                >
+                  {batch.day.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                </p>
+                <p className="m-0 mt-1.5" style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>
+                  {batch.count} subscription{batch.count === 1 ? "" : "s"} · gas covered by Sweep
+                </p>
+              </>
+            ) : (
+              <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
+                No renewals scheduled.
+              </p>
+            )}
+          </div>
+        </section>
+      </div>
+
       {data?.walletAddress && data.walletType === "circle" && (
         <WithdrawSection walletId={data.walletAddress} />
       )}
 
-      <div className="mt-8 bg-white rounded-xl border border-gray-200 p-6">
-        <h2 className="mb-1 text-lg font-semibold text-gray-900">Quick Start</h2>
-        <p className="mb-4 text-sm text-gray-500">Integrate SweepConsole into your app in two steps:</p>
-        <ol className="space-y-3 text-sm text-gray-700">
-          <li className="flex gap-3">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">1</span>
-            <span>Create a plan, then call <code className="rounded bg-gray-100 px-1 font-mono text-xs">POST /v1/checkout/sessions</code> with your <code className="rounded bg-gray-100 px-1 font-mono text-xs">plan_id</code> from your server.</span>
-          </li>
-          <li className="flex gap-3">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">2</span>
-            <span>Register a webhook endpoint to receive <code className="rounded bg-gray-100 px-1 font-mono text-xs">subscription.created</code> and upgrade the user in your database.</span>
-          </li>
-        </ol>
-      </div>
-    </div>
+      <Section
+        title="Recent activity"
+        bordered={false}
+        action={
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ fontSize: 12.5 }}
+            onClick={() => navigate("/payments")}
+          >
+            All payments →
+          </button>
+        }
+      >
+        {recent.length === 0 ? (
+          <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
+            No payments yet — activity appears here once subscribers complete checkout.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr><th>Amount</th><th>Type</th><th>Status</th><th>Plan</th><th>Date</th><th>Tx</th></tr>
+              </thead>
+              <tbody>
+                {recent.map((p) => (
+                  <tr key={p.id}>
+                    <td style={{ fontFamily: "var(--font-heading)", fontWeight: 800 }}>
+                      {(p.amount / 1_000_000).toFixed(2)}
+                    </td>
+                    <td>{p.type}</td>
+                    <td><StatusTag status={p.status} /></td>
+                    <td>{p.planName ?? "—"}</td>
+                    <td style={{ color: "var(--color-neutral-700)" }}>
+                      {new Date(p.createdAt).toLocaleDateString()}
+                    </td>
+                    <td style={{ color: "var(--color-neutral-700)" }}>
+                      <Mono>{p.txHash ? `${p.txHash.slice(0, 8)}…` : "—"}</Mono>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+    </>
   );
 }

@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { ExternalWalletVerify } from "./ExternalWalletVerify";
+import { ErrorNote } from "./primitives";
+import { apiFetch, messageOf, wasCancelled } from "@/lib/stepup";
 
 interface Props {
   initialAddress: string | null;
@@ -22,15 +24,20 @@ export function WalletSettings({ initialAddress, walletType, addressVerifiedAt }
 
   function clearError() { setError(""); }
 
-  const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
-
   async function handleUnlink() {
-    if (!confirm("Unlink your wallet? Revenue will be held until you link a new address.")) return;
+    // No window.confirm here: apiFetch raises the step-up prompt, which names
+    // the action and demands the authenticator. A native dialog in front of it
+    // was a second, weaker confirmation for the same click.
     setLoading(true);
     clearError();
-    const res = await fetch(`${apiUrl}/portal/wallet/unlink`, { method: "POST", credentials: "include" });
+    const res = await apiFetch(`/portal/wallet/unlink`, { method: "POST" });
     setLoading(false);
-    if (!res.ok) { setError("Failed to unlink. Please try again."); return; }
+    if (!res.ok) {
+      // Guarded — leaving the payout address unset holds every future payout,
+      // so a stolen session must not be able to do it silently.
+      if (!(await wasCancelled(res))) setError(await messageOf(res, "Failed to unlink. Please try again."));
+      return;
+    }
     setAddress(null);
     setVerifiedAt(null);
     setMode("view");
@@ -39,7 +46,7 @@ export function WalletSettings({ initialAddress, walletType, addressVerifiedAt }
   async function handleRelinkCircle() {
     setMode("relinking");
     clearError();
-    const res = await fetch(`${apiUrl}/portal/wallet/relink-circle`, { method: "POST", credentials: "include" });
+    const res = await apiFetch(`/portal/wallet/relink-circle`, { method: "POST" });
     const data = await res.json();
     if (!res.ok) {
       setError(data.error?.message ?? "Failed to re-link wallet");
@@ -51,108 +58,122 @@ export function WalletSettings({ initialAddress, walletType, addressVerifiedAt }
     setMode("view");
   }
 
+  const verifiedLabel = verifiedAt
+    ? `Verified ${new Date(verifiedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+    : "Unverified";
+
   return (
-    <div className="card p-6">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900">Payout Wallet</h2>
-          <p className="mt-0.5 text-sm text-gray-500">
-            USDC subscription revenue is credited to this address after each billing cycle.
+    <div>
+      <div className="flex flex-wrap items-start gap-4" style={{ marginBottom: 18 }}>
+        <div className="min-w-0">
+          <h3 className="m-0" style={{ fontSize: 20, letterSpacing: "-0.02em", marginBottom: 4 }}>
+            Payout wallet
+          </h3>
+          <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
+            Every settled charge lands here. Sweep Console never custodies your balance.
           </p>
         </div>
         {isLinked && (
-          <div className="flex shrink-0 gap-1.5">
-            <span
-              className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                hasCircleWallet
-                  ? "bg-blue-100 text-blue-700"
-                  : "bg-gray-100 text-gray-600"
-              }`}
-            >
-              {hasCircleWallet ? "Circle" : "External"}
-            </span>
-            <span
-              className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                isVerified ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"
-              }`}
-            >
-              {isVerified ? "Verified" : "Unverified"}
-            </span>
+          <div className="ml-auto flex shrink-0 flex-wrap gap-1.5">
+            <span className="tag tag-neutral">{hasCircleWallet ? "Circle" : "External"}</span>
+            <span className={`tag ${isVerified ? "tag-accent" : "tag-outline"}`}>{verifiedLabel}</span>
           </div>
         )}
       </div>
 
-      {error && (
-        <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">{error}</p>
-      )}
+      {error && <div style={{ marginBottom: 16 }}><ErrorNote>{error}</ErrorNote></div>}
 
       {/* ── Linked state ── */}
       {isLinked && (
-        <>
-          <div className="rounded-lg bg-gray-50 px-4 py-3">
-            <p className="mb-0.5 text-xs font-medium text-gray-500">Linked address</p>
-            <code className="break-all font-mono text-sm text-gray-800">{address}</code>
+        <div style={{ border: "2px solid var(--color-divider)", background: "var(--color-surface)", padding: 20 }}>
+          <div className="flex flex-wrap items-center gap-3">
+            <span style={{ width: 10, height: 10, flex: "none", display: "block", background: "var(--color-accent)" }} />
+            <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 13, wordBreak: "break-all" }}>
+              {address}
+            </span>
           </div>
 
           {!isVerified && !hasCircleWallet && (
-            <p className="mt-3 rounded-lg bg-yellow-50 px-4 py-3 text-sm text-yellow-700">
-              This address was linked before ownership verification existed. Funds cannot be
-              pushed to it until you verify it — use &ldquo;Use a different address&rdquo; below
-              and sign with this wallet.
+            <p
+              className="m-0"
+              style={{
+                fontSize: 12.5, color: "var(--color-neutral-800)", lineHeight: 1.6,
+                marginTop: 14, paddingLeft: 12, borderLeft: "3px solid var(--color-accent)",
+              }}
+            >
+              This address was linked before ownership verification existed. Funds cannot be pushed
+              to it until you verify it — use &ldquo;Use a different address&rdquo; below and sign
+              with this wallet.
             </p>
           )}
 
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button
-              onClick={handleUnlink}
-              disabled={loading}
-              className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 transition"
-            >
-              {loading ? "Unlinking…" : "Unlink wallet"}
-            </button>
+          <div
+            className="flex flex-wrap gap-2.5"
+            style={{ marginTop: 16, borderTop: "1px solid var(--color-divider)", paddingTop: 16 }}
+          >
             {mode !== "link-external" && (
               <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ padding: "9px 14px" }}
                 onClick={() => { setMode("link-external"); clearError(); }}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
               >
                 Use a different address
               </button>
             )}
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}
+              onClick={handleUnlink}
+              disabled={loading}
+            >
+              {loading ? "Unlinking…" : "Unlink wallet"}
+            </button>
           </div>
-        </>
+        </div>
       )}
 
       {/* ── Unlinked state ── */}
       {!isLinked && mode !== "link-external" && (
-        <>
-          <div className="mb-4 rounded-lg bg-yellow-50 px-4 py-3 text-sm text-yellow-700">
-            No wallet linked — revenue will be held until you add one.
-          </div>
-          <div className="flex flex-wrap gap-3">
+        <div style={{ border: "2px solid var(--color-divider)", background: "var(--color-surface)", padding: 20 }}>
+          <p className="m-0" style={{ fontSize: 13, lineHeight: 1.6 }}>
+            <strong style={{ fontFamily: "var(--font-heading)", fontWeight: 800 }}>No wallet linked.</strong>{" "}
+            <span style={{ color: "var(--color-neutral-800)" }}>
+              Revenue is held until you add one — nothing is lost in the meantime.
+            </span>
+          </p>
+          <div
+            className="flex flex-wrap gap-2.5"
+            style={{ marginTop: 16, borderTop: "1px solid var(--color-divider)", paddingTop: 16 }}
+          >
             {hasCircleWallet && (
               <button
+                type="button"
+                className="btn btn-primary"
+                style={{ padding: "9px 14px" }}
                 onClick={handleRelinkCircle}
                 disabled={mode === "relinking"}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition"
               >
                 {mode === "relinking" ? "Re-linking…" : "Re-link Circle wallet"}
               </button>
             )}
             <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ padding: "9px 14px" }}
               onClick={() => { setMode("link-external"); clearError(); }}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
             >
               Link wallet address
             </button>
           </div>
-        </>
+        </div>
       )}
 
       {/* ── Link external: connect + sign-nonce ownership verification ── */}
       {mode === "link-external" && (
-        <div className="mt-4">
+        <div style={{ marginTop: isLinked ? 18 : 0 }}>
           <ExternalWalletVerify
-            requirePassword={isLinked}
             onLinked={(a) => {
               setAddress(a);
               setVerifiedAt(new Date().toISOString());

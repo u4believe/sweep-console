@@ -1,296 +1,238 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
 const INTERVALS = [
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
   { value: "monthly", label: "Monthly" },
   { value: "yearly", label: "Yearly" },
-  { value: "weekly", label: "Weekly" },
-  { value: "daily", label: "Daily" },
-];
+] as const;
 
-interface TierDraft {
-  name: string;
-  amount: string;
-  interval: string;
-  trial_days: string;
-  features: string; // one feature per line
-}
-
-const toMicro = (dollars: string) => Math.round(parseFloat(dollars) * 1_000_000);
-const parseFeatures = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
-
-// ─── Small presentational helpers ─────────────────────────────────────────────
-
-function SectionLabel({ children, hint }: { children: ReactNode; hint?: string }) {
-  return (
-    <div className="mb-3">
-      <div className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-brand-600">
-        <span className="text-brand-400">❖</span>
-        {children}
-      </div>
-      {hint && <p className="mt-0.5 text-sm text-gray-400">{hint}</p>}
-    </div>
-  );
-}
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
-  return (
-    <div>
-      <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</label>
-      {children}
-      {hint && <p className="mt-1 text-xs text-gray-400">{hint}</p>}
-    </div>
-  );
-}
-
-/// The price / interval / trial row shared by every tier card.
-function TierTerms({
-  amount, interval, trialDays, onAmount, onInterval, onTrial,
-}: {
-  amount: string; interval: string; trialDays: string;
-  onAmount: (v: string) => void; onInterval: (v: string) => void; onTrial: (v: string) => void;
-}) {
-  return (
-    <div className="grid grid-cols-3 gap-2">
-      <Field label="Price">
-        <div className="relative">
-          <span className="absolute left-3 top-2.5 text-gray-400">$</span>
-          <input
-            type="number" value={amount} onChange={(e) => onAmount(e.target.value)}
-            min="0.01" step="0.01" placeholder="9.99" className="input-field w-full pl-7"
-          />
-        </div>
-      </Field>
-      <Field label="Interval">
-        <select value={interval} onChange={(e) => onInterval(e.target.value)} className="input-field w-full">
-          {INTERVALS.map((iv) => <option key={iv.value} value={iv.value}>{iv.label}</option>)}
-        </select>
-      </Field>
-      <Field label="Trial">
-        <input
-          type="number" value={trialDays} onChange={(e) => onTrial(e.target.value)}
-          min="0" max="365" placeholder="0" className="input-field w-full"
-        />
-      </Field>
-    </div>
-  );
-}
-
+/**
+ * Creates a plan and its FIRST tier — and stops there.
+ *
+ * A plan's own name/price/interval/trial are its default tier; every further
+ * tier is added afterwards on the plan screen, one at a time, each by its own
+ * scoped request. This form deliberately does not collect a second tier: the
+ * previous version created the plan and then looped POSTs for every tier draft,
+ * logging failures to the console, so a tier could silently fail to exist while
+ * the merchant was told the plan was created.
+ *
+ * Price and interval are permanent once saved — subscriptions snapshot them at
+ * checkout — so they are stated as permanent here rather than after the fact.
+ */
 export function CreatePlanForm() {
   const navigate = useNavigate();
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
 
-  // Plan-level details.
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-
-  // Default tier.
-  const [defaultTierName, setDefaultTierName] = useState("");
-  const [defaultFeatures, setDefaultFeatures] = useState("");
-  const [amount, setAmount] = useState("");
-  const [interval, setInterval] = useState("monthly");
+  const [tierName, setTierName] = useState("");
+  const [price, setPrice] = useState("");
+  const [interval, setInterval] = useState<string>("monthly");
   const [trialDays, setTrialDays] = useState("0");
+  const [features, setFeatures] = useState("");
 
-  // Additional tiers.
-  const [tiers, setTiers] = useState<TierDraft[]>([]);
-  const addTier = () =>
-    setTiers((t) => [...t, { name: "", amount: "", interval: "monthly", trial_days: "0", features: "" }]);
-  const removeTier = (i: number) => setTiers((t) => t.filter((_, idx) => idx !== i));
-  const updateTier = (i: number, field: keyof TierDraft, value: string) =>
-    setTiers((t) => t.map((tier, idx) => (idx === i ? { ...tier, [field]: value } : tier)));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
-  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const priceNum = Number(price);
+  const trialNum = Number(trialDays);
+  const priceValid = Number.isFinite(priceNum) && priceNum > 0;
+  const trialValid = Number.isInteger(trialNum) && trialNum >= 0 && trialNum <= 365;
+  const valid = name.trim().length > 0 && priceValid && trialValid;
+
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!valid) return;
+    setSaving(true);
     setError("");
 
-    const baseAmount = toMicro(amount);
-    if (!name.trim() || !Number.isFinite(baseAmount) || baseAmount <= 0) {
-      setError("Enter a plan name and a valid price for the default tier.");
-      return;
-    }
-    for (const [i, t] of tiers.entries()) {
-      const a = toMicro(t.amount);
-      if (!t.name.trim() || !Number.isFinite(a) || a <= 0) {
-        setError(`Tier ${i + 1} needs a name and a valid price.`);
-        return;
-      }
-    }
-
-    setLoading(true);
     try {
-      const meta: Record<string, unknown> = {};
-      if (defaultTierName.trim()) meta.defaultTierName = defaultTierName.trim();
-      const defFeatures = parseFeatures(defaultFeatures);
-      if (defFeatures.length) meta.defaultFeatures = defFeatures;
+      const featureList = features.split("\n").map((s) => s.trim()).filter(Boolean);
+      const metadata: Record<string, unknown> = {};
+      if (tierName.trim()) metadata.defaultTierName = tierName.trim();
+      if (featureList.length) metadata.defaultFeatures = featureList;
 
       const res = await fetch(`${API_URL}/portal/plans`, {
-        credentials: "include",
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
           description: description.trim() || undefined,
-          amount: baseAmount,
+          // USDC micro-units — round so a price like 29.99 doesn't land on .9999
+          amount: Math.round(priceNum * 1_000_000),
           currency: "USDC",
           interval,
-          trial_days: parseInt(trialDays || "0", 10),
-          metadata: meta,
+          trial_days: trialNum,
+          metadata,
         }),
       });
       const data = (await res.json()) as { id?: string; error?: { message?: string } };
-      if (!res.ok || !data.id) {
-        setError(data.error?.message ?? "Failed to create plan");
-        return;
-      }
+      if (!res.ok || !data.id) throw new Error(data.error?.message ?? "Couldn't create the plan.");
 
-      for (const t of tiers) {
-        const tierRes = await fetch(`${API_URL}/portal/plans/${data.id}/tiers`, {
-          credentials: "include",
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: t.name.trim(),
-            amount: toMicro(t.amount),
-            interval: t.interval,
-            trial_days: parseInt(t.trial_days || "0", 10),
-            features: parseFeatures(t.features),
-          }),
-        });
-        if (!tierRes.ok) console.error("[create-plan] tier add failed", await tierRes.text().catch(() => ""));
-      }
-
-      navigate("/plans");
-    } catch {
-      setError("Network error — please try again");
+      // Straight to the plan, where further tiers are added one at a time.
+      navigate(`/plans/${data.id}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't create the plan.");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
-  };
+  }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-8">
+    <form onSubmit={submit}>
+      <div style={{ borderTop: "2px solid var(--color-divider)", paddingTop: 20 }}>
+        <p
+          className="m-0 uppercase"
+          style={{ fontSize: 10, letterSpacing: "0.14em", color: "var(--color-neutral-600)", marginBottom: 12 }}
+        >
+          Plan
+        </p>
+
+        <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+          <div className="field">
+            <label htmlFor="plan-name">Plan name</label>
+            <input
+              id="plan-name"
+              className="input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Acme Pro"
+              maxLength={60}
+              autoFocus
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="plan-desc">Description — optional</label>
+            <input
+              id="plan-desc"
+              className="input"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Full access to every feature"
+              maxLength={200}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div style={{ borderTop: "1px solid var(--color-divider)", marginTop: 22, paddingTop: 20 }}>
+        <div className="mb-3 flex flex-wrap items-baseline gap-3">
+          <p
+            className="m-0 uppercase"
+            style={{ fontSize: 10, letterSpacing: "0.14em", color: "var(--color-neutral-600)" }}
+          >
+            First tier
+          </p>
+          <span className="tag tag-neutral">Price &amp; interval permanent once saved</span>
+        </div>
+
+        <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+          <div className="field">
+            <label htmlFor="tier-name">Tier name — optional</label>
+            <input
+              id="tier-name"
+              className="input"
+              value={tierName}
+              onChange={(e) => setTierName(e.target.value)}
+              placeholder="Defaults to the plan name"
+              maxLength={60}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="tier-price">Price (USDC)</label>
+            <input
+              id="tier-price"
+              className="input"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              placeholder="29.00"
+              inputMode="decimal"
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="tier-interval">Interval</label>
+            <select
+              id="tier-interval"
+              className="input"
+              value={interval}
+              onChange={(e) => setInterval(e.target.value)}
+            >
+              {INTERVALS.map((i) => (
+                <option key={i.value} value={i.value}>{i.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="tier-trial">Trial days</label>
+            <input
+              id="tier-trial"
+              className="input"
+              value={trialDays}
+              onChange={(e) => setTrialDays(e.target.value)}
+              inputMode="numeric"
+            />
+          </div>
+        </div>
+
+        <div className="field mt-3">
+          <label htmlFor="tier-feats">Features — one per line</label>
+          <textarea
+            id="tier-feats"
+            className="input"
+            style={{ minHeight: 92 }}
+            value={features}
+            onChange={(e) => setFeatures(e.target.value)}
+            placeholder={"Unlimited projects\nPriority support"}
+          />
+        </div>
+
+        {price.length > 0 && !priceValid && (
+          <p className="m-0 mt-2" style={{ fontSize: 12, color: "var(--color-accent-700)" }}>
+            Enter a price above zero.
+          </p>
+        )}
+        {!trialValid && (
+          <p className="m-0 mt-2" style={{ fontSize: 12, color: "var(--color-accent-700)" }}>
+            Trial days must be a whole number between 0 and 365.
+          </p>
+        )}
+      </div>
+
       {error && (
-        <p className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-          <span>⚠</span>{error}
+        <p className="m-0" style={{ marginTop: 16, fontSize: 13, color: "var(--color-accent-700)" }}>
+          {error}
         </p>
       )}
 
-      {/* ─── Plan details ─────────────────────────────────────────── */}
-      <section>
-        <SectionLabel hint="Basic info shown to subscribers at checkout.">Plan details</SectionLabel>
-        <div className="rounded-xl border border-dashed border-gray-300 p-5">
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-            <Field label="Plan name" hint="Your product, e.g. Acme Pro.">
-              <input
-                type="text" value={name} onChange={(e) => setName(e.target.value)}
-                required placeholder="Acme Pro" className="input-field w-full"
-              />
-            </Field>
-            <Field label="Description" hint="Optional — a short line about the plan.">
-              <input
-                type="text" value={description} onChange={(e) => setDescription(e.target.value)}
-                placeholder="Full access to all features" className="input-field w-full"
-              />
-            </Field>
-          </div>
-        </div>
-      </section>
-
-      {/* ─── Pricing tiers ────────────────────────────────────────── */}
-      <section>
-        <SectionLabel hint="Subscribers pick one tier at checkout. The first card is the default — add more for extra price points.">
-          Pricing tiers
-        </SectionLabel>
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {/* Default tier */}
-          <div className="rounded-xl border border-dashed border-brand-300 bg-brand-50/40 p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-semibold text-brand-700">Default tier</span>
-            </div>
-            <div className="space-y-3">
-              <Field label="Tier name" hint="Shown in the checkout picker — defaults to the plan name.">
-                <input
-                  type="text" value={defaultTierName} onChange={(e) => setDefaultTierName(e.target.value)}
-                  placeholder="Basic" className="input-field w-full"
-                />
-              </Field>
-              <TierTerms
-                amount={amount} interval={interval} trialDays={trialDays}
-                onAmount={setAmount} onInterval={setInterval} onTrial={setTrialDays}
-              />
-              <Field label="Features" hint="One per line — listed under this tier at checkout.">
-                <textarea
-                  value={defaultFeatures} onChange={(e) => setDefaultFeatures(e.target.value)}
-                  rows={3} placeholder={"Unlimited projects\nEmail support\nUp to 5 seats"}
-                  className="input-field w-full"
-                />
-              </Field>
-            </div>
-          </div>
-
-          {/* Additional tiers */}
-          {tiers.map((t, i) => (
-            <div key={i} className="rounded-xl border border-dashed border-gray-300 p-5">
-              <div className="mb-3 flex items-center justify-between">
-                <span className="text-sm font-semibold text-gray-700">Tier {i + 1}</span>
-                <button type="button" onClick={() => removeTier(i)} className="text-xs font-medium text-red-600 hover:underline">
-                  Remove
-                </button>
-              </div>
-              <div className="space-y-3">
-                <Field label="Tier name" hint="Shown in the checkout picker.">
-                  <input
-                    type="text" value={t.name} onChange={(e) => updateTier(i, "name", e.target.value)}
-                    placeholder="Enterprise" className="input-field w-full"
-                  />
-                </Field>
-                <TierTerms
-                  amount={t.amount} interval={t.interval} trialDays={t.trial_days}
-                  onAmount={(v) => updateTier(i, "amount", v)}
-                  onInterval={(v) => updateTier(i, "interval", v)}
-                  onTrial={(v) => updateTier(i, "trial_days", v)}
-                />
-                <Field label="Features" hint="One per line.">
-                  <textarea
-                    value={t.features} onChange={(e) => updateTier(i, "features", e.target.value)}
-                    rows={3} placeholder={"Everything in Basic\nPriority support\nUnlimited seats"}
-                    className="input-field w-full"
-                  />
-                </Field>
-              </div>
-            </div>
-          ))}
-
-          {/* Add tier */}
-          <button
-            type="button" onClick={addTier}
-            className="flex min-h-[120px] items-center justify-center rounded-xl border-2 border-dashed border-gray-300 text-sm font-medium text-gray-500 hover:border-brand-400 hover:text-brand-600"
-          >
-            + Add another tier
-          </button>
-        </div>
-      </section>
-
-      {/* ─── Actions ──────────────────────────────────────────────── */}
-      <div className="flex flex-col items-center gap-3 pt-2">
+      <div
+        className="flex flex-wrap items-center gap-3"
+        style={{ borderTop: "2px solid var(--color-divider)", marginTop: 24, paddingTop: 20 }}
+      >
         <button
-          type="submit" disabled={loading}
-          className="btn-primary w-full max-w-xs py-3 text-base disabled:opacity-50"
+          type="submit"
+          className="btn btn-primary"
+          style={{ padding: "12px 20px" }}
+          disabled={!valid || saving}
         >
-          {loading
-            ? "Creating…"
-            : tiers.length > 0
-              ? `Create plan + ${tiers.length} tier${tiers.length === 1 ? "" : "s"}`
-              : "Create plan"}
+          {saving ? "Creating…" : "Create plan"}
         </button>
-        <button type="button" onClick={() => navigate("/plans")} className="text-sm font-medium text-gray-500 hover:text-gray-700">
-          Cancel
-        </button>
+        <span style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>
+          You get a shareable checkout link straight away.
+        </span>
       </div>
+
+      <p
+        className="m-0"
+        style={{ fontSize: 12, color: "var(--color-neutral-700)", marginTop: 14, maxWidth: "62ch", lineHeight: 1.6 }}
+      >
+        Add more tiers on the next screen, one at a time. Each is created independently, appears on
+        the same checkout link the moment it exists, and can be removed later without touching the
+        others.
+      </p>
     </form>
   );
 }

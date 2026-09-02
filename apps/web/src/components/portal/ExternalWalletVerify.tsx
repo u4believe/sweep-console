@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useAccount, useSignMessage } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+import { apiFetch, messageOf, wasCancelled } from "@/lib/stepup";
 
 // External payout addresses (merchant path B) must be ownership-verified before
 // the contract will ever push funds to them: connect the wallet, sign the
@@ -10,18 +9,21 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 // signature before activating the address.
 
 interface Props {
-  // Changing an already-linked payout address requires the account password
-  requirePassword: boolean;
   onLinked: (address: string) => void;
-  onCancel: () => void;
+  /** Omit to render no cancel affordance at all. */
+  onCancel?: () => void;
+  cancelLabel?: string;
 }
 
 type Step = "idle" | "requesting" | "signing" | "verifying";
 
-export function ExternalWalletVerify({ requirePassword, onLinked, onCancel }: Props) {
+export function ExternalWalletVerify({
+  onLinked,
+  onCancel,
+  cancelLabel = "Cancel",
+}: Props) {
   const { address, isConnected } = useAccount();
   const { signMessageAsync } = useSignMessage();
-  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [step, setStep] = useState<Step>("idle");
 
@@ -33,35 +35,36 @@ export function ExternalWalletVerify({ requirePassword, onLinked, onCancel }: Pr
     setError("");
 
     try {
+      // Both halves are guarded. Ownership of the account used to be proven
+      // with the login password, which Google-only accounts (passwordHash:
+      // null) could never supply; apiFetch now raises the step-up prompt
+      // instead, and replays the call with the proof.
       setStep("requesting");
-      const startRes = await fetch(`${API_URL}/portal/wallet/external`, {
+      const startRes = await apiFetch(`/portal/wallet/external`, {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          walletAddress: address,
-          ...(requirePassword ? { password } : {}),
-        }),
+        body: JSON.stringify({ walletAddress: address }),
       });
-      const startData = await startRes.json();
       if (!startRes.ok) {
-        throw new Error(startData.error?.message ?? "Failed to start verification");
+        if (await wasCancelled(startRes)) { setStep("idle"); return; }
+        throw new Error(await messageOf(startRes, "Failed to start verification"));
       }
+      const startData = await startRes.json();
 
       setStep("signing");
       const signature = await signMessageAsync({ message: startData.message as string });
 
       setStep("verifying");
-      const verifyRes = await fetch(`${API_URL}/portal/wallet/external/verify`, {
+      const verifyRes = await apiFetch(`/portal/wallet/external/verify`, {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ signature }),
       });
-      const verifyData = await verifyRes.json();
       if (!verifyRes.ok) {
-        throw new Error(verifyData.error?.message ?? "Signature verification failed");
+        if (await wasCancelled(verifyRes)) { setStep("idle"); return; }
+        throw new Error(await messageOf(verifyRes, "Signature verification failed"));
       }
+      const verifyData = await verifyRes.json();
 
       onLinked(verifyData.walletAddress as string);
     } catch (err) {
@@ -71,68 +74,66 @@ export function ExternalWalletVerify({ requirePassword, onLinked, onCancel }: Pr
   }
 
   return (
-    <form onSubmit={verify} className="space-y-4">
+    <form onSubmit={verify} className="flex flex-col gap-3.5">
       {error && (
-        <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">{error}</p>
+        <p className="m-0" style={{ fontSize: 13, color: "var(--color-accent-700)" }}>{error}</p>
       )}
 
       {!isConnected ? (
-        <div className="space-y-3">
-          <p className="text-sm text-gray-600">
-            Connect the wallet you want to receive USDC payouts with. You&apos;ll sign a
-            free message to prove you control it — no transaction, no gas.
+        <>
+          <p className="m-0" style={{ fontSize: 12.5, color: "var(--color-neutral-800)", lineHeight: 1.6 }}>
+            Connect the wallet you want to receive USDC payouts with. You&apos;ll sign a free
+            message to prove you control it — no transaction, no gas.
           </p>
-          <ConnectButton label="Connect payout wallet" />
-        </div>
+          <div className="self-start">
+            <ConnectButton label="Connect payout wallet" />
+          </div>
+        </>
       ) : (
         <>
-          <div className="rounded-lg bg-gray-50 px-4 py-3">
-            <p className="mb-0.5 text-xs font-medium text-gray-500">Connected wallet</p>
-            <code className="break-all font-mono text-sm text-gray-800">{address}</code>
+          <div className="flex flex-wrap items-center gap-3">
+            <span style={{ width: 10, height: 10, background: "var(--color-accent)", display: "block" }} />
+            <span
+              style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 13, wordBreak: "break-all" }}
+            >
+              {address}
+            </span>
+            <span className="tag tag-neutral" style={{ marginLeft: "auto" }}>External wallet</span>
           </div>
 
-          {requirePassword && (
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                Account password
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-                className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-              <p className="mt-1 text-xs text-gray-500">
-                Changing your payout address requires your password.
-              </p>
-            </div>
-          )}
+          <p className="m-0" style={{ fontSize: 12.5, color: "var(--color-neutral-800)", lineHeight: 1.6 }}>
+            Sign a message to prove you control this address. Settlements go straight here —
+            Sweep Console never holds your balance.
+          </p>
+
         </>
       )}
 
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         {isConnected && (
           <button
             type="submit"
+            className="btn btn-primary"
+            style={{ padding: "11px 18px" }}
             disabled={busy}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition"
           >
             {step === "requesting" && "Preparing message…"}
             {step === "signing" && "Sign in your wallet…"}
             {step === "verifying" && "Verifying signature…"}
-            {step === "idle" && "Sign & verify ownership"}
+            {step === "idle" && "Sign to verify"}
           </button>
         )}
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={busy}
-          className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition"
-        >
-          Cancel
-        </button>
+        {onCancel && (
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ color: "var(--color-neutral-700)" }}
+            onClick={onCancel}
+            disabled={busy}
+          >
+            {cancelLabel}
+          </button>
+        )}
       </div>
     </form>
   );
