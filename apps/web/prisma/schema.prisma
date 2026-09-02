@@ -30,6 +30,15 @@ model Merchant {
   walletNonceExpiresAt DateTime? // nonce validity window
   usdcBalance      String   @default("0") // cached USDC balance, refreshed by webhooks
   balanceUpdatedAt DateTime? // when usdcBalance was last written
+  // ─── Step-up authentication ────────────────────────────────────────────────
+  // Proof that a destructive portal action was taken by the account owner, not
+  // by whoever happens to be holding a stolen session cookie. Two factors only:
+  // an emailed code, and TOTP (Google Authenticator). Password is deliberately
+  // NOT one of them — Google-only accounts have passwordHash: null and could
+  // never satisfy it.
+  totpSecret        String?   // base32 TOTP seed, AES-256-GCM encrypted at rest
+  totpConfirmedAt   DateTime? // set once the merchant proves a working code; null = enrolment started but unfinished
+  recoveryCodes     String[]  @default([]) // HMACs of single-use codes; each is consumed by deletion
   passwordHash   String?  // scrypt hash for portal login (null for Google-only accounts)
   onboarded      Boolean  @default(true) // false only for fresh Google accounts that still owe a company name
   isLive         Boolean  @default(false) // toggled when merchant goes live
@@ -44,6 +53,7 @@ model Merchant {
   paymentLinks     PaymentLink[]
   customers        Customer[]
   customerWallets  CustomerWallet[]
+  challenges       MerchantChallenge[]
 
   @@map("merchants")
 }
@@ -90,6 +100,12 @@ model Plan {
   settlementWindowHours Int? // escrow hold for first payments; null = platform default (SETTLEMENT_WINDOW_HOURS)
   archived    Boolean  @default(false)
   metadata    Json?
+
+  // Which tier checkout badges "Recommended" — a PlanTier id, or the literal
+  // "default" for the plan's own terms (the default tier has no PlanTier row).
+  // Null means no badge. Purely presentational: it never affects billing, and a
+  // tier being recommended does not stop any other tier being bought.
+  recommendedTierId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -195,6 +211,13 @@ model Sweep {
 
   walletAddress   String  // subscriber's wallet (depositor + mint recipient)
   subscriberEmail String? // carried through the async sweep so completion can bind the Passport
+  // The Customer resolved from the OTP proof at activate time. The sweep runs
+  // detached, long after the short-lived email token is gone, so completion cannot
+  // re-prove ownership — it reads the decision made here instead of falling back
+  // to the wallet link, which belongs to whoever used the wallet at this merchant
+  // first and is not necessarily the person paying now.
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id])
   status        String @default("planned") // "planned" | "depositing" | "bridging" | "minting" | "complete" | "failed"
 
   totalAmount BigInt // USDC micro-units the plan sweeps to Arc
@@ -202,6 +225,7 @@ model Sweep {
   priceAmount BigInt // first-period price the sweep must cover
 
   activationTxHash String? // Arc tx: gatewayMint + permit + subscribe (one hash)
+  sourceChain      String? // chain the funds were actually pulled from ("base" | "arbitrum" | ...)
   error            String?
 
   // Server-generated EIP-712 payloads (permit + per-leg deposit/burn typed data)
@@ -304,6 +328,8 @@ model Subscription {
   @@index([customerId])
   @@index([currentPeriodEnd]) // billing engine queries on this
   @@index([settlementDeadline]) // settlement sweep queries on this
+  @@index([merchantId, walletAddress]) // wallet guard: is this wallet spoken for here?
+  @@index([walletAddress]) // allowance floor: everything this wallet pays for
   @@map("subscriptions")
 }
 
@@ -465,6 +491,7 @@ model Customer {
 
   wallets       CustomerWallet[]
   subscriptions Subscription[]
+  sweeps        Sweep[]
 
   @@unique([merchantId, email]) // same email = distinct customer per merchant
   @@index([merchantId])
@@ -499,6 +526,30 @@ model CheckoutOtp {
 
   @@index([email])
   @@map("checkout_otps")
+}
+
+/// A one-time secret in flight for a merchant: either an emailed step-up code,
+/// or the jti of an issued step-up token awaiting its single use.
+///
+/// Deliberately NOT the CheckoutOtp table. That one is keyed on email alone,
+/// with no merchant and no purpose, so a subscriber's checkout code would verify
+/// as a merchant's proof to delete a plan. Every row here is scoped to one
+/// merchant AND one action.
+model MerchantChallenge {
+  id         String    @id @default(cuid())
+  merchantId String
+  purpose    String    // "email:<action>" for a sent code, "token:<action>" for an issued token's jti
+  codeHash   String    // HMAC of the code (or of the jti) — never the raw value
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId, purpose])
+  @@index([expiresAt])
+  @@map("merchant_challenges")
 }
 
 // ─── Passport (legacy — superseded by Customer) ────────────────────────────────
