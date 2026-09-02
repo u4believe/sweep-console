@@ -37,3 +37,8 @@ pnpm-debug.log*
 .idea/
 *.swp
 *.swo
+
+# Local design references and throwaway DB query scripts (not part of the build)
+Screenshot *.png
+*.zip
+apps/api/q*.cjs
