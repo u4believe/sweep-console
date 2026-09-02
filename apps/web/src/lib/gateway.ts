@@ -27,7 +27,12 @@ export interface GrantTarget {
 
 export interface GrantPlan {
   targets: GrantTarget[];
-  // True once the session already has active grants — skip re-granting.
+  /**
+   * Chains this wallet has already authorized, counted per chain. A chain in
+   * this list needs no further signature; the rest can still be granted.
+   */
+  granted_chain_ids: number[];
+  // True only once EVERY offered chain is authorized — nothing left to grant.
   already_enabled: boolean;
   permit_payload: TypedDataPayload;
   permit_value: string;
@@ -39,6 +44,10 @@ export interface SweepStatus {
   status: "depositing" | "bridging" | "minting" | "complete" | "failed";
   error: string | null;
   activation_tx_hash: string | null;
+  /** Chain the funds were actually pulled from ("base" | "arbitrum" | …). */
+  source_chain: string | null;
+  /** The subscription this activation created, once the sweep is complete. */
+  subscription_id: string | null;
   redirect_url: string | null;
 }
 
@@ -76,6 +85,36 @@ export function fetchWalletStatus(
   address: string
 ): Promise<{ linked: boolean; verified: boolean; email_masked: string | null }> {
   return request(`/customer/wallet-status?address=${address}&session_id=${sessionId}`);
+}
+
+export interface WalletAvailability {
+  /// False when this wallet already carries a live subscription with this
+  /// merchant for someone else — the subscriber must connect a different one.
+  available: boolean;
+  owner_email_masked: string | null;
+  message: string | null;
+  /// USDC allowance this wallet needs to cover this plan ON TOP OF everything
+  /// else it already pays for (across merchants), as a decimal string.
+  allowance_target: string;
+}
+
+/// Pre-flight, run on wallet connect and again before the direct pay path: may
+/// this subscriber pay from this wallet, and how much allowance does it need?
+export function fetchWalletAvailability(
+  sessionId: string,
+  address: string,
+  email?: string,
+  emailToken?: string | null
+): Promise<WalletAvailability> {
+  return request(`/customer/wallet-availability`, {
+    method: "POST",
+    body: JSON.stringify({
+      session_id: sessionId,
+      address,
+      email,
+      email_token: emailToken ?? undefined,
+    }),
+  });
 }
 
 export function requestOtp(
@@ -183,16 +222,24 @@ export function enableCrossChain(
   });
 }
 
-/// Revoke the cross-chain grant enabled in this checkout — the relayer will never
+/// Revoke cross-chain grants enabled in this checkout — the relayer will never
 /// redeem the session's (not-yet-subscribed) delegations again.
+///
+/// Pass `chainId` to revoke a single chain, leaving the others authorized;
+/// omit it to turn every chain off at once.
 export function revokeGrant(
   sessionId: string,
   sessionToken: string,
-  wallet: string
-): Promise<{ revoked: number }> {
+  wallet: string,
+  chainId?: number
+): Promise<{ revoked: number; chain_id: number | null }> {
   return request(`/internal/checkout/${sessionId}/grant-revoke`, {
     method: "POST",
-    body: JSON.stringify({ session_token: sessionToken, wallet_address: wallet }),
+    body: JSON.stringify({
+      session_token: sessionToken,
+      wallet_address: wallet,
+      ...(chainId !== undefined ? { chain_id: chainId } : {}),
+    }),
   });
 }
 
@@ -322,5 +369,50 @@ export function portalRevokeGrant(
   return request(`/customer/portal/subscriptions/${subscriptionId}/grant-revoke`, {
     method: "POST",
     body: JSON.stringify({ email, email_token: emailToken }),
+  });
+}
+
+export interface WalletBalances {
+  address: string;
+  arc_balance: string;
+  total: string;
+  chains: { chain: string; name: string; domain: number; wallet_balance: string }[];
+}
+
+/** USDC the wallet holds on Arc and on every supported source chain. */
+export function fetchWalletBalances(address: string): Promise<WalletBalances> {
+  return request<WalletBalances>(`/v1/wallet/balances?address=${address}`);
+}
+
+/**
+ * Renewal grants bound to a SUBSCRIPTION rather than a checkout session — used
+ * on the confirmation page, where the session is already spent.
+ */
+/// Either proof the grant routes accept: an OTP-proven email, or the token of
+/// the checkout session that created this subscription. See the note on
+/// sessionProofSchema in routes/customer-portal.ts.
+export type GrantProof =
+  | { email: string; email_token: string }
+  | { session_id: string; session_token: string };
+
+export function fetchSubscriptionGrantPlan(
+  subscriptionId: string,
+  proof: GrantProof & { wallet?: string }
+): Promise<{ targets: GrantTarget[] }> {
+  return request(`/customer/portal/subscriptions/${subscriptionId}/grant-plan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(proof),
+  });
+}
+
+export function saveSubscriptionDelegation(
+  subscriptionId: string,
+  body: Record<string, unknown>
+): Promise<{ delegation_id: string; status: string }> {
+  return request(`/customer/portal/subscriptions/${subscriptionId}/grant`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
 }

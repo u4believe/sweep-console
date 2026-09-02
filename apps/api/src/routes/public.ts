@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { prisma } from "../lib/prisma";
+import { prisma, withRetry } from "../lib/prisma";
 import { ok, err } from "../lib/response";
 import { ids } from "../lib/ids";
 import {
@@ -23,15 +23,18 @@ import {
   requestEmailOtp,
   verifyEmailOtp,
   resolveProvenCustomer,
+  verifyEmailToken,
   OtpError,
 } from "../lib/checkout/identity";
+import {
+  findWalletConflict,
+  walletConflictMessage,
+  identifyPayer,
+} from "../lib/checkout/wallet-guard";
+import { requiredAllowance } from "../lib/subscriptions/allowance";
 import { revokeSubscription } from "../lib/subscriptions/revoke";
 import { verifyTurnstile, clientIp } from "../lib/turnstile";
 import type { Hex } from "viem";
-
-// The subscriber grants a year of renewals in one EIP-2612 permit, mirroring
-// the standard path's USDC.approve(amount × 12).
-const ALLOWANCE_PERIODS = 12n;
 
 function splitSignature(signature: string): { v: number; r: Hex; s: Hex } {
   const sig = signature.startsWith("0x") ? signature.slice(2) : signature;
@@ -71,7 +74,7 @@ publicRouter.get("/stats", async (_req, res) => {
     // Active subscriptions carry their own amount/interval snapshot; fall back to
     // the plan's default tier when null. We read rows (not an aggregate) because
     // MRR needs per-subscription interval normalization + the null fallback.
-    const activeSubs = await prisma.subscription.findMany({
+    const activeSubs = await withRetry(() => prisma.subscription.findMany({
       where: { isTestMode: false, status: { in: ["active", "trialing"] } },
       select: {
         amount: true,
@@ -79,7 +82,7 @@ publicRouter.get("/stats", async (_req, res) => {
         createdAt: true,
         plan: { select: { amount: true, interval: true } },
       },
-    });
+    }));
 
     let mrrMicro = 0;
     let newSubscribersThisMonth = 0;
@@ -90,7 +93,7 @@ publicRouter.get("/stats", async (_req, res) => {
       if (s.createdAt >= monthStart) newSubscribersThisMonth += 1;
     }
 
-    const settled = await prisma.payment.aggregate({
+    const settled = await withRetry(() => prisma.payment.aggregate({
       where: {
         isTestMode: false,
         status: "succeeded",
@@ -98,7 +101,7 @@ publicRouter.get("/stats", async (_req, res) => {
         createdAt: { gte: monthStart },
       },
       _sum: { amount: true },
-    });
+    }));
 
     const data = {
       mrr: mrrMicro / 1e6, // USDC dollars
@@ -132,10 +135,10 @@ publicRouter.get("/customer/recall", async (req, res) => {
   }
   try {
     const session = sessionId
-      ? await prisma.checkoutSession.findUnique({
+      ? await withRetry(() => prisma.checkoutSession.findUnique({
           where: { sessionId },
           select: { merchantId: true },
-        })
+        }))
       : null;
     if (!session) {
       return ok(res, { known: false, verified: false, wallet_masked: null });
@@ -159,13 +162,75 @@ publicRouter.get("/customer/wallet-status", async (req, res) => {
   }
   try {
     const session = sessionId
-      ? await prisma.checkoutSession.findUnique({ where: { sessionId }, select: { merchantId: true } })
+      ? await withRetry(() => prisma.checkoutSession.findUnique({ where: { sessionId }, select: { merchantId: true } }))
       : null;
     if (!session) return ok(res, { linked: false, verified: false, email_masked: null });
     const result = await lookupCustomerByWallet(session.merchantId, address);
     return ok(res, { linked: result.linked, verified: result.verified, email_masked: result.emailMasked });
   } catch (e) {
     console.error("[public/customer/wallet-status]", e);
+    return err(res, "Lookup failed", 500);
+  }
+});
+
+// Wallet availability: may THIS payer subscribe from THIS wallet at this merchant?
+// A wallet carrying a live subscription for a different customer is spoken for —
+// see lib/checkout/wallet-guard.ts. POSTed rather than a query string so the OTP
+// proof never lands in a URL (and so in access logs).
+//
+// This is the pre-flight the checkout runs on wallet connect, before anything is
+// signed. Every activation path re-checks server-side; this exists so the answer
+// arrives before the subscriber spends gas, not after.
+const walletAvailabilitySchema = z.object({
+  session_id: z.string().min(1),
+  address: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  email: z.string().email().optional(),
+  email_token: z.string().optional(),
+});
+
+publicRouter.post("/customer/wallet-availability", async (req, res) => {
+  const parsed = walletAvailabilitySchema.safeParse(req.body);
+  if (!parsed.success) return err(res, "Invalid payload", 422);
+  const { session_id, address, email, email_token } = parsed.data;
+
+  try {
+    const session = await withRetry(() => prisma.checkoutSession.findUnique({
+      where: { sessionId: session_id },
+      select: {
+        merchantId: true,
+        tierId: true,
+        plan: true,
+        merchant: { select: { name: true } },
+      },
+    }));
+    if (!session) return err(res, "Checkout session not found", 404);
+
+    const identity = await identifyPayer({
+      merchantId: session.merchantId,
+      walletAddress: address,
+      email,
+      emailProven: !!email && verifyEmailToken(email_token, email),
+    });
+    const conflict = await findWalletConflict({
+      merchantId: session.merchantId,
+      walletAddress: address,
+      identity,
+    });
+
+    // The allowance this wallet needs to cover this plan ON TOP OF whatever else
+    // it already pays for. The direct (gas-paying) path approves to this figure;
+    // the permit paths are handed the same number server-side.
+    const tier = await resolveTier(session.plan, session.tierId);
+
+    return ok(res, {
+      available: !conflict,
+      // Masked: the blocked party must not learn who holds the wallet.
+      owner_email_masked: conflict?.ownerEmailMasked ?? null,
+      message: conflict ? walletConflictMessage(conflict, session.merchant.name) : null,
+      allowance_target: (await requiredAllowance(address, tier.amount)).toString(),
+    });
+  } catch (e) {
+    console.error("[public/customer/wallet-availability]", e);
     return err(res, "Lookup failed", 500);
   }
 });
@@ -184,10 +249,10 @@ publicRouter.post("/customer/otp/request", async (req, res) => {
   try {
     let merchantName = "your subscription";
     if (parsed.data.session_id) {
-      const session = await prisma.checkoutSession.findUnique({
+      const session = await withRetry(() => prisma.checkoutSession.findUnique({
         where: { sessionId: parsed.data.session_id },
         include: { merchant: { select: { name: true } } },
-      });
+      }));
       if (session) merchantName = session.merchant.name;
     }
     await requestEmailOtp(parsed.data.email, merchantName);
@@ -234,10 +299,10 @@ publicRouter.post("/customer/subscriptions", async (req, res) => {
   if (!parsed.success) return err(res, "Invalid payload", 422);
   const { session_id, email, email_token } = parsed.data;
   try {
-    const session = await prisma.checkoutSession.findUnique({
+    const session = await withRetry(() => prisma.checkoutSession.findUnique({
       where: { sessionId: session_id },
       select: { merchantId: true },
-    });
+    }));
     if (!session) return err(res, "Checkout session not found", 404);
 
     const proven = await resolveProvenCustomer({
@@ -249,7 +314,7 @@ publicRouter.post("/customer/subscriptions", async (req, res) => {
     // typed email can't distinguish "registered here" from "unverified".
     if (!proven) return ok(res, { proven: false, email: null, wallets: [], subscriptions: [] });
 
-    const subs = await prisma.subscription.findMany({
+    const subs = await withRetry(() => prisma.subscription.findMany({
       where: {
         merchantId: session.merchantId,
         status: { in: ["active", "trialing", "past_due"] },
@@ -257,7 +322,7 @@ publicRouter.post("/customer/subscriptions", async (req, res) => {
       },
       include: { plan: true, renewalDelegations: { where: { status: "active" } } },
       orderBy: { createdAt: "desc" },
-    });
+    }));
 
     return ok(res, {
       proven: true,
@@ -291,10 +356,10 @@ publicRouter.post("/customer/subscriptions/:id/revoke", async (req, res) => {
   if (!parsed.success) return err(res, "Invalid payload", 422);
   const { session_id, email, email_token } = parsed.data;
   try {
-    const session = await prisma.checkoutSession.findUnique({
+    const session = await withRetry(() => prisma.checkoutSession.findUnique({
       where: { sessionId: session_id },
       select: { merchantId: true, merchant: { select: { merchantId: true } } },
-    });
+    }));
     if (!session) return err(res, "Checkout session not found", 404);
 
     const proven = await resolveProvenCustomer({
@@ -304,14 +369,14 @@ publicRouter.post("/customer/subscriptions/:id/revoke", async (req, res) => {
     });
     if (!proven) return err(res, "Verify your email to manage this subscription.", 403);
 
-    const sub = await prisma.subscription.findFirst({
+    const sub = await withRetry(() => prisma.subscription.findFirst({
       where: {
         subscriptionId: req.params.id as string,
         merchantId: session.merchantId,
         OR: [{ customerId: proven.customerDbId }, { subscriberEmail: proven.email }],
       },
       include: { plan: true },
-    });
+    }));
     if (!sub) return err(res, "Subscription not found", 404, "not_found");
     if (sub.status === "cancelled") return err(res, "This subscription is already cancelled", 409);
 
@@ -339,10 +404,10 @@ publicRouter.post("/customer/subscriptions/:id/revoke", async (req, res) => {
 
 publicRouter.get("/pay/:link_id", async (req, res) => {
   try {
-    const link = await prisma.paymentLink.findUnique({
+    const link = await withRetry(() => prisma.paymentLink.findUnique({
       where: { linkId: req.params.link_id as string },
       include: { plan: true, merchant: { select: { name: true } } },
-    });
+    }));
     if (!link || !link.active || link.plan.archived) {
       return err(res, "This payment link is no longer active", 404);
     }
@@ -376,10 +441,10 @@ publicRouter.post("/pay/:link_id/session", async (req, res) => {
   if (!parsed.success) return err(res, "Invalid payload", 422);
 
   try {
-    const link = await prisma.paymentLink.findUnique({
+    const link = await withRetry(() => prisma.paymentLink.findUnique({
       where: { linkId: req.params.link_id as string },
       include: { plan: true },
-    });
+    }));
     if (!link || !link.active || link.plan.archived) {
       return err(res, "This payment link is no longer active", 404);
     }
@@ -412,7 +477,7 @@ publicRouter.get("/checkout/:session_id", async (req, res) => {
   const { session_id } = req.params as { session_id: string };
 
   try {
-    const session = await prisma.checkoutSession.findUnique({
+    const session = await withRetry(() => prisma.checkoutSession.findUnique({
       where: { sessionId: session_id },
       include: {
         plan: { include: { tiers: { where: { archived: false }, orderBy: { amount: "asc" } } } },
@@ -420,7 +485,7 @@ publicRouter.get("/checkout/:session_id", async (req, res) => {
           select: { name: true, merchantId: true, walletAddress: true, walletType: true, addressVerifiedAt: true },
         },
       },
-    });
+    }));
 
     if (!session) return err(res, "Checkout session not found", 404);
 
@@ -457,6 +522,9 @@ publicRouter.get("/checkout/:session_id", async (req, res) => {
         // Default-tier display name + features (fall back to the plan name client-side).
         defaultTierName: planMeta?.defaultTierName ?? null,
         defaultFeatures: planMeta?.defaultFeatures ?? null,
+        // Which option carries the "Recommended" badge. A tier id, or "default"
+        // for the plan's own terms. Presentation only — every tier stays buyable.
+        recommendedTierId: session.plan.recommendedTierId,
       },
       // Tiers the subscriber can choose (the plan above is the default tier). The
       // page computes the on-chain amount/interval/trial for the chosen tier and
@@ -504,23 +572,23 @@ publicRouter.post("/checkout/:session_id/tier", async (req, res) => {
   const parsed = selectTierSchema.safeParse(req.body);
   if (!parsed.success) return err(res, "Invalid payload", 422);
   try {
-    const session = await prisma.checkoutSession.findUnique({
+    const session = await withRetry(() => prisma.checkoutSession.findUnique({
       where: { sessionId: req.params.session_id as string },
       select: { id: true, sessionToken: true, status: true, planId: true },
-    });
+    }));
     if (!session) return err(res, "Checkout session not found", 404);
     if (session.sessionToken !== parsed.data.session_token) return err(res, "Invalid session token", 401);
     if (session.status !== "open") return err(res, "Session is not open", 409);
 
     const tierId = parsed.data.tier_id ?? null;
     if (tierId) {
-      const tier = await prisma.planTier.findFirst({
+      const tier = await withRetry(() => prisma.planTier.findFirst({
         where: { id: tierId, planId: session.planId, archived: false },
         select: { id: true },
-      });
+      }));
       if (!tier) return err(res, "Tier not found for this plan", 404);
     }
-    await prisma.checkoutSession.update({ where: { id: session.id }, data: { tierId } });
+    await withRetry(() => prisma.checkoutSession.update({ where: { id: session.id }, data: { tierId } }));
     return ok(res, { tier_id: tierId });
   } catch (e) {
     console.error("[public/checkout/tier]", e);
@@ -549,10 +617,10 @@ publicRouter.post("/internal/checkout/confirm", async (req, res) => {
   const { session_id, tx_hash, allowance_tx_hash, wallet_address, email, email_token, block_number } = parsed.data;
 
   try {
-    const session = await prisma.checkoutSession.findUnique({
+    const session = await withRetry(() => prisma.checkoutSession.findUnique({
       where: { sessionId: session_id },
       include: { plan: true, merchant: true },
-    });
+    }));
 
     if (!session || session.status !== "open") {
       return err(res, "Session not found or already complete", 404);
@@ -569,7 +637,11 @@ publicRouter.post("/internal/checkout/confirm", async (req, res) => {
       blockNumber: block_number,
     });
 
-    return ok(res, { subscription_id: subscription.subscriptionId, redirect_url: redirectUrl });
+    return ok(res, {
+      subscription_id: subscription.subscriptionId,
+      tx_hash,
+      redirect_url: redirectUrl,
+    });
   } catch (e) {
     if (e instanceof CheckoutVerificationError) {
       return err(res, e.message, e.httpStatus);
@@ -593,16 +665,19 @@ publicRouter.post("/internal/checkout/:session_id/permit", async (req, res) => {
   if (!parsed.success) return err(res, "Invalid payload", 422);
 
   try {
-    const session = await prisma.checkoutSession.findUnique({
+    const session = await withRetry(() => prisma.checkoutSession.findUnique({
       where: { sessionId: req.params.session_id as string },
       include: { plan: true },
-    });
+    }));
     if (!session || session.status !== "open" || new Date() > session.expiresAt) {
       return err(res, "Checkout session is not open", 409);
     }
 
     const tier = await resolveTier(session.plan, session.tierId);
-    const permitValue = tier.amount * ALLOWANCE_PERIODS;
+    // Sized for EVERY subscription this wallet pays for, not just this plan — a
+    // permit SETS the allowance, so sizing it from this plan alone would reset
+    // the runway of whatever else the wallet is already paying for.
+    const permitValue = await requiredAllowance(parsed.data.wallet_address, tier.amount);
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 3_600);
     const payload = await buildPermitPayload(parsed.data.wallet_address as Hex, permitValue, deadline);
 
@@ -634,10 +709,10 @@ publicRouter.post("/internal/checkout/gasless", async (req, res) => {
   const { session_id, wallet_address, email, email_token, permit_signature, permit_value, permit_deadline } = parsed.data;
 
   try {
-    const session = await prisma.checkoutSession.findUnique({
+    const session = await withRetry(() => prisma.checkoutSession.findUnique({
       where: { sessionId: session_id },
       include: { plan: true, merchant: true },
-    });
+    }));
     if (!session || session.status !== "open") {
       return err(res, "Session not found or already complete", 404);
     }
@@ -645,12 +720,28 @@ publicRouter.post("/internal/checkout/gasless", async (req, res) => {
       return err(res, "Merchant has no payout wallet", 409);
     }
 
+    // Refuse a spoken-for wallet before the arbiter submits anything on-chain —
+    // completeCheckoutSession would catch it below, but only after the subscriber's
+    // first period is already escrowed.
+    const conflict = await findWalletConflict({
+      merchantId: session.merchantId,
+      walletAddress: wallet_address,
+      identity: await identifyPayer({
+        merchantId: session.merchantId,
+        walletAddress: wallet_address,
+        email,
+        emailProven: !!email && verifyEmailToken(email_token, email),
+      }),
+    });
+    if (conflict) return err(res, walletConflictMessage(conflict, session.merchant.name), 409);
+
     const plan = session.plan;
     const tier = await resolveTier(plan, session.tierId);
     const { v, r, s } = splitSignature(permit_signature);
 
-    // Platform arbiter submits + pays Arc gas — gasless for the subscriber
-    await subscribeWithPermitOnChain({
+    // Platform arbiter submits + pays Arc gas — gasless for the subscriber.
+    // The hash is surfaced to the confirmation page, so keep it.
+    const activation = await subscribeWithPermitOnChain({
       subId: ids.toBytes32(session.sessionId),
       subscriber: wallet_address as Hex,
       merchantPayout: session.merchant.walletAddress as Hex,
@@ -674,7 +765,11 @@ publicRouter.post("/internal/checkout/gasless", async (req, res) => {
       emailToken: email_token,
     });
 
-    return ok(res, { subscription_id: subscription.subscriptionId, redirect_url: redirectUrl });
+    return ok(res, {
+      subscription_id: subscription.subscriptionId,
+      tx_hash: activation.txHash,
+      redirect_url: redirectUrl,
+    });
   } catch (e) {
     if (e instanceof CheckoutVerificationError) return err(res, e.message, e.httpStatus);
     console.error("[internal/checkout/gasless]", e);

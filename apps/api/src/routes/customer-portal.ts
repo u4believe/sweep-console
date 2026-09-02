@@ -29,6 +29,57 @@ const proofSchema = z.object({
   email_token: z.string().min(1),
 });
 
+/**
+ * The alternative proof accepted by the two GRANT routes only.
+ *
+ * A subscriber who was recognised by their wallet at checkout never did an OTP,
+ * so they hold no email_token — and were shown no renewal options at all. But
+ * they do hold the token for the checkout session that just paid, and that
+ * session is a strictly stronger claim than an emailed code: it already
+ * authorised a real payment. It is scoped to the ONE subscription it produced.
+ *
+ * This does not move the identity anchor. The subscription still belongs to the
+ * email-anchored Customer, webhooks still carry that customerId, and receipts
+ * still go to that address. Only the proof-of-caller changes.
+ */
+const sessionProofSchema = z.object({
+  session_id: z.string().min(1),
+  session_token: z.string().min(1),
+});
+
+const grantProofSchema = z.union([proofSchema, sessionProofSchema]);
+type GrantProof = z.infer<typeof grantProofSchema>;
+
+function isSessionProof(p: GrantProof): p is z.infer<typeof sessionProofSchema> {
+  return "session_token" in p;
+}
+
+/// Resolves the subscription either proof refers to, or null if the proof
+/// doesn't hold. Both paths return the same shape, so the routes below don't
+/// care which one was used.
+async function loadGrantableSubscription(proof: GrantProof, subscriptionId: string) {
+  if (!isSessionProof(proof)) {
+    if (!verifyEmailToken(proof.email_token, proof.email)) return null;
+    return loadOwnedSubscription(proof.email, subscriptionId);
+  }
+
+  const session = await prisma.checkoutSession.findUnique({
+    where: { sessionId: proof.session_id },
+    select: { sessionToken: true, subscriptionId: true },
+  });
+  if (!session || session.sessionToken !== proof.session_token) return null;
+
+  // The session may only speak for the subscription it actually created —
+  // otherwise any completed session would be a key to every subscription.
+  const sub = await prisma.subscription.findFirst({
+    where: { subscriptionId },
+    include: { plan: true, merchant: true, renewalDelegations: { where: { status: "active" } } },
+  });
+  if (!sub) return null;
+  if (session.subscriptionId !== sub.id && session.subscriptionId !== sub.subscriptionId) return null;
+  return sub;
+}
+
 // Load a subscription the proven email actually owns. Email is the global anchor
 // (subscriberEmail), with a fallback to the email-anchored Customer relation.
 async function loadOwnedSubscription(email: string, subscriptionId: string) {
@@ -136,15 +187,13 @@ customerPortalRouter.post("/subscriptions/:id/cancel", async (req, res) => {
 // ─── POST /customer/portal/subscriptions/:id/grant-plan ────────────────────────
 // Source chains the wallet can grant a cross-chain renewal mandate on for THIS
 // subscription. Cap = the subscription's own period amount/interval.
-const grantPlanSchema = proofSchema.extend({ wallet: z.string().regex(ADDRESS_RE) });
+const grantPlanSchema = z.intersection(grantProofSchema, z.object({ wallet: z.string().regex(ADDRESS_RE) }));
 
 customerPortalRouter.post("/subscriptions/:id/grant-plan", async (req, res) => {
   const parsed = grantPlanSchema.safeParse(req.body);
   if (!parsed.success) return err(res, "Invalid payload", 422);
-  const { email, email_token } = parsed.data;
-  if (!verifyEmailToken(email_token, email)) return err(res, "Verify your email first.", 403);
 
-  const sub = await loadOwnedSubscription(email, req.params.id as string);
+  const sub = await loadGrantableSubscription(parsed.data, req.params.id as string);
   if (!sub) return err(res, "Subscription not found", 404, "not_found");
   if (sub.status === "cancelled") return err(res, "Subscription is cancelled", 409);
 
@@ -175,7 +224,7 @@ customerPortalRouter.post("/subscriptions/:id/grant-plan", async (req, res) => {
 
 // ─── POST /customer/portal/subscriptions/:id/grant ────────────────────────────
 // Persist one granted ERC-7715 delegation, bound directly to the subscription.
-const grantSchema = proofSchema.extend({
+const grantBodySchema = z.object({
   wallet_address: z.string().regex(ADDRESS_RE),
   account_address: z.string().regex(ADDRESS_RE).optional(),
   delegate_address: z.string().regex(ADDRESS_RE),
@@ -196,13 +245,14 @@ const grantSchema = proofSchema.extend({
   expiry: z.number().int().nonnegative(),
 });
 
+const grantSchema = z.intersection(grantProofSchema, grantBodySchema);
+
 customerPortalRouter.post("/subscriptions/:id/grant", async (req, res) => {
   const parsed = grantSchema.safeParse(req.body);
   if (!parsed.success) return err(res, "Invalid grant", 400);
   const d = parsed.data;
-  if (!verifyEmailToken(d.email_token, d.email)) return err(res, "Verify your email first.", 403);
 
-  const sub = await loadOwnedSubscription(d.email, req.params.id as string);
+  const sub = await loadGrantableSubscription(d, req.params.id as string);
   if (!sub) return err(res, "Subscription not found", 404, "not_found");
   if (sub.status === "cancelled") return err(res, "Subscription is cancelled", 409);
 

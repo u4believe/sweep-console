@@ -213,14 +213,20 @@ export async function executeCrossChainActivation(
       walletAddress: subscriber,
       activationMethod: "cctp",
       email: sweep.subscriberEmail,
+      // Proven at activate time; without it this call falls back to the wallet
+      // link and attributes the subscription to the wrong customer.
+      customerDbId: sweep.customerId,
       txHash,
       blockNumber: Number(blockNumber),
+      // The chain the money was actually pulled from, so the receipt and the
+      // merchant's webhook name it rather than defaulting to Arc.
+      sourceChain: chosenKey,
     });
 
     await withRetry(() =>
       prisma.sweep.update({
         where: { id: sweepDbId },
-        data: { status: "complete", activationTxHash: txHash, error: null },
+        data: { status: "complete", activationTxHash: txHash, sourceChain: chosenKey, error: null },
       })
     );
     console.log(`[checkout/cctp] ${sweep.sweepId} activated cross-chain — tx ${txHash}`);

@@ -219,8 +219,15 @@ export async function lookupCustomerByWallet(
 }
 
 /// Resolves the email-anchored customer for a completing checkout and links the
-/// wallet to it. A known wallet recalls its customer with no token; a new wallet
-/// requires a verified-email token (OTP proof) before it can be linked.
+/// wallet to it.
+///
+/// PRECEDENCE: the EMAIL is the identity anchor, so a valid OTP proof always
+/// wins. The wallet link is recall convenience, never authorization — it decides
+/// the customer only when no email proof was supplied (the "returning wallet
+/// skips the OTP" path). Resolving wallet-first would silently attribute this
+/// checkout to whoever the wallet was first linked to, which matters because a
+/// wallet can be shared (a household, a team treasury, a shared browser) and
+/// because one person may check out under a second email address.
 export async function resolveCheckoutCustomer(params: {
   merchantId: string;
   walletAddress: string;
@@ -236,6 +243,38 @@ export async function resolveCheckoutCustomer(params: {
     where: { merchantId_address: { merchantId, address } },
     include: { customer: true },
   });
+
+  // 1. Proven email → that customer, whoever the wallet belongs to.
+  if (params.email && verifyEmailToken(params.emailToken ?? undefined, params.email)) {
+    const email = normalizeEmail(params.email);
+    const customer = await upsertVerifiedCustomer(merchantId, email);
+
+    if (!existing) {
+      // Unlinked wallet — attach it. upsert (not create) so two concurrent
+      // activations from one wallet can't collide on [merchantId, address].
+      await prisma.customerWallet.upsert({
+        where: { merchantId_address: { merchantId, address } },
+        create: { merchantId, customerId: customer.id, address },
+        update: { lastUsedAt: new Date() },
+      });
+    } else if (existing.customerId === customer.id) {
+      await prisma.customerWallet.update({ where: { id: existing.id }, data: { lastUsedAt: new Date() } });
+    } else {
+      // The wallet is on file for a DIFFERENT customer of this merchant. This
+      // checkout still belongs to the proven email, but the link is left where it
+      // is: rebinding it would hand one customer's recall to another, and
+      // [merchantId, address] is unique so it cannot hold both. Until a wallet can
+      // serve several customers at a merchant, the first owner keeps the recall.
+      console.warn(
+        `[identity] wallet ${address} is linked to customer ${existing.customer.customerId} at merchant ` +
+        `${merchantId} but ${customer.customerId} proved ownership of their email — attributing to the ` +
+        `proven email and leaving the wallet link unchanged.`
+      );
+    }
+    return { customerDbId: customer.id, customerId: customer.customerId, email };
+  }
+
+  // 2. No email proof — a wallet already linked here recalls its customer.
   if (existing) {
     await prisma.customerWallet.update({ where: { id: existing.id }, data: { lastUsedAt: new Date() } });
     return {
@@ -245,12 +284,6 @@ export async function resolveCheckoutCustomer(params: {
     };
   }
 
-  // New wallet for this merchant — must come with a verified-email token (OTP proof)
-  if (!params.email || !verifyEmailToken(params.emailToken ?? undefined, params.email)) {
-    return null;
-  }
-  const email = normalizeEmail(params.email);
-  const customer = await upsertVerifiedCustomer(merchantId, email);
-  await prisma.customerWallet.create({ data: { merchantId, customerId: customer.id, address } });
-  return { customerDbId: customer.id, customerId: customer.customerId, email };
+  // 3. New wallet, no proof — nothing to anchor to.
+  return null;
 }

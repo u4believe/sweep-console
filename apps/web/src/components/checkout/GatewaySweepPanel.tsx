@@ -14,6 +14,16 @@ import {
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 
+/**
+ * Does this wallet already hold a renewal mandate on any chain?
+ *
+ * The sweep bridges from a single chain, so one mandate is sufficient — unlike
+ * the renewal toggle, which tracks each chain separately.
+ */
+function hasAnyGrant(plan: { granted_chain_ids?: number[]; already_enabled: boolean }): boolean {
+  return (plan.granted_chain_ids?.length ?? 0) > 0 || plan.already_enabled;
+}
+
 // Cross-chain checkout via CCTP V2 (delegation-gated).
 //
 // Arc is primary; this panel is the Arc-SHORT path. Enabling cross-chain is a
@@ -28,8 +38,30 @@ interface Props {
   walletAddress: string;
   email?: string;
   emailToken?: string | null;
-  onSuccess: (txHash: string | null) => void;
+  /**
+   * `sourceChain` is the chain the funds were actually pulled from, for the
+   * receipt; `subscriptionId` is what the confirmation page's renewal permissions
+   * bind to, since the checkout session is spent by the time this fires.
+   */
+  onSuccess: (
+    txHash: string | null,
+    sourceChain: string | null,
+    subscriptionId: string | null
+  ) => void;
   onClose: () => void;
+  /**
+   * Run as soon as the plan is ready, without waiting for a Confirm click.
+   * The chain rows in "Pay from" are themselves the pay action now, so a second
+   * confirmation inside this panel would be a click the subscriber already made.
+   */
+  autoStart?: boolean;
+  /**
+   * The chain the subscriber picked in "Pay from" (a GrantTarget.chain_key).
+   * Granting is narrowed to it, so picking Base authorizes Base and nothing
+   * else. Omit — or pass a chain this wallet can't grant on — to fall back to
+   * every supported chain.
+   */
+  preferredChainKey?: string;
 }
 
 type Phase = "planning" | "review" | "signing" | "executing" | "insufficient" | "error";
@@ -48,7 +80,10 @@ function describeError(e: unknown): string {
   return msg || "Could not enable cross-chain payment";
 }
 
-export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, email, emailToken, onSuccess, onClose }: Props) {
+export function GatewaySweepPanel({
+  sessionId, sessionToken, walletAddress, email, emailToken, onSuccess, onClose, preferredChainKey,
+  autoStart = false,
+}: Props) {
   const { data: connectorClient } = useConnectorClient();
   const { signTypedDataAsync } = useSignTypedData();
   const { switchChainAsync } = useSwitchChain();
@@ -72,17 +107,30 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
     try {
       const p = await fetchGrantPlan(sessionId, walletAddress);
       setPlan(p);
-      // Already enabled (grants exist from a prior enable): no re-granting — just
-      // confirm to activate with the Arc permit.
-      if (p.already_enabled) {
+      // Any existing mandate is enough for the sweep: we bridge from ONE chain,
+      // so there is nothing to re-grant. (Note this is deliberately not
+      // `already_enabled`, which means every chain is authorized — a stricter
+      // condition that would wrongly send a partially-granted wallet back
+      // through granting just to pay.)
+      if (hasAnyGrant(p)) {
         setPhase("review");
         return;
       }
       // Fresh enable — request only on chains the wallet supports ERC-7715 for.
-      const supported = connectorClient ? await getSupportedDelegationChainIds(connectorClient) : [];
-      const usable = p.targets.filter((t) => supported.includes(t.chain_id));
-      setTargets(usable);
-      setPhase(usable.length === 0 ? "insufficient" : "review");
+      const supported = connectorClient ? await getSupportedDelegationChainIds(connectorClient) : null;
+      // null ⇒ inconclusive probe; offer every target and let the grant decide.
+      const usable = supported ? p.targets.filter((t) => supported.includes(t.chain_id)) : p.targets;
+
+      // Honour the "Pay from" pick: one chain was chosen, so ask for one grant.
+      // Falling back to the full set when the pick isn't grantable keeps a
+      // wallet that can't authorize Base from dead-ending with nothing to sign.
+      const picked = preferredChainKey
+        ? usable.filter((t) => t.chain_key === preferredChainKey)
+        : [];
+      const chosen = picked.length > 0 ? picked : usable;
+
+      setTargets(chosen);
+      setPhase(chosen.length === 0 ? "insufficient" : "review");
     } catch (e) {
       setErrorMsg(describeError(e));
       setPhase("error");
@@ -96,7 +144,18 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
       if (pollRef.current) clearInterval(pollRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectorClient]);
+  }, [connectorClient, preferredChainKey]);
+
+  // Auto-run once, as soon as there is something to run. `approvingRef` keeps
+  // the chain-switching inside onApprove from re-triggering this mid-flight.
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (!autoStart || autoStartedRef.current) return;
+    if (phase !== "review") return;
+    autoStartedRef.current = true;
+    void onApprove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart, phase]);
 
   const startPolling = (id: string) => {
     pollRef.current = setInterval(async () => {
@@ -104,7 +163,7 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
         const s = await fetchSweepStatus(sessionId, id);
         if (s.status === "complete") {
           if (pollRef.current) clearInterval(pollRef.current);
-          onSuccess(s.activation_tx_hash);
+          onSuccess(s.activation_tx_hash, s.source_chain, s.subscription_id);
         } else if (s.status === "failed") {
           if (pollRef.current) clearInterval(pollRef.current);
           setErrorMsg(s.error ?? "The activation failed");
@@ -141,7 +200,7 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
 
   const onApprove = async () => {
     if (!plan || approvingRef.current) return;
-    const enabled = plan.already_enabled;
+    const enabled = hasAnyGrant(plan);
     // Fresh enable needs grants (and a 7715-capable wallet).
     if (!enabled && (!connectorClient || targets.length === 0)) return;
     setErrorMsg("");
@@ -209,20 +268,34 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
         </div>
       )}
 
-      {phase === "review" && plan && plan.already_enabled && (
+      {/* Already authorized: nothing is being asked of the subscriber here, so
+          this reads as a status, not a request. The panel auto-runs (autoStart) —
+          the only confirmation is the wallet's own, which is already on screen by
+          the time anyone could reach for a button. Rendering "Confirm & Pay"
+          alongside a live wallet prompt asked them to confirm twice and left a
+          control that did nothing if they pressed it. It is kept only for the
+          manual case, which every current caller opts out of. */}
+      {phase === "review" && plan && hasAnyGrant(plan) && (
         <div className="space-y-3">
           <p className="text-sm text-gray-600">
-            Cross-chain is already enabled for this checkout — no re-authorizing.
-            Confirm to pay from a chain with funds; we'll bridge it to Arc.
+            We&apos;re processing your payment for this checkout on the enabled chain — no
+            re-authorizing needed.
           </p>
           <p className="text-xs text-gray-400">One gasless signature (the Arc approval).</p>
-          <button onClick={onApprove} className="btn-primary w-full py-3">
-            Confirm &amp; Pay
-          </button>
+          {autoStart ? (
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
+              <span>Confirm in your wallet…</span>
+            </div>
+          ) : (
+            <button onClick={onApprove} className="btn-primary w-full py-3">
+              Confirm &amp; Pay
+            </button>
+          )}
         </div>
       )}
 
-      {phase === "review" && plan && !plan.already_enabled && targets.length > 0 && (
+      {phase === "review" && plan && !hasAnyGrant(plan) && targets.length > 0 && (
         <div className="space-y-3">
           <p className="text-sm text-gray-600">
             Enable cross-chain once and we'll handle every charge on Arc, pulling from your USDC on
@@ -235,9 +308,16 @@ export function GatewaySweepPanel({ sessionId, sessionToken, walletAddress, emai
           <p className="text-xs text-gray-400">
             {targets.length + 1} gasless signatures: one per chain you authorize, and the Arc approval.
           </p>
-          <button onClick={onApprove} className="btn-primary w-full py-3">
-            Enable &amp; Pay
-          </button>
+          {autoStart ? (
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
+              <span>Confirm in your wallet…</span>
+            </div>
+          ) : (
+            <button onClick={onApprove} className="btn-primary w-full py-3">
+              Enable &amp; Pay
+            </button>
+          )}
         </div>
       )}
 

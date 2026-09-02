@@ -155,8 +155,14 @@ export async function retirePriorActiveSubscriptions(params: {
       merchantId,
       id: { not: exceptSubscriptionId },
       status: { in: ["active", "trialing", "past_due"] },
-      // Email is the identity anchor; also match the stable customerId when set.
-      ...(customerDbId ? { OR: [{ customerId: customerDbId }, { subscriberEmail }] } : { subscriberEmail }),
+      // The customer is the anchor: only subscriptions belonging to the identity
+      // that just proved itself may be retired. Matching on subscriberEmail alone
+      // would let a checkout reach a subscription owned by a DIFFERENT customer
+      // row that carries the same address, so the email branch is restricted to
+      // legacy subs with no customer of their own (pre-Customer, Passport-era).
+      ...(customerDbId
+        ? { OR: [{ customerId: customerDbId }, { customerId: null, subscriberEmail }] }
+        : { customerId: null, subscriberEmail }),
     },
     include: { plan: true },
   });

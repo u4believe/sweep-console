@@ -17,7 +17,13 @@ import {
   buildPermitPayload,
   executeCrossChainActivation,
 } from "../lib/checkout/cctp-activate";
-import { resolveCheckoutCustomer } from "../lib/checkout/identity";
+import { resolveCheckoutCustomer, verifyEmailToken } from "../lib/checkout/identity";
+import {
+  findWalletConflict,
+  walletConflictMessage,
+  identifyPayer,
+} from "../lib/checkout/wallet-guard";
+import { requiredAllowance } from "../lib/subscriptions/allowance";
 import { resolveTier } from "../lib/checkout/tiers";
 import { ids } from "../lib/ids";
 
@@ -25,7 +31,6 @@ export const delegationRouter = Router();
 
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 // Permit grants a year of renewals (matches the same-chain Arc checkout path).
-const ALLOWANCE_PERIODS = 12n;
 
 // ─── GET /internal/checkout/:session_id/grant-plan ───────────────────────────
 //
@@ -71,34 +76,47 @@ delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, re
       target(src.chain.id, src.key, src.name, src.usdc)
     );
 
-    // Cross-chain is "enabled" — skip re-granting + the whole toggle — in two cases:
-    //   1. THIS checkout session already has grants (per-session dedup), or
-    //   2. the CONNECTED WALLET already enabled cross-chain renewals for THIS
-    //      merchant on a prior subscription (returning customer, same wallet) —
-    //      so they're never re-offered it.
-    // A brand-new wallet, or a returning Arc-only wallet that never granted, still
-    // sees the offer. Each new subscription gets its own fresh on-chain mandate.
-    const sessionGrants = await prisma.renewalDelegation.count({
-      where: { sessionId: session.sessionId, status: "active" },
-    });
-    const walletGrantsForMerchant = await prisma.renewalDelegation.count({
+    // Which chains this wallet has ALREADY authorized — counted per chain, not
+    // all-or-nothing, so a subscriber who granted only Base can come back and
+    // add Arbitrum without being told they are already done.
+    //
+    // A grant counts if it belongs to THIS checkout session (per-session dedup)
+    // or to a prior subscription with THIS merchant by the same wallet (a
+    // returning customer is never asked to re-authorize a chain they already
+    // covered). Each new subscription still gets its own fresh on-chain mandate.
+    const existingGrants = await prisma.renewalDelegation.findMany({
       where: {
-        walletAddress: { equals: wallet, mode: "insensitive" },
         status: "active",
-        subscription: { is: { merchantId: session.merchantId } },
+        OR: [
+          { sessionId: session.sessionId },
+          {
+            walletAddress: { equals: wallet, mode: "insensitive" },
+            subscription: { is: { merchantId: session.merchantId } },
+          },
+        ],
       },
+      select: { chainId: true },
+      distinct: ["chainId"],
     });
-    const alreadyEnabled = sessionGrants > 0 || walletGrantsForMerchant > 0;
+    const grantedChainIds = existingGrants.map((g) => g.chainId);
+
+    // "Already enabled" now means EVERY offered chain is covered — the toggle
+    // only disappears when there is nothing left to authorize.
+    const alreadyEnabled =
+      targets.length > 0 && targets.every((t) => grantedChainIds.includes(t.chain_id));
 
     // Arc permit (recurring allowance) — funds Arc-first renewals + the escrow on
     // cross-chain activation.
     const nowSec = BigInt(Math.floor(Date.now() / 1000));
-    const permitValue = amount * ALLOWANCE_PERIODS;
+    // Sized for every subscription this wallet pays for — a permit SETS the
+    // allowance, so this plan's figure alone would reset the others' runway.
+    const permitValue = await requiredAllowance(wallet, amount);
     const permitDeadline = nowSec + 3_600n;
     const permitPayload = await buildPermitPayload(wallet as Hex, permitValue, permitDeadline);
 
     return ok(res, {
       targets,
+      granted_chain_ids: grantedChainIds,
       already_enabled: alreadyEnabled,
       permit_payload: permitPayload,
       permit_value: permitValue.toString(),
@@ -240,6 +258,20 @@ delegationRouter.post("/internal/checkout/:session_id/cross-chain/activate", asy
     });
     if (existing) return ok(res, { sweep_id: existing.sweepId, status: existing.status });
 
+    // A wallet already carrying a live subscription for a DIFFERENT customer of
+    // this merchant is spoken for — refuse here, before any funds move.
+    const conflict = await findWalletConflict({
+      merchantId: session.merchantId,
+      walletAddress: d.wallet_address,
+      identity: await identifyPayer({
+        merchantId: session.merchantId,
+        walletAddress: d.wallet_address,
+        email: d.email,
+        emailProven: !!d.email && verifyEmailToken(d.email_token, d.email),
+      }),
+    });
+    if (conflict) return err(res, walletConflictMessage(conflict, session.merchant.name), 409);
+
     // A verified customer link is REQUIRED before moving any funds — no link, no
     // activation. A known wallet recalls; a new wallet needs the OTP email_token.
     const customer = await resolveCheckoutCustomer({
@@ -260,7 +292,10 @@ delegationRouter.post("/internal/checkout/:session_id/cross-chain/activate", asy
         status: "depositing",
         totalAmount: session.plan.amount,
         priceAmount: session.plan.amount,
-        subscriberEmail: d.email?.trim().toLowerCase() ?? null,
+        // Both from the customer just resolved against the OTP proof, so the
+        // detached run below never has to guess who is paying.
+        subscriberEmail: customer.email,
+        customerId: customer.customerDbId,
       },
     });
 
@@ -306,6 +341,20 @@ delegationRouter.post("/internal/checkout/:session_id/cross-chain/enable", async
     if (!session) return err(res, "Checkout session not found", 404);
     if (session.sessionToken !== d.session_token) return err(res, "Invalid session token", 401);
 
+    // A wallet already carrying a live subscription for a DIFFERENT customer of
+    // this merchant is spoken for — refuse here, before any funds move.
+    const conflict = await findWalletConflict({
+      merchantId: session.merchantId,
+      walletAddress: d.wallet_address,
+      identity: await identifyPayer({
+        merchantId: session.merchantId,
+        walletAddress: d.wallet_address,
+        email: d.email,
+        emailProven: !!d.email && verifyEmailToken(d.email_token, d.email),
+      }),
+    });
+    if (conflict) return err(res, walletConflictMessage(conflict), 409);
+
     // Verified customer link required before enabling renewals on this wallet.
     const customer = await resolveCheckoutCustomer({
       merchantId: session.merchantId,
@@ -346,12 +395,15 @@ delegationRouter.post("/internal/checkout/:session_id/cross-chain/enable", async
 const grantRevokeSchema = z.object({
   session_token: z.string().min(1),
   wallet_address: z.string().regex(ADDRESS_RE),
+  // Revoke a single chain's mandate. Omit to revoke every chain at once — the
+  // "turn the whole thing off" path.
+  chain_id: z.number().int().positive().optional(),
 });
 
 delegationRouter.post("/internal/checkout/:session_id/grant-revoke", async (req, res) => {
   const parsed = grantRevokeSchema.safeParse(req.body);
   if (!parsed.success) return err(res, "Invalid revoke payload", 422);
-  const { session_token, wallet_address } = parsed.data;
+  const { session_token, wallet_address, chain_id } = parsed.data;
   try {
     const session = await prisma.checkoutSession.findUnique({
       where: { sessionId: req.params.session_id as string },
@@ -365,10 +417,13 @@ delegationRouter.post("/internal/checkout/:session_id/grant-revoke", async (req,
         walletAddress: { equals: wallet_address, mode: "insensitive" },
         status: "active",
         subscriptionId: null,
+        // Scoped to one chain when asked; every chain otherwise. Grants are
+        // stored one row per chain, so this leaves the others untouched.
+        ...(chain_id !== undefined ? { chainId: chain_id } : {}),
       },
       data: { status: "revoked" },
     });
-    return ok(res, { revoked: result.count });
+    return ok(res, { revoked: result.count, chain_id: chain_id ?? null });
   } catch (e) {
     console.error("[cross-chain/grant-revoke]", e);
     return err(res, "Failed to revoke grant", 500);

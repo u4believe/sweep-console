@@ -17,6 +17,7 @@ interface SessionData {
     trialDays: number;
     defaultTierName?: string | null;
     defaultFeatures?: string[] | null;
+    recommendedTierId?: string | null;
   };
   tiers?: {
     id: string;
@@ -30,6 +31,23 @@ interface SessionData {
   isTestMode: boolean;
   cancelUrl: string;
   onchain: OnChainParams;
+}
+
+/** A bare status screen in the Modernist system — ruled, not carded. */
+function CheckoutStatus({ title, body }: { title: string; body: string }) {
+  return (
+    <div
+      className="flex min-h-screen items-center justify-center"
+      style={{ background: "var(--color-surface)", padding: "0 32px" }}
+    >
+      <div style={{ maxWidth: 560, width: "100%", borderTop: "2px solid var(--color-divider)", paddingTop: 28 }}>
+        <h1 className="m-0" style={{ fontSize: "clamp(28px, 4vw, 44px)", letterSpacing: "-0.03em", marginBottom: 10 }}>
+          {title}
+        </h1>
+        <p className="m-0" style={{ fontSize: 15, color: "var(--color-neutral-800)" }}>{body}</p>
+      </div>
+    </div>
+  );
 }
 
 export function CheckoutPage() {
@@ -58,52 +76,30 @@ export function CheckoutPage() {
   }, [session_id]);
 
   if (status === "loading") {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div className="text-sm text-gray-400">Loading checkout…</div>
-      </div>
-    );
+    return <CheckoutStatus title="Loading checkout…" body="One moment while we fetch this session." />;
   }
 
   if (status === "complete") {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div className="card w-full max-w-md p-8 text-center">
-          <div className="mb-4 text-5xl">✓</div>
-          <h1 className="mb-2 text-2xl font-bold text-gray-900">Already activated</h1>
-          <p className="text-gray-500">This subscription is already active.</p>
-        </div>
-      </div>
-    );
+    return <CheckoutStatus title="Already activated" body="This subscription is already active." />;
   }
 
   if (status === "expired") {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div className="card w-full max-w-md p-8 text-center">
-          <div className="mb-4 text-5xl">⏳</div>
-          <h1 className="mb-2 text-2xl font-bold text-gray-900">Session expired</h1>
-          <p className="text-gray-500">This checkout link has expired. Please request a new one.</p>
-        </div>
-      </div>
-    );
+    return <CheckoutStatus title="Session expired" body="This checkout link has expired. Please request a new one." />;
   }
 
   if (status === "error" || !session) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div className="card w-full max-w-md p-8 text-center">
-          <h1 className="mb-2 text-2xl font-bold text-gray-900">
-            {errorMsg ? "Checkout unavailable" : "Not found"}
-          </h1>
-          <p className="text-gray-500">{errorMsg || "This checkout session does not exist."}</p>
-        </div>
-      </div>
+      <CheckoutStatus
+        title={errorMsg ? "Checkout unavailable" : "Not found"}
+        body={errorMsg || "This checkout session does not exist."}
+      />
     );
   }
 
+  // CheckoutShell renders its own full-height frame (header, step rail, ground),
+  // so it is mounted bare rather than centred inside a wrapper.
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-12">
+    <>
       <CheckoutShell
         sessionId={session.sessionId}
         sessionToken={session.sessionToken}
@@ -114,6 +110,6 @@ export function CheckoutPage() {
         cancelUrl={session.cancelUrl}
         onchain={session.onchain}
       />
-    </div>
+    </>
   );
 }

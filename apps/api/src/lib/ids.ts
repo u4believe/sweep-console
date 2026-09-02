@@ -11,7 +11,6 @@ export const ids = {
   sessionToken: () => randomHex(24),
   subscription: () => `sub_${randomHex(10)}`,
   payment: ()      => `pay_${randomHex(10)}`,
-  passport: ()     => `pass_${randomHex(10)}`,
   webhook: ()      => `we_${randomHex(10)}`,
   event: ()        => `evt_${randomHex(8)}`,
   sweep: ()        => `swp_${randomHex(10)}`,

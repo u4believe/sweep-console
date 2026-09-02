@@ -130,13 +130,12 @@ export function ManageSubscriptionsPage() {
     setError("");
     setNotice("");
     try {
+      // null ⇒ the probe gave no usable answer. Attempt the grant anyway: some
+      // MetaMask builds refuse the probe and then service the request fine, and
+      // a refused prompt is a better outcome than a dead end (capabilities.ts).
       const supported = await getSupportedDelegationChainIds(connectorClient);
-      if (supported.length === 0) {
-        setError("This wallet can't authorize cross-chain renewals — use an ERC-7715-capable wallet (MetaMask).");
-        return;
-      }
       const { targets } = await portalGrantPlan(email.trim(), emailToken, s.id, address);
-      const usable = targets.filter((t) => supported.includes(t.chain_id));
+      const usable = supported ? targets.filter((t) => supported.includes(t.chain_id)) : targets;
       if (usable.length === 0) {
         setError("You need USDC on a supported chain (Base, Arbitrum, or Optimism) your wallet can authorize.");
         return;

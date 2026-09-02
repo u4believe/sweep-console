@@ -64,11 +64,30 @@ gatewayRouter.get("/checkout/:session_id/sweep/:sweep_id", async (req, res) => {
         ? session.successUrl.replace("{SESSION_ID}", session.sessionId)
         : null;
 
+    // completeCheckoutSession stamps the session's subscriptionId BEFORE the sweep
+    // is flipped to "complete", and this handler read the session first — so a null
+    // here on a complete sweep means we read the session a moment too early, not
+    // that there is no subscription. One targeted re-read closes that window.
+    let subscriptionId = session.subscriptionId;
+    if (sweep.status === "complete" && !subscriptionId) {
+      const fresh = await prisma.checkoutSession.findUnique({
+        where: { id: session.id },
+        select: { subscriptionId: true },
+      });
+      subscriptionId = fresh?.subscriptionId ?? null;
+    }
+
     return ok(res, {
       sweep_id: sweep.sweepId,
       status: sweep.status,
       error: sweep.error,
       activation_tx_hash: sweep.activationTxHash,
+      // The chain the funds were actually pulled from, for the confirmation receipt.
+      source_chain: sweep.sourceChain,
+      // The subscription this activation created. The confirmation page's renewal
+      // permissions bind to it rather than to the spent checkout session, so
+      // without this the section cannot render after a cross-chain payment.
+      subscription_id: subscriptionId,
       redirect_url: redirectUrl,
     });
   } catch (e) {
