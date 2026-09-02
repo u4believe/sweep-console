@@ -12,7 +12,6 @@ import { subscriptionsRouter } from "./routes/subscriptions";
 import { paymentsRouter } from "./routes/payments";
 import { webhooksRouter } from "./routes/webhooks";
 import { checkoutRouter } from "./routes/checkout";
-import { passportRouter } from "./routes/passport";
 import { portalRouter } from "./routes/portal";
 import { publicRouter } from "./routes/public";
 import { customerPortalRouter } from "./routes/customer-portal";
@@ -94,7 +93,8 @@ app.use("/v1/subscriptions", subscriptionsRouter);
 app.use("/v1/payments", paymentsRouter);
 app.use("/v1/webhooks", webhooksRouter);
 app.use("/v1/checkout", checkoutRouter);
-app.use("/v1/passport", passportRouter);
+// /v1/passport is retired: the Passport model is superseded by Customer, and the
+// activate route never verified the wallet_signature it required.
 
 // 404 handler
 app.use((_req, res) => {
@@ -114,7 +114,10 @@ async function start() {
       await prisma.$connect();
       break;
     } catch (e) {
-      console.warn(`[api] DB connect failed, ${retries} retries left…`);
+      // Say why. A cold TLS handshake to the pooler and a bad password both
+      // land here, and without the reason they read as the same failure.
+      const why = e instanceof Error ? e.message.split("\n")[0] : String(e);
+      console.warn(`[api] DB connect failed (${why}), ${retries} retries left…`);
       if (retries === 0) throw e;
       await new Promise((r) => setTimeout(r, 2000));
     }
