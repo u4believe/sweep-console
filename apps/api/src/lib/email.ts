@@ -1,4 +1,8 @@
 import nodemailer from "nodemailer";
+import {
+  shell, lede, heroAmount, codeBlock, detailRows, panel, alarm, button,
+  fineprint, fallbackUrl, emailLink, mono, esc, manageUrl,
+} from "./email-shell";
 import { setDefaultResultOrder } from "node:dns";
 
 // Many hosts (e.g. Railway) can't route IPv6 outbound, which surfaces as
@@ -161,32 +165,67 @@ export async function sendEmail(opts: SendOptions): Promise<void> {
   throw new Error(`Failed to send email — all providers failed: ${errors.join(" | ")}`);
 }
 
+/* ── Templates ───────────────────────────────────────────────────────────────
+ * Each is a call to shell() with body rows. Signatures are unchanged from
+ * before the redesign, so no call site moved.
+ */
+
+/// Subscriber's checkout confirmation code. NOTICE sender: they are confirming
+/// a purchase from a merchant, and seeing that merchant's name is how they know
+/// which of their tabs asked for it.
 export function otpEmailHtml(code: string, merchantName: string): string {
-  return `
-<!DOCTYPE html>
-<html>
-<body style="font-family:sans-serif;background:#f9fafb;padding:40px 0">
-  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:40px;border:1px solid #e5e7eb">
-    <h1 style="font-size:24px;font-weight:700;color:#111827;margin:0 0 8px">Confirm your email</h1>
-    <p style="color:#6b7280;margin:0 0 24px">Enter this code to confirm your email and complete your subscription with ${merchantName}.</p>
-    <div style="font-size:34px;font-weight:700;letter-spacing:8px;color:#111827;background:#f3f4f6;border-radius:8px;padding:18px;text-align:center">${code}</div>
-    <p style="color:#9ca3af;font-size:12px;margin:24px 0 0">This code expires in 10 minutes. If you didn't request it, ignore this email.</p>
-    <p style="color:#9ca3af;font-size:12px;margin:8px 0 0">Manage your subscriptions anytime at <a href="${manageUrl()}" style="color:#16a34a">${manageUrl()}</a>.</p>
-  </div>
-</body>
-</html>`;
+  return shell({
+    preheader: `Your ${merchantName} confirmation code is ${code}. It expires in 10 minutes.`,
+    sender: "notice",
+    merchantName,
+    kicker: "Confirm",
+    title: "Your confirmation code",
+    body:
+      lede(`Enter this code to confirm your email and complete your subscription with <strong style="color:#201e1d;">${esc(merchantName)}</strong>. It works once.`) +
+      codeBlock(code) +
+      detailRows([
+        { k: "Merchant", v: esc(merchantName) },
+        { k: "Expires", v: "10 minutes from when it was sent" },
+      ]) +
+      fineprint(
+        `If you didn't ask for this code you can ignore this email — nothing happens without it. ` +
+        `Manage every subscription on this address at ${emailLink(manageUrl().replace(/^https?:\/\//, ""), manageUrl())}.`
+      ),
+  });
 }
 
-/// The standalone customer portal URL (email + OTP) where a subscriber manages
-/// every subscription tied to their email across merchants.
-function manageUrl(): string {
-  const base = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/+$/, "");
-  return `${base}/manage`;
+/// Merchant's step-up code, for confirming a destructive action in the portal.
+/// ACCOUNT sender, and it names the action so a code nobody asked for reads as
+/// the alarm it is.
+export function stepUpEmailHtml(
+  code: string,
+  merchantName: string,
+  actionLabel: string,
+  expiresInSeconds: number
+): string {
+  const window = expiresInSeconds < 120 ? `${expiresInSeconds} seconds` : `${Math.round(expiresInSeconds / 60)} minutes`;
+  return shell({
+    preheader: `Your Sweep Console confirmation code is ${code}. It expires in ${window}.`,
+    sender: "account",
+    kicker: "Security",
+    title: "Confirm it's you",
+    body:
+      lede(`Hi ${esc(merchantName)}, enter this code in Sweep Console to ${esc(actionLabel)}.`) +
+      codeBlock(code) +
+      detailRows([
+        { k: "Action", v: esc(actionLabel) },
+        { k: "Expires", v: esc(window) },
+        { k: "Uses", v: "Once" },
+      ]) +
+      alarm(
+        "Didn't do this?",
+        `Someone else may be signed in to your account. Change your password now, and turn on an authenticator app under Settings → Security — it's the only proof accepted for payouts and API keys.`
+      ),
+  });
 }
 
-/// Sent ONCE when a creator closes (deletes) a plan. Trust-first: we've already
-/// stopped billing and returned any escrowed funds on-chain, so this is a receipt,
-/// not a request. Revoking the dormant permission is optional.
+/// Sent ONCE when a creator closes a plan. Trust-first: billing already stopped
+/// and any escrow already returned on-chain, so this is a receipt, not a request.
 export function planClosedEmailHtml(opts: {
   merchantName: string;
   planName: string;
@@ -194,52 +233,205 @@ export function planClosedEmailHtml(opts: {
   refundTx?: string | null;
   refundAmount?: string | null; // human-readable, e.g. "9.00 USDC"
 }): string {
-  const refundLine =
-    opts.refundTx && opts.refundAmount
-      ? `<p style="color:#6b7280;margin:0 0 16px">We returned <strong>${opts.refundAmount}</strong> that was still held in escrow to your wallet — on-chain proof: <span style="font-family:monospace;font-size:12px;color:#374151">${opts.refundTx}</span>.</p>`
-      : `<p style="color:#6b7280;margin:0 0 16px">Nothing was held in escrow, so there was nothing to return.</p>`;
-  return `
-<!DOCTYPE html>
-<html>
-<body style="font-family:sans-serif;background:#f9fafb;padding:40px 0">
-  <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;padding:40px;border:1px solid #e5e7eb">
-    <h1 style="font-size:22px;font-weight:700;color:#111827;margin:0 0 8px">Your ${opts.planName} subscription has ended</h1>
-    <p style="color:#6b7280;margin:0 0 16px">${opts.merchantName} closed this plan, so we cancelled your subscription (${opts.subscriptionId}). <strong>We stopped billing the moment it was closed and will never charge it again.</strong></p>
-    ${refundLine}
-    <p style="color:#6b7280;margin:0 0 16px">The renewal permission you granted is now <strong>dormant</strong> — we won't use it. You don't need to do anything. If you'd like full on-chain control, you can revoke it anytime in your wallet's permissions settings.</p>
-    <p style="color:#6b7280;margin:0 0 16px">You can review and manage your other subscriptions anytime at <a href="${manageUrl()}" style="color:#16a34a">${manageUrl()}</a>.</p>
-    <p style="color:#9ca3af;font-size:12px;margin:24px 0 0">Sent once. Your funds are safe.</p>
-  </div>
-</body>
-</html>`;
+  const refunded = Boolean(opts.refundTx && opts.refundAmount);
+  return shell({
+    preheader: `${opts.planName} is closed. You won't be charged again — nothing to cancel.`,
+    sender: "notice",
+    merchantName: opts.merchantName,
+    kicker: "Subscription ended",
+    title: `${opts.planName} has been closed`,
+    body:
+      lede(
+        `${esc(opts.merchantName)} closed this plan, so it will not renew. You don't need to cancel ` +
+        `anything or revoke anything — the authorization stops being used the moment a plan closes.`
+      ) +
+      detailRows([
+        { k: "Plan", v: esc(opts.planName) },
+        { k: "Subscription", v: mono(opts.subscriptionId) },
+        { k: "Further charges", v: "None", accent: true },
+        {
+          k: "Refund",
+          v: refunded
+            ? `${esc(opts.refundAmount!)} returned on-chain`
+            : "Not applicable — nothing was held in escrow",
+        },
+        ...(refunded ? [{ k: "Refund transaction", v: mono(opts.refundTx!) }] : []),
+      ]) +
+      fineprint(
+        `The renewal permission you granted is now dormant — we won't use it. If you'd like full ` +
+        `on-chain control you can revoke it anytime from your wallet.`
+      ) +
+      button("Manage your subscriptions", manageUrl()),
+  });
 }
 
-export function passwordResetEmailHtml(name: string, url: string): string {
-  return `
-<!DOCTYPE html>
-<html>
-<body style="font-family:sans-serif;background:#f9fafb;padding:40px 0">
-  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:40px;border:1px solid #e5e7eb">
-    <h1 style="font-size:24px;font-weight:700;color:#111827;margin:0 0 8px">Reset your password</h1>
-    <p style="color:#6b7280;margin:0 0 24px">Hi ${name}, we received a request to reset your Sweep Console password. Click the button below to choose a new one.</p>
-    <a href="${url}" style="display:inline-block;background:#16a34a;color:#fff;font-weight:600;padding:12px 28px;border-radius:8px;text-decoration:none">Reset password</a>
-    <p style="color:#9ca3af;font-size:12px;margin:24px 0 0">This link expires in 1 hour. If you didn't request this, you can safely ignore this email — your password won't change.</p>
-  </div>
-</body>
-</html>`;
+/// Merchant password reset. One button, one fallback URL.
+export function passwordResetEmailHtml(name: string, url: string, expiresInMinutes: number): string {
+  return shell({
+    preheader: `Reset your Sweep Console password. The link expires in ${expiresInMinutes} minutes.`,
+    sender: "account",
+    kicker: "Security",
+    title: "Reset your password",
+    body:
+      lede(`Hi ${esc(name)}, we received a request to reset your Sweep Console password. Choose a new one below.`) +
+      button("Reset password", url) +
+      fallbackUrl("If the button doesn't work", url) +
+      detailRows([
+        { k: "Link expires", v: `${expiresInMinutes} minutes from when it was sent` },
+        { k: "Uses", v: "Once" },
+      ]) +
+      fineprint(
+        `If you didn't request this you can safely ignore this email — your password won't change. ` +
+        `Sweep Console never asks for your password, recovery phrase or private key by email.`
+      ),
+  });
 }
 
+/// Signup address verification.
 export function verificationEmailHtml(name: string, url: string): string {
-  return `
-<!DOCTYPE html>
-<html>
-<body style="font-family:sans-serif;background:#f9fafb;padding:40px 0">
-  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:40px;border:1px solid #e5e7eb">
-    <h1 style="font-size:24px;font-weight:700;color:#111827;margin:0 0 8px">Verify your email</h1>
-    <p style="color:#6b7280;margin:0 0 24px">Hi ${name}, click the button below to verify your email and set up your Sweep Console account.</p>
-    <a href="${url}" style="display:inline-block;background:#1128F5;color:#fff;font-weight:600;padding:12px 28px;border-radius:8px;text-decoration:none">Verify email &amp; set password</a>
-    <p style="color:#9ca3af;font-size:12px;margin:24px 0 0">This link expires in 24 hours. If you didn't request this, ignore this email.</p>
-  </div>
-</body>
-</html>`;
+  return shell({
+    preheader: "One tap to verify your address and finish setting up Sweep Console.",
+    sender: "account",
+    kicker: "Verify",
+    title: "Confirm this is your address",
+    body:
+      lede(
+        `Hi ${esc(name)}, verifying unlocks payout settlement and lets us reach you about failed ` +
+        `renewals. The link is good for 24 hours.`
+      ) +
+      button("Verify email & set password", url) +
+      fallbackUrl("If the button doesn't work", url) +
+      fineprint(
+        `Didn't create a Sweep Console account? Ignore this email and the request expires on its own.`
+      ),
+  });
+}
+
+/// Payout-address change notification. Not a request — a receipt that doubles
+/// as an alarm, because this is the setting that decides where money lands.
+export function payoutWalletEmailHtml(name: string, address: string): string {
+  return shell({
+    preheader: `Your Sweep Console payout wallet was set to ${address.slice(0, 10)}…`,
+    sender: "account",
+    kicker: "Security",
+    title: "Payout wallet updated",
+    body:
+      lede(`Hi ${esc(name)}, your payout wallet was verified and every future settlement will land there.`) +
+      detailRows([
+        { k: "New payout address", v: mono(address) },
+        { k: "Settlement chain", v: "Arc" },
+        { k: "Changed", v: new Date().toUTCString() },
+      ]) +
+      alarm(
+        "Didn't do this?",
+        `Change your password immediately and turn on an authenticator app under Settings → Security. ` +
+        `Your existing balance is not at risk — Sweep Console can never move your funds — but an ` +
+        `intruder could redirect future settlements.`
+      ),
+  });
+}
+
+export interface ReceiptEmailData {
+  merchantName: string;
+  planName: string;
+  /// Tier label, when the subscriber chose one that isn't the plan default.
+  tierName?: string | null;
+  /// Human-readable, e.g. "29.00".
+  amount: string;
+  currency: string;
+  interval: string;
+  chargedAt: Date;
+  periodStart?: Date | null;
+  periodEnd?: Date | null;
+  /// Where the money came FROM — "Base", "Arc", etc.
+  paidFromChain: string;
+  walletAddress?: string | null;
+  txHash?: string | null;
+  explorerUrl?: string | null;
+  nextRenewalAt?: Date | null;
+  /**
+   * Supported source chains this subscriber has NOT yet authorized for renewal.
+   *
+   * Decides whether the renewal panel invites them to grant the rest or simply
+   * tells them it is handled. Undefined means "unknown", which takes the invite
+   * copy: asking is never wrong, whereas promising automatic renewal to someone
+   * who granted nothing is.
+   */
+  ungrantedChains?: number | null;
+  /// True for the first charge of a subscription rather than a renewal.
+  isFirstCharge: boolean;
+}
+
+const DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+
+function shortHash(hash: string): string {
+  return `${hash.slice(0, 10)}…`;
+}
+
+function shortAddress(a: string): string {
+  return a.length >= 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
+}
+
+/// The payment receipt. The amount leads, on-chain proof sits in the ledger, and
+/// the next charge is stated before the subscriber thinks to ask.
+export function receiptEmailHtml(d: ReceiptEmailData): string {
+  const planLabel = d.tierName ? `${d.planName} · ${d.tierName}` : d.planName;
+  const period =
+    d.periodStart && d.periodEnd ? `${DATE.format(d.periodStart)} – ${DATE.format(d.periodEnd)}` : null;
+  const paidFrom = d.walletAddress
+    ? `${esc(d.currency)} on ${esc(d.paidFromChain)} · ${esc(shortAddress(d.walletAddress))}`
+    : `${esc(d.currency)} on ${esc(d.paidFromChain)}`;
+
+  return shell({
+    preheader:
+      `Paid ${d.amount} ${d.currency} to ${d.merchantName} — ${planLabel}.` +
+      (d.nextRenewalAt ? ` Next renewal ${DATE.format(d.nextRenewalAt)}.` : ""),
+    sender: "notice",
+    merchantName: d.merchantName,
+    kicker: "Payment successful",
+    title: d.isFirstCharge ? "Your subscription is active" : "Renewal paid",
+    body:
+      heroAmount(
+        d.amount,
+        d.currency,
+        `Charged ${esc(DATE.format(d.chargedAt))} for <strong style="color:#201e1d;">${esc(d.planName)}</strong>` +
+          (d.tierName ? ` — ${esc(d.tierName)} tier` : "") +
+          `, billed ${esc(d.interval)}.`
+      ) +
+      detailRows([
+        { k: "Plan", v: esc(planLabel) },
+        ...(period ? [{ k: "Billing period", v: esc(period) }] : []),
+        { k: "Paid from", v: paidFrom },
+        { k: "Settled on", v: "Arc" },
+        // Gas is the first thing a crypto-native subscriber looks for.
+        { k: "Network fee", v: "Covered", accent: true },
+        ...(d.txHash
+          ? [{
+              k: "Transaction",
+              v: d.explorerUrl
+                ? emailLink(`${shortHash(d.txHash)} · View on explorer`, d.explorerUrl)
+                : mono(d.txHash),
+            }]
+          : []),
+      ]) +
+      (d.nextRenewalAt
+        ? panel(
+            "Next renewal",
+            `${DATE.format(d.nextRenewalAt)} — ${d.amount} ${d.currency}`,
+            d.ungrantedChains === 0
+              ? `Charged automatically from your wallet on any supported chain holding ` +
+                  `enough USDC. Nothing for you to do — we submit it and pay the gas.`
+              : `Want to be charged automatically from your wallet on any of the supported ` +
+                  `chains holding enough USDC? Head to the ` +
+                  `<strong style="color:#201e1d;">Manage your subscriptions</strong> page by ` +
+                  `clicking the button below to grant permission to the remaining supported chains.`
+          )
+        : "") +
+      button("Manage your subscriptions", manageUrl()) +
+      fineprint(
+        `Cancel anytime by revoking the authorization from your wallet. ` +
+        `Every subscription tied to this email address — across all merchants — is at ` +
+        `${emailLink(manageUrl().replace(/^https?:\/\//, ""), manageUrl())}.`
+      ),
+  });
 }

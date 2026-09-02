@@ -11,8 +11,10 @@ import {
   describeChainError,
 } from "../lib/chain/subscription";
 import { fireWebhook } from "../lib/webhooks/delivery";
+import { sendPaymentReceipt } from "../lib/email/receipt";
 import { signWebhook } from "../lib/webhooks/sign";
 import { getNextRetryAt } from "../lib/webhooks/delivery";
+import { assertDeliverableUrl } from "../lib/webhooks/url-guard";
 import { ids } from "../lib/ids";
 import { claimPeriod, releaseClaim, periodKeyFor } from "./claims";
 
@@ -112,6 +114,20 @@ export async function settleDuePeriods() {
 /// Clears the escrow mirror and completes the "pending" payment recorded at
 /// checkout. Safe to run more than once for the same subscription.
 async function markSettled(subscriptionRowId: string) {
+  // Captured BEFORE the update, because updateMany returns no ids. This is also
+  // what makes the receipt idempotent: a second run finds nothing pending, so
+  // the list is empty and no second email goes out.
+  const settling = await prisma.payment.findMany({
+    where: {
+      subscriptionId: subscriptionRowId,
+      status: "pending",
+      // "initial" is excluded: checkout already sent that receipt when the
+      // payment was escrowed. Only escrowed RENEWALS get theirs here.
+      type: { not: "initial" },
+    },
+    select: { id: true },
+  });
+
   await prisma.$transaction([
     prisma.subscription.update({
       where: { id: subscriptionRowId },
@@ -123,6 +139,10 @@ async function markSettled(subscriptionRowId: string) {
       data: { status: "succeeded" },
     }),
   ]);
+
+  // The subscriber's receipt. Fire-and-forget — the charge is already settled
+  // on-chain and must not be undone by a mail provider having a bad minute.
+  for (const p of settling) void sendPaymentReceipt(p.id);
 }
 
 /// The subscription was cancelled directly on-chain (not through this API), so
@@ -230,7 +250,7 @@ async function renewSubscription(sub: SubWithRelations, type: "renewal" | "initi
     const escrowed = result.escrowed;
     const windowSecs = settlementWindowSeconds(sub.plan.settlementWindowHours);
 
-    await prisma.$transaction([
+    const [, renewalPayment] = await prisma.$transaction([
       prisma.subscription.update({
         where: { id: sub.id },
         data: {
@@ -250,6 +270,7 @@ async function renewSubscription(sub: SubWithRelations, type: "renewal" | "initi
           subscriptionId: sub.id,
           amount: amount,
           currency: sub.plan.currency,
+          // An escrowed renewal is not yet a receipt — markSettled sends it.
           status: escrowed ? "pending" : "succeeded",
           type,
           isTestMode: sub.isTestMode,
@@ -259,6 +280,10 @@ async function renewSubscription(sub: SubWithRelations, type: "renewal" | "initi
         },
       }),
     ]);
+
+    // Escrowed renewals stay pending and get their receipt from markSettled;
+    // the guard inside sendPaymentReceipt is what makes this call safe either way.
+    void sendPaymentReceipt(renewalPayment.id);
 
     await fireWebhook(sub.merchantId, sub.externalRef, sub.merchant.merchantId, "subscription.renewed", {
       subscription_id: sub.subscriptionId,
@@ -420,6 +445,10 @@ export async function retryWebhooks() {
     const signature = signWebhook(body, delivery.endpoint.secret);
 
     try {
+      // The retry queue dials the same URL the first delivery did, hours or
+      // days later — which is exactly the window a DNS rebind needs. Re-check.
+      await assertDeliverableUrl(delivery.endpoint.url);
+
       const fetchRes = await fetch(delivery.endpoint.url, {
         method: "POST",
         headers: {

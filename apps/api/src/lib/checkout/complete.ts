@@ -13,8 +13,15 @@ import { addDays } from "date-fns";
 import { prisma } from "../prisma";
 import { ids } from "../ids";
 import { fireWebhook } from "../webhooks/delivery";
-import { getManagerAddress, getOnChainSubscription } from "../chain/subscription";
+import { sendPaymentReceipt } from "../email/receipt";
+import {
+  getManagerAddress,
+  getOnChainSubscription,
+  cancelOnChain,
+  describeChainError,
+} from "../chain/subscription";
 import { resolveCheckoutCustomer } from "./identity";
+import { findWalletConflict, walletConflictMessage } from "./wallet-guard";
 import { resolveTier } from "./tiers";
 import { retirePriorActiveSubscriptions } from "../subscriptions/revoke";
 import type { CheckoutSession, Merchant, Plan } from "@prisma/client";
@@ -39,6 +46,22 @@ export interface CompleteCheckoutInput {
   txHash?: string | null;
   allowanceTxHash?: string | null;
   blockNumber?: number | null;
+  /**
+   * The chain the subscriber's USDC actually came from. Omitted on the Arc paths,
+   * where funds never leave Arc; set to the source chain ("base", "arbitrum", …)
+   * on the cross-chain path, where the money is pulled there and bridged in.
+   * Settlement is always Arc either way — this records where it was PAID from.
+   */
+  sourceChain?: string | null;
+  /**
+   * A Customer already resolved from a verified OTP proof by the caller. The
+   * cross-chain path proves ownership synchronously (at /cross-chain/activate)
+   * and then bridges detached, by which point the email token is gone — so it
+   * hands the decision here rather than letting resolveCheckoutCustomer fall back
+   * to the wallet link, which names whoever used that wallet at this merchant
+   * first, not the person who just paid.
+   */
+  customerDbId?: string | null;
 }
 
 export class CheckoutVerificationError extends Error {
@@ -49,9 +72,11 @@ export class CheckoutVerificationError extends Error {
 
 
 /// Verifies the subscription on-chain, records it (subscription + payment +
-/// passport + session complete) and fires the merchant webhooks.
+/// session complete) and fires the merchant webhooks.
 export async function completeCheckoutSession(input: CompleteCheckoutInput) {
   const { session, walletAddress, activationMethod, email, emailToken, txHash, allowanceTxHash, blockNumber } = input;
+  // Arc is both the settlement chain and the default funding chain.
+  const paidFromChain = input.sourceChain ?? "arc";
 
   // A plan closed (deleted) mid-checkout can't be activated.
   if (session.plan.archived) {
@@ -61,12 +86,17 @@ export async function completeCheckoutSession(input: CompleteCheckoutInput) {
   // Resolve the email-anchored customer: a known wallet recalls its customer
   // (no token); a new wallet links to a verified-email customer via the OTP
   // proof. A verified link is REQUIRED — no link, no activation.
-  const customer = await resolveCheckoutCustomer({
-    merchantId: session.merchantId,
-    walletAddress,
-    email,
-    emailToken,
-  });
+  const customer = input.customerDbId
+    ? await (async () => {
+        const c = await prisma.customer.findUnique({ where: { id: input.customerDbId! } });
+        return c ? { customerDbId: c.id, customerId: c.customerId, email: c.email } : null;
+      })()
+    : await resolveCheckoutCustomer({
+        merchantId: session.merchantId,
+        walletAddress,
+        email,
+        emailToken,
+      });
   if (!customer) {
     throw new CheckoutVerificationError(
       "Verify your email before activating your subscription.",
@@ -105,6 +135,35 @@ export async function completeCheckoutSession(input: CompleteCheckoutInput) {
   if (onChain.amount !== tier.amount) {
     throw new CheckoutVerificationError("On-chain amount does not match the selected tier", 409);
   }
+  // Last-resort wallet guard. Every path that can pre-empt this checks before the
+  // subscriber commits funds; the direct path cannot, because the subscriber
+  // submits subscribe() themselves and we only hear about it here. So if a
+  // conflict survives to this point, cancel on-chain — which returns the escrowed
+  // first period to them in the same tx — before refusing.
+  const conflict = await findWalletConflict({
+    merchantId: session.merchantId,
+    walletAddress,
+    identity: { customerDbId: customer.customerDbId, email: normalizedEmail },
+  });
+  if (conflict) {
+    try {
+      await cancelOnChain(onChainSubId);
+    } catch (e) {
+      // The subscription is left uncancelled on-chain with the escrow still in it.
+      // Nothing is recorded here, so no renewal can ever charge it, but the funds
+      // need a manual sweep — log loudly enough to find them.
+      console.error(
+        `[checkout/complete] wallet ${walletAddress.toLowerCase()} conflicts with ${conflict.subscriptionId} ` +
+          `and the escrow refund FAILED — on-chain sub ${onChainSubId} still holds the subscriber's first ` +
+          `period: ${describeChainError(e)}`
+      );
+    }
+    throw new CheckoutVerificationError(
+      walletConflictMessage(conflict, session.merchant.name),
+      409
+    );
+  }
+
   const hasTrial = tier.trialDays > 0;
   const days = INTERVAL_DAYS[tier.interval] ?? 30;
   const now = new Date();
@@ -166,7 +225,7 @@ export async function completeCheckoutSession(input: CompleteCheckoutInput) {
   });
 
 
-  await prisma.payment.create({
+  const initialPayment = await prisma.payment.create({
     data: {
       paymentId: ids.payment(),
       merchantId: session.merchantId,
@@ -179,25 +238,25 @@ export async function completeCheckoutSession(input: CompleteCheckoutInput) {
       isTestMode: session.isTestMode,
       txHash: txHash ?? null,
       blockNumber: blockNumber ? BigInt(blockNumber) : null,
-      chain: "arc",
+      chain: paidFromChain,
     },
   });
+
+  // The subscriber's receipt, sent now rather than when the escrow settles a day
+  // later — they have paid, and that is when a receipt is expected. Zero-value
+  // trial starts are filtered inside the sender.
+  //
+  // AWAITED, unlike the billing-loop call sites. This runs inside a request
+  // handler, and a floating promise here is only as durable as the process: a
+  // dev-server reload or a deploy between the response and the provider call
+  // drops the receipt with nothing to show for it. sendPaymentReceipt catches
+  // its own errors and resolves either way, so awaiting cannot fail checkout —
+  // it only guarantees the attempt actually happens.
+  await sendPaymentReceipt(initialPayment.id);
 
   await prisma.checkoutSession.update({
     where: { id: session.id },
     data: { status: "complete", subscriptionId: subscription.subscriptionId },
-  });
-
-  await prisma.passport.upsert({
-    where: { walletAddress: walletAddress.toLowerCase() },
-    create: {
-      passportId: ids.passport(),
-      walletAddress: walletAddress.toLowerCase(),
-      email: normalizedEmail,
-      platformSig: ids.sessionToken(),
-    },
-    // Keep an existing email if this checkout didn't collect one
-    update: { isValid: true, revokedAt: null, ...(normalizedEmail ? { email: normalizedEmail } : {}) },
   });
 
   const eventData = {
@@ -218,7 +277,9 @@ export async function completeCheckoutSession(input: CompleteCheckoutInput) {
     tx_hash: txHash ?? null,
     allowance_tx_hash: allowanceTxHash ?? null,
     block_number: blockNumber ?? null,
-    chain: "arc",
+    chain: paidFromChain,
+    // Where it settled, which is Arc regardless of where it was paid from.
+    settlement_chain: "arc",
     current_period_end: periodEnd.toISOString(),
     trial_end: subscription.trialEnd?.toISOString() ?? null,
     settlement_deadline: settlementDeadline?.toISOString() ?? null,

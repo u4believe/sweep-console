@@ -17,6 +17,7 @@ import { prisma } from "../lib/prisma";
 import { getPublicClient, getManagerAddress } from "../lib/chain/contract";
 import { SUBSCRIPTION_MANAGER_ABI } from "../lib/chain/abi";
 import { fireWebhook } from "../lib/webhooks/delivery";
+import { sendPaymentReceipt } from "../lib/email/receipt";
 import { ids } from "../lib/ids";
 
 const CURSOR_NAME = "subscription_manager";
@@ -229,6 +230,19 @@ async function onSettled(sub: SubRow, log: IndexedLog): Promise<void> {
   const platformFee = (log.args.platformFee as bigint | undefined) ?? 0n;
   const settledAmount = sub.escrowBalance;
 
+  // Ids first — updateMany returns none, and an empty list on a re-run is what
+  // keeps the receipt from going out twice.
+  const settling = await prisma.payment.findMany({
+    where: {
+      subscriptionId: sub.id,
+      status: "pending",
+      // "initial" is excluded: checkout already sent that receipt when the
+      // payment was escrowed. Only escrowed RENEWALS get theirs here.
+      type: { not: "initial" },
+    },
+    select: { id: true },
+  });
+
   await prisma.$transaction([
     prisma.subscription.update({
       where: { id: sub.id },
@@ -239,6 +253,8 @@ async function onSettled(sub: SubRow, log: IndexedLog): Promise<void> {
       data: { status: "succeeded" },
     }),
   ]);
+
+  for (const p of settling) void sendPaymentReceipt(p.id);
 
   console.warn(
     `[indexer] ${sub.subscriptionId} settled on-chain but not recorded — reconciled tx=${log.transactionHash}`

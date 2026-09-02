@@ -31,6 +31,7 @@ import { claimPeriod, releaseClaim, periodKeyFor } from "./claims";
 import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../lib/gateway/cctp";
 import { getUsdcAddress } from "../lib/chain/contract";
 import { fireWebhook } from "../lib/webhooks/delivery";
+import { sendPaymentReceipt } from "../lib/email/receipt";
 import { ids } from "../lib/ids";
 
 function platformFeeBps(): bigint {
@@ -61,7 +62,7 @@ async function recordRenewalSettled(
   bridgeId?: string
 ): Promise<void> {
   const newPeriodEnd = new Date(sub.currentPeriodEnd.getTime() + periodDurationSec * 1000);
-  await prisma.$transaction([
+  const [, renewalPayment] = await prisma.$transaction([
     prisma.subscription.update({
       where: { id: sub.id },
       data: { currentPeriodStart: sub.currentPeriodEnd, currentPeriodEnd: newPeriodEnd },
@@ -94,6 +95,8 @@ async function recordRenewalSettled(
         ]
       : []),
   ]);
+
+  void sendPaymentReceipt(renewalPayment.id);
 
   await fireWebhook(sub.merchantId, sub.externalRef, sub.merchant.merchantId, "subscription.renewed", {
     subscription_id: sub.subscriptionId,
