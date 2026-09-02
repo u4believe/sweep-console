@@ -1,19 +1,10 @@
 import { prisma } from "../prisma";
 import { signWebhook } from "./sign";
 import { ids } from "../ids";
+import type { WebhookEventType } from "./events";
+import { assertDeliverableUrl } from "./url-guard";
 
-export type WebhookEventType =
-  | "checkout.session.completed"
-  | "subscription.created"
-  | "subscription.renewed"
-  | "subscription.cancelled"
-  | "subscription.past_due"
-  | "subscription.trial_started"
-  | "subscription.trial_ending"
-  | "payment.succeeded"
-  | "payment.failed"
-  | "payment.refunded"
-  | "passport.activated";
+export type { WebhookEventType } from "./events";
 
 interface WebhookPayload {
   event_id: string;
@@ -71,6 +62,10 @@ async function deliverToEndpoint(
   });
 
   try {
+    // Re-checked here, not just at registration: DNS can be re-pointed at a
+    // private address long after an endpoint was accepted.
+    await assertDeliverableUrl(endpoint.url);
+
     const res = await fetch(endpoint.url, {
       method: "POST",
       headers: {

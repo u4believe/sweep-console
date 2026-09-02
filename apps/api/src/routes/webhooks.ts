@@ -6,26 +6,14 @@ import { verifyApiKey, type AuthedRequest } from "../middleware/auth";
 import { ok, created, err, validationError } from "../lib/response";
 import { signWebhook } from "../lib/webhooks/sign";
 import { ids } from "../lib/ids";
+import { WEBHOOK_EVENTS } from "../lib/webhooks/events";
+import { assertDeliverableUrl, WebhookUrlError } from "../lib/webhooks/url-guard";
 
 export const webhooksRouter = Router();
 
-const VALID_EVENTS = [
-  "checkout.session.completed",
-  "subscription.created",
-  "subscription.renewed",
-  "subscription.cancelled",
-  "subscription.past_due",
-  "subscription.trial_started",
-  "subscription.trial_ending",
-  "payment.succeeded",
-  "payment.failed",
-  "payment.refunded",
-  "passport.activated",
-] as const;
-
 const createWebhookSchema = z.object({
   url: z.string().url(),
-  events: z.array(z.enum(VALID_EVENTS)).min(1),
+  events: z.array(z.enum(WEBHOOK_EVENTS)).min(1),
 });
 
 webhooksRouter.post("/", verifyApiKey, async (req, res) => {
@@ -37,13 +25,24 @@ webhooksRouter.post("/", verifyApiKey, async (req, res) => {
     ));
   }
 
+  // Same guard as the portal route. Without it this endpoint — reachable with
+  // nothing but an API key — is a way around it.
+  try {
+    await assertDeliverableUrl(parsed.data.url);
+  } catch (e) {
+    if (e instanceof WebhookUrlError) return validationError(res, { url: e.message });
+    throw e;
+  }
+
   const endpoint = await prisma.webhookEndpoint.create({
     data: {
       endpointId: ids.webhook(),
       merchantId: merchant.id,
       url: parsed.data.url,
       events: parsed.data.events,
-      secret: randomBytes(32).toString("hex"),
+      // whsec_-prefixed, matching the portal — the two used to differ, so the
+      // same merchant got two shapes of secret depending on how they registered.
+      secret: `whsec_${randomBytes(24).toString("hex")}`,
     },
   });
 
@@ -103,6 +102,17 @@ webhooksRouter.post("/:id/replay/:event_id", verifyApiKey, async (req, res) => {
 
   const body = JSON.stringify(delivery.payload);
   const signature = signWebhook(body, endpoint.secret);
+
+  // Replay is the sharpest edge on this surface: the caller triggers the request
+  // on demand AND reads response_status straight back, so an unchecked one is a
+  // synchronous port scanner. Re-validate here — the check at registration says
+  // nothing about where the name points now.
+  try {
+    await assertDeliverableUrl(endpoint.url);
+  } catch (e) {
+    if (e instanceof WebhookUrlError) return validationError(res, { url: e.message });
+    throw e;
+  }
 
   let responseStatus: number | undefined;
   let status = "failed";
