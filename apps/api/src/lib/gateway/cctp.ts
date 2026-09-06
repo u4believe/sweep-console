@@ -19,6 +19,7 @@ import {
   createWalletClient,
   defineChain,
   http,
+  slice,
   type Address,
   type Hex,
 } from "viem";
@@ -82,8 +83,38 @@ const MESSAGE_TRANSMITTER_ABI = [
     ],
     outputs: [{ type: "bool" }],
   },
+  // Non-zero once a message has been minted, by anyone. This is how we tell
+  // "already delivered" apart from "failed" — see receiveOnArc.
+  {
+    type: "function",
+    name: "usedNonces",
+    stateMutability: "view",
+    inputs: [{ name: "nonce", type: "bytes32" }],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "event",
+    name: "MessageReceived",
+    inputs: [
+      { name: "caller", type: "address", indexed: true },
+      { name: "sourceDomain", type: "uint32", indexed: false },
+      { name: "nonce", type: "bytes32", indexed: true },
+      { name: "sender", type: "bytes32", indexed: false },
+      { name: "finalityThresholdExecuted", type: "uint32", indexed: true },
+      { name: "messageBody", type: "bytes", indexed: false },
+    ],
+  },
 ] as const;
 
+const MESSAGE_RECEIVED_EVENT = MESSAGE_TRANSMITTER_ABI[2];
+
+// getLogs is capped per request by most providers (10k blocks on the Arc RPC we
+// use), so a lookup walks back in windows rather than asking for all of history.
+// Six windows of 9k blocks is roughly 15 hours at Arc's ~1s blocks — comfortably
+// longer than the seconds it takes an auto-relayer to win a race, and long enough
+// for a bridge resumed on the next billing pass.
+const LOG_WINDOW = 9_000n;
+const LOG_WINDOWS_BACK = 6;
 
 // CCTP V2 deploys its contracts at the SAME address on every supported EVM
 // testnet. These are the published V2 testnet addresses — override per chain via
@@ -156,10 +187,84 @@ function arcRelayer() {
   };
 }
 
+type ArcClient = ReturnType<typeof arcRelayer>["publicClient"];
+
+/// The message's CCTP nonce. V2 header: version(4) sourceDomain(4)
+/// destinationDomain(4) nonce(32) — so bytes 12..44.
+///
+/// Note this is Circle's per-message nonce, nothing to do with the account nonce
+/// the relayer signs with. Both revert with the word "nonce" and they are entirely
+/// different failures.
+function messageNonce(message: Hex): Hex {
+  return slice(message, 12, 44);
+}
+
+async function isAlreadyMinted(publicClient: ArcClient, nonce: Hex): Promise<boolean> {
+  const used = await publicClient.readContract({
+    address: getArcMessageTransmitter(),
+    abi: MESSAGE_TRANSMITTER_ABI,
+    functionName: "usedNonces",
+    args: [nonce],
+  });
+  return used !== 0n;
+}
+
+/// The transaction that actually delivered this message, whoever sent it.
+/// MessageReceived indexes the nonce, so this is an exact lookup once the right
+/// window is in range.
+async function findMintTx(publicClient: ArcClient, nonce: Hex): Promise<Hex | null> {
+  const head = await publicClient.getBlockNumber();
+  for (let i = 0; i < LOG_WINDOWS_BACK; i++) {
+    const toBlock = head - BigInt(i) * LOG_WINDOW;
+    if (toBlock <= 0n) break;
+    const fromBlock = toBlock > LOG_WINDOW ? toBlock - LOG_WINDOW : 0n;
+    const logs = await publicClient.getLogs({
+      address: getArcMessageTransmitter(),
+      event: MESSAGE_RECEIVED_EVENT,
+      args: { nonce },
+      fromBlock,
+      toBlock,
+    });
+    if (logs[0]?.transactionHash) return logs[0].transactionHash;
+    if (fromBlock === 0n) break;
+  }
+  return null;
+}
+
+/// Resolve an already-delivered message to the transaction that delivered it.
+async function settledElsewhere(publicClient: ArcClient, nonce: Hex): Promise<Hex> {
+  const hash = await findMintTx(publicClient, nonce);
+  if (hash) {
+    console.log(`[cctp] message ${nonce} was already minted on Arc by ${hash} — treating as delivered`);
+    return hash;
+  }
+  // The funds ARE on Arc — usedNonces said so — we just cannot name the
+  // transaction, so there is nothing truthful to record against the payment.
+  // Loud and specific, because this is a bookkeeping problem and not a lost
+  // payment, and the two want very different responses from whoever reads it.
+  throw new Error(
+    `CCTP message ${nonce} is already minted on Arc, but its MessageReceived log is ` +
+      `outside the ${LOG_WINDOWS_BACK * Number(LOG_WINDOW)}-block lookback. The funds ` +
+      `arrived; only the settlement reference is missing. Locate the mint and settle by hand.`
+  );
+}
+
 /// Mint the bridged USDC on Arc by submitting the attestation to the Arc
 /// MessageTransmitter. Funds mint to the burn's mintRecipient (the subscriber).
+///
+/// A message can only ever be minted ONCE, and we are not the only party who can
+/// mint it — Circle runs auto-relayers that deliver attested messages on sight,
+/// and on testnet they frequently beat us by a second or two. Losing that race is
+/// the SUCCESS case: the subscriber has their USDC. Treating it as an error is
+/// what stranded a checkout whose money had already landed, so every point at
+/// which we could lose the race re-checks before failing.
 export async function receiveOnArc(att: CctpAttestation): Promise<Hex> {
   const { account, publicClient, walletClient } = arcRelayer();
+  const nonce = messageNonce(att.message);
+
+  // Cheapest case: someone delivered it before we even tried. No gas, no race.
+  if (await isAlreadyMinted(publicClient, nonce)) return settledElsewhere(publicClient, nonce);
+
   const { request } = await publicClient.simulateContract({
     address: getArcMessageTransmitter(),
     abi: MESSAGE_TRANSMITTER_ABI,
@@ -167,10 +272,24 @@ export async function receiveOnArc(att: CctpAttestation): Promise<Hex> {
     args: [att.message, att.attestation],
     account,
   });
-  const txHash = await withNonce(account.address, arcChainId(), publicClient, (nonce) =>
-    walletClient.writeContract({ ...request, nonce })
-  );
+
+  let txHash: Hex;
+  try {
+    txHash = await withNonce(account.address, arcChainId(), publicClient, (nonce_) =>
+      walletClient.writeContract({ ...request, nonce: nonce_ })
+    );
+  } catch (e) {
+    // Lost between simulate and broadcast: the node rejected the call outright.
+    if (await isAlreadyMinted(publicClient, nonce)) return settledElsewhere(publicClient, nonce);
+    throw e;
+  }
+
   const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
-  if (receipt.status !== "success") throw new Error(`receiveMessage reverted on Arc: ${txHash}`);
+  if (receipt.status !== "success") {
+    // Lost between broadcast and inclusion — our transaction mined one block
+    // behind the winner and reverted with "Nonce already used". Same outcome.
+    if (await isAlreadyMinted(publicClient, nonce)) return settledElsewhere(publicClient, nonce);
+    throw new Error(`receiveMessage reverted on Arc: ${txHash}`);
+  }
   return txHash;
 }
