@@ -16,7 +16,7 @@ import { ids } from "../lib/ids";
 import { verifyEmailToken, normalizeEmail } from "../lib/checkout/identity";
 import { revokeSubscription } from "../lib/subscriptions/revoke";
 import { supportedSourceChains } from "../lib/gateway/chains";
-import { getDelegateAddress, decodePeriodTransferTerms } from "../lib/chain/delegation";
+import { getDelegateAddress, decodePeriodTransferTerms, delegationIdentity } from "../lib/chain/delegation";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
 
 export const customerPortalRouter = Router();
@@ -273,9 +273,18 @@ customerPortalRouter.post("/subscriptions/:id/grant", async (req, res) => {
       );
     }
 
+    // See delegation.ts — identity travels with the context, on create and update.
+    const identity = await delegationIdentity(
+      d.chain_id,
+      d.delegation_manager as Address,
+      d.context as Hex
+    );
+
     const data = {
       sessionId: null,
       subscriptionId: sub.id,
+      salt: identity.salt,
+      delegationHash: identity.delegationHash,
       merchantId: sub.merchantId,
       walletAddress: d.wallet_address,
       accountAddress: d.account_address ?? d.wallet_address,

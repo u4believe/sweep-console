@@ -431,6 +431,17 @@ model RenewalDelegation {
 
   delegationManager String // DelegationManager the context redeems against
   context           String // ERC-7710 permission context (hex blob), redeemed each cycle
+  // Identity of the delegation inside `context`, extracted at grant time so a
+  // reconciliation pass can ask the chain "is this still enabled?" with one read
+  // instead of decoding and re-hashing 85 blobs on every sweep.
+  //
+  // A subscriber can disable a delegation from their own wallet at any time —
+  // `disableDelegation` is onlyDeleGator, so we can neither do it for them nor be
+  // told when they do. Nothing here notices until a redeem fails. Both columns are
+  // nullable: salt decodes locally and should always be present, while the hash
+  // needs an RPC call that must never be allowed to fail a grant.
+  salt              String? // uint256 as decimal; unique per delegation
+  delegationHash    String? // DelegationManager.getDelegationHash(delegation)
   // ERC-7715 account-deployment deps ([{factory, factoryData}]) the relayer must
   // include on the FIRST redeem if the delegator account isn't on-chain yet
   // (EIP-7702 / smart-account init). Empty array for an already-deployed account.
@@ -451,6 +462,7 @@ model RenewalDelegation {
   @@index([status])
   @@index([merchantId])
   @@index([mode])
+  @@index([delegationHash])
   @@map("renewal_delegations")
 }
 

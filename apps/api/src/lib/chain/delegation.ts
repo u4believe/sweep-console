@@ -338,6 +338,95 @@ const DELEGATION_ABI_PARAMS = [
   },
 ] as const;
 
+// DelegationManager reads used to identify a delegation and ask whether the
+// subscriber has since turned it off.
+const DELEGATION_STATE_ABI = [
+  {
+    type: "function",
+    name: "getDelegationHash",
+    stateMutability: "pure",
+    inputs: [{ type: "tuple", components: DELEGATION_ABI_PARAMS[0].components }],
+    outputs: [{ type: "bytes32" }],
+  },
+  {
+    type: "function",
+    name: "disabledDelegations",
+    stateMutability: "view",
+    inputs: [{ type: "bytes32" }],
+    outputs: [{ type: "bool" }],
+  },
+] as const;
+
+export interface DelegationIdentity {
+  /// uint256 salt as a decimal string — unique per delegation, decoded locally.
+  salt: string | null;
+  /// DelegationManager.getDelegationHash(delegation), or null if the read failed.
+  delegationHash: string | null;
+}
+
+/**
+ * Identify the delegation inside a permission context.
+ *
+ * Stored at grant time so a reconciliation pass can ask `disabledDelegations`
+ * directly, rather than decoding and re-hashing every stored blob on each sweep.
+ *
+ * The hash comes from the manager rather than a hand-rolled EIP-712 encoding on
+ * purpose: getting a typehash subtly wrong produces a plausible-looking value
+ * that silently matches nothing, and we would not find out for months.
+ *
+ * NEVER throws. A grant is a subscriber signing in their wallet; failing it
+ * because an RPC blinked would be a poor trade for a column the reconciler can
+ * backfill later.
+ */
+export async function delegationIdentity(
+  chainId: number,
+  delegationManager: Address,
+  context: Hex
+): Promise<DelegationIdentity> {
+  let decoded;
+  try {
+    [decoded] = decodeAbiParameters(DELEGATION_ABI_PARAMS, context);
+  } catch {
+    return { salt: null, delegationHash: null };
+  }
+  const delegation = decoded[0];
+  if (!delegation) return { salt: null, delegationHash: null };
+  const salt = String(delegation.salt);
+
+  try {
+    const { publicClient } = clientsFor(chainId);
+    const hash = await publicClient.readContract({
+      address: delegationManager,
+      abi: DELEGATION_STATE_ABI,
+      functionName: "getDelegationHash",
+      args: [delegation],
+    });
+    return { salt, delegationHash: hash as string };
+  } catch (e) {
+    console.warn(
+      `[delegation] could not hash delegation on chain ${chainId} — storing salt only: ` +
+        `${e instanceof Error ? e.message.split("\n")[0] : String(e)}`
+    );
+    return { salt, delegationHash: null };
+  }
+}
+
+/// Has the subscriber turned this delegation off in their own wallet? Only the
+/// delegator can, and nothing notifies us, so the only way to know is to ask.
+export async function isDelegationDisabled(
+  chainId: number,
+  delegationManager: Address,
+  delegationHash: Hex
+): Promise<boolean> {
+  const { publicClient } = clientsFor(chainId);
+  return (await publicClient.readContract({
+    address: delegationManager,
+    abi: DELEGATION_STATE_ABI,
+    functionName: "disabledDelegations",
+    args: [delegationHash],
+  })) as boolean;
+}
+
 export interface PeriodTransferTerms {
   token: Address;
   /** Max transferable per period (token base units) — the on-chain cap. */

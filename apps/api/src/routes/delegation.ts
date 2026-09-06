@@ -11,7 +11,7 @@ import type { Address, Hex } from "viem";
 import { prisma } from "../lib/prisma";
 import { ok, err } from "../lib/response";
 import { supportedSourceChains } from "../lib/gateway/chains";
-import { getDelegateAddress, decodePeriodTransferTerms } from "../lib/chain/delegation";
+import { getDelegateAddress, decodePeriodTransferTerms, delegationIdentity } from "../lib/chain/delegation";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
 import {
   buildPermitPayload,
@@ -185,8 +185,19 @@ delegationRouter.post("/internal/checkout/:session_id/delegation", async (req, r
       );
     }
 
+    // Identity of the signed delegation, so the reconciler can later ask the chain
+    // whether the subscriber has disabled it. Lives in `data` rather than being
+    // create-only: a re-grant replaces `context`, so the identity changes with it.
+    const identity = await delegationIdentity(
+      d.chain_id,
+      d.delegation_manager as Address,
+      d.context as Hex
+    );
+
     const data = {
       sessionId: session.sessionId,
+      salt: identity.salt,
+      delegationHash: identity.delegationHash,
       // Direct scope, so a mandate no longer has to reach its merchant through a
       // Subscription that may not exist yet. Safe in both branches — the merchant
       // is the same whether this is a first grant or a re-grant.
