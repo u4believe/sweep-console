@@ -11,7 +11,12 @@ import type { Address, Hex } from "viem";
 import { prisma } from "../lib/prisma";
 import { ok, err } from "../lib/response";
 import { supportedSourceChains } from "../lib/gateway/chains";
-import { getDelegateAddress, decodePeriodTransferTerms, delegationIdentity } from "../lib/chain/delegation";
+import {
+  getDelegateAddress,
+  decodePeriodTransferTerms,
+  delegationIdentity,
+  mandateCovers,
+} from "../lib/chain/delegation";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
 import {
   buildPermitPayload,
@@ -95,10 +100,20 @@ delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, re
           },
         ],
       },
-      select: { chainId: true },
-      distinct: ["chainId"],
+      select: { chainId: true, periodAmount: true, periodDuration: true },
     });
-    const grantedChainIds = existingGrants.map((g) => g.chainId);
+    // A chain counts as covered only if a mandate there can actually pay THIS
+    // plan. Previously any active mandate on the chain counted, so a subscriber
+    // holding a $5/day grant who moved to a $10/day plan was told they were
+    // already authorized — and every renewal then failed `over_cap`, months
+    // after the signature that could have prevented it.
+    const grantedChainIds = [
+      ...new Set(
+        existingGrants
+          .filter((g) => mandateCovers(g, amount, periodDuration))
+          .map((g) => g.chainId)
+      ),
+    ];
 
     // "Already enabled" now means EVERY offered chain is covered — the toggle
     // only disappears when there is nothing left to authorize.

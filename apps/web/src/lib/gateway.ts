@@ -353,7 +353,7 @@ export function portalGrantPlan(
   emailToken: string,
   subscriptionId: string,
   wallet: string
-): Promise<{ targets: GrantTarget[] }> {
+): Promise<{ targets: GrantTarget[]; granted_chain_ids: number[]; already_enabled: boolean }> {
   return request(`/customer/portal/subscriptions/${subscriptionId}/grant-plan`, {
     method: "POST",
     body: JSON.stringify({ email, email_token: emailToken, wallet }),

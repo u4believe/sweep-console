@@ -16,7 +16,12 @@ import { ids } from "../lib/ids";
 import { verifyEmailToken, normalizeEmail } from "../lib/checkout/identity";
 import { revokeSubscription } from "../lib/subscriptions/revoke";
 import { supportedSourceChains, chainKeyForId } from "../lib/gateway/chains";
-import { getDelegateAddress, decodePeriodTransferTerms, delegationIdentity } from "../lib/chain/delegation";
+import {
+  getDelegateAddress,
+  decodePeriodTransferTerms,
+  delegationIdentity,
+  mandateCovers,
+} from "../lib/chain/delegation";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
 
 export const customerPortalRouter = Router();
@@ -227,7 +232,35 @@ customerPortalRouter.post("/subscriptions/:id/grant-plan", async (req, res) => {
       delegate,
     }));
 
-    return ok(res, { targets });
+    // Chains this subscription is already covered on. The checkout side has done
+    // this from the start; this one did not, so re-enabling from the portal
+    // minted a fresh on-chain delegation for every chain each time — including
+    // ones already authorized. Nothing cleans those up: a disable costs the
+    // subscriber gas and only their own wallet can send it, so every redundant
+    // grant is permanent until they pay to remove it.
+    const existing = await prisma.renewalDelegation.findMany({
+      where: {
+        subscriptionId: sub.id,
+        status: "active",
+        // Scoped to the wallet actually signing. A subscriber re-granting from a
+        // different wallet holds none of the old one's authority, so those grants
+        // are not coverage for them — without this they would be told they were
+        // already authorized on a chain their current wallet cannot pay from.
+        walletAddress: { equals: parsed.data.wallet, mode: "insensitive" },
+      },
+      select: { chainId: true, periodAmount: true, periodDuration: true },
+    });
+    const grantedChainIds = [
+      ...new Set(
+        existing.filter((g) => mandateCovers(g, amount, periodDuration)).map((g) => g.chainId)
+      ),
+    ];
+
+    return ok(res, {
+      targets,
+      granted_chain_ids: grantedChainIds,
+      already_enabled: targets.length > 0 && targets.every((t) => grantedChainIds.includes(t.chain_id)),
+    });
   } catch (e) {
     console.error("[portal/grant-plan]", e);
     return err(res, "Failed to build grant plan", 500);

@@ -427,6 +427,27 @@ export async function isDelegationDisabled(
   })) as boolean;
 }
 
+/**
+ * Can an existing mandate carry a new charge, or must the subscriber sign again?
+ *
+ * Both conditions matter and only one is obvious. A cap below the price fails at
+ * redeem with `over_cap`, which is the loud case. A mismatched period is quieter
+ * and worse: a daily mandate against a monthly plan looks fine, redeems once,
+ * then refuses for the rest of the month because the enforcer permits one
+ * transfer per period — and the period it enforces is the one that was SIGNED,
+ * not the one the plan wants.
+ *
+ * Treating a non-covering mandate as coverage is how a subscriber ends up told
+ * "already authorized" for a plan their signature cannot actually pay for.
+ */
+export function mandateCovers(
+  mandate: { periodAmount: bigint; periodDuration: number },
+  amount: bigint,
+  periodDuration: number
+): boolean {
+  return mandate.periodAmount >= amount && mandate.periodDuration === periodDuration;
+}
+
 export interface PeriodTransferTerms {
   token: Address;
   /** Max transferable per period (token base units) — the on-chain cap. */

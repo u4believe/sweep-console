@@ -149,10 +149,20 @@ export function ManageSubscriptionsPage() {
       // MetaMask builds refuse the probe and then service the request fine, and
       // a refused prompt is a better outcome than a dead end (capabilities.ts).
       const supported = await getSupportedDelegationChainIds(connectorClient);
-      const { targets } = await portalGrantPlan(email.trim(), emailToken, s.id, address);
-      const usable = supported ? targets.filter((t) => supported.includes(t.chain_id)) : targets;
-      if (usable.length === 0) {
+      const { targets, granted_chain_ids } = await portalGrantPlan(email.trim(), emailToken, s.id, address);
+      const walletCan = supported ? targets.filter((t) => supported.includes(t.chain_id)) : targets;
+      // Don't ask the wallet to sign a chain this subscription is already covered
+      // on. Each grant mints a NEW on-chain delegation that nothing ever cleans
+      // up — only the subscriber can disable one, and it costs them gas — so a
+      // redundant prompt leaves a permanent authorization behind.
+      const usable = walletCan.filter((t) => !granted_chain_ids.includes(t.chain_id));
+      if (walletCan.length === 0) {
         setError("You need USDC on a supported chain (Base, Arbitrum, or Optimism) your wallet can authorize.");
+        return;
+      }
+      if (usable.length === 0) {
+        setNotice("Already authorized on every chain your wallet supports — nothing more to sign.");
+        await reload();
         return;
       }
       await grantRenewalMandates(address, usable, (input) =>
