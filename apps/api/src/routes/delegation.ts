@@ -187,6 +187,10 @@ delegationRouter.post("/internal/checkout/:session_id/delegation", async (req, r
 
     const data = {
       sessionId: session.sessionId,
+      // Direct scope, so a mandate no longer has to reach its merchant through a
+      // Subscription that may not exist yet. Safe in both branches — the merchant
+      // is the same whether this is a first grant or a re-grant.
+      merchantId: session.merchantId,
       walletAddress: d.wallet_address,
       accountAddress: d.account_address ?? d.wallet_address,
       delegateAddress: d.delegate_address,
@@ -208,9 +212,12 @@ delegationRouter.post("/internal/checkout/:session_id/delegation", async (req, r
     const existing = await prisma.renewalDelegation.findFirst({
       where: { sessionId: session.sessionId, chainId: d.chain_id, status: "active" },
     });
+    // mandateId is create-only. A re-grant replaces the mandate's terms but is the
+    // same mandate to anyone holding the id, so rotating it here would break every
+    // reference a developer already has.
     const delegation = existing
       ? await prisma.renewalDelegation.update({ where: { id: existing.id }, data })
-      : await prisma.renewalDelegation.create({ data });
+      : await prisma.renewalDelegation.create({ data: { ...data, mandateId: ids.mandate() } });
 
     return ok(res, { delegation_id: delegation.id, status: delegation.status });
   } catch (e) {

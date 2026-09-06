@@ -16,6 +16,8 @@ export const ids = {
   sweep: ()        => `swp_${randomHex(10)}`,
   paymentLink: ()  => `plink_${randomHex(10)}`,
   customer: ()     => `cus_${randomHex(10)}`,
+  mandate: ()      => `mdt_${randomHex(10)}`,
+  charge: ()       => `chg_${randomHex(10)}`,
   apiKey: (live: boolean) => `${live ? "live" : "test"}_${randomHex(24)}`,
 
   // Converts a platform subscription ID to a bytes32 for the smart contract

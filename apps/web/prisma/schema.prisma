@@ -42,6 +42,11 @@ model Merchant {
   passwordHash   String?  // scrypt hash for portal login (null for Google-only accounts)
   onboarded      Boolean  @default(true) // false only for fresh Google accounts that still owe a company name
   isLive         Boolean  @default(false) // toggled when merchant goes live
+  // Opt-in to the external payment rail (/v1/mandates, /v1/charges). Off by
+  // default so the rail cannot be reached by an account that never asked for it —
+  // a charge endpoint is the first place a leaked API key directly enriches
+  // someone, so reachability is a per-account decision, not a global one.
+  externalRailEnabled Boolean @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -54,6 +59,9 @@ model Merchant {
   customers        Customer[]
   customerWallets  CustomerWallet[]
   challenges       MerchantChallenge[]
+  mandates         RenewalDelegation[]
+  charges          Charge[]
+  idempotencyKeys  IdempotencyKey[]
 
   @@map("merchants")
 }
@@ -377,9 +385,40 @@ model IndexerCursor {
 // Revoking on-chain or letting `expiry` pass cancels future renewals.
 model RenewalDelegation {
   id             String   @id @default(cuid())
+  // Public identifier ("mdt_..."). This model was internal-only until the rail
+  // needed to name a mandate in an API response.
+  //
+  // STILL NULLABLE, DELIBERATELY, even though the backfill has run and every row
+  // has one. Railway's buildCommand applies db:push while the PREVIOUS container
+  // is still serving traffic, so a NOT NULL added in the same deploy as the code
+  // that populates it would make the old container's checkout grants fail for the
+  // length of the rollout. Tighten in a LATER deploy, once every running process
+  // already writes the column. Same for merchantId below.
+  //
+  // Note the house convention, which reads confusingly here: on THIS model
+  // `mandateId` is the public id, while `mandateId` on Charge and BridgeTransfer
+  // is a foreign key holding the internal cuid. Same as Plan.planId (public) vs
+  // Subscription.planId (FK).
+  mandateId      String?  @unique
+  // "hosted"   — granted through Sweep's own checkout; our cron owns the clock.
+  // "external" — granted through the public rail; the developer's API call owns it.
+  // Set by whichever surface created the row and never mutated afterwards. The
+  // renewal sweep excluded external mandates incidentally (via `subscriptionId:
+  // { not: null }`); this makes the exclusion a checked rule instead.
+  mode           String   @default("hosted")
   sessionId      String?  // bound at checkout, before the Subscription row exists
   subscriptionId String?
   subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  // Direct scope. Until now a mandate could only find its merchant transitively,
+  // through the Subscription — which an external mandate does not have. Nullable
+  // until the backfill copies it from the linked subscription, then required.
+  merchantId     String?
+  merchant       Merchant? @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  // The developer's own identifier for the payer (their user id). fireWebhook
+  // takes an externalRef positionally and with no Subscription there is nowhere
+  // else to read one from.
+  externalRef    String?
+  metadata       Json?    // developer passthrough, echoed on every charge event
 
   walletAddress     String // delegator — the subscriber's connected (EOA) account
   accountAddress    String? // bound account the permission redeems from (== EOA under 7702)
@@ -404,10 +443,14 @@ model RenewalDelegation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  charges Charge[]
+
   @@index([subscriptionId])
   @@index([sessionId])
   @@index([walletAddress])
   @@index([status])
+  @@index([merchantId])
+  @@index([mode])
   @@map("renewal_delegations")
 }
 
@@ -418,8 +461,15 @@ model RenewalDelegation {
 // of re-pulling, so funds can't be burned-but-lost nor double-charged.
 model BridgeTransfer {
   id             String   @id @default(cuid())
-  subscriptionId String
-  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  // Exactly one of subscriptionId / chargeId is set: a bridge is owned either by
+  // a hosted renewal or by a rail charge. subscriptionId was required until the
+  // rail existed; widening it is the only non-additive change in this migration,
+  // and it is narrow on purpose — BridgeTransfer is read solely by the bridge
+  // resume path, never by reporting, receipts or the portal.
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  chargeId       String?
+  charge         Charge?  @relation(fields: [chargeId], references: [id], onDelete: Cascade)
   mandateId      String // the source RenewalDelegation that was pulled
 
   chainId       Int    // source chain the period was pulled from
@@ -438,6 +488,7 @@ model BridgeTransfer {
   mintedAt   DateTime?
 
   @@index([subscriptionId])
+  @@index([chargeId])
   @@index([status])
   @@map("bridge_transfers")
 }
@@ -610,6 +661,10 @@ model WebhookDelivery {
   @@map("webhook_deliveries")
 }
 
+// ─── Relayer Nonce ─────────────────────────────────────────────────────────────
+//
+// One row per (signing address, chain): the next transaction nonce to hand out.
+//
 // Every relayer-paid send allocates its nonce here in a single atomic upsert, so
 // two senders can never be given the same one. Before this, each send let viem
 // fetch the pending nonce itself — which is only safe while exactly one
@@ -629,4 +684,82 @@ model RelayerNonce {
 
   @@id([address, chainId])
   @@map("relayer_nonces")
+}
+
+// ─── Charge (external rail) ───────────────────────────────────────────────────
+//
+// One capped pull against a mandate, requested by the developer's own billing
+// system rather than by Sweep's cron.
+//
+// Deliberately NOT folded into Payment as `type: "charge"`. That would have meant
+// relaxing Payment.subscriptionId to nullable, pushing null-crash risk straight
+// into sendPaymentReceipt, markSettled, the dashboard chart and /v1/payments —
+// all of them HOSTED-mode code. The external mode's schema change would have
+// destabilised the exact mode it is supposed to be isolated from. A separate
+// table leaves hosted mode's read paths untouched; the cost is that cross-mode
+// reporting unions two tables, which is much the smaller price.
+model Charge {
+  id          String   @id @default(cuid())
+  chargeId    String   @unique // "chg_abc123"
+  merchantId  String
+  merchant    Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  // FK to RenewalDelegation.id (the internal cuid), NOT to its public mandateId.
+  mandateId   String
+  mandate     RenewalDelegation @relation(fields: [mandateId], references: [id])
+
+  amount      BigInt   // USDC in smallest unit
+  currency    String   @default("USDC")
+  status      String   // "pending" | "succeeded" | "failed"
+  description String?
+  // Copied from the mandate AT CHARGE TIME rather than read through the relation,
+  // so the event a developer receives reflects what they set when the charge was
+  // made, even if the mandate is later updated.
+  externalRef String?
+  metadata    Json?
+  isTestMode  Boolean  @default(false)
+
+  // On-chain proof. Null while status is "pending": a cross-chain charge settles
+  // minutes later, after the CCTP burn is attested and minted on Arc.
+  chain         String? // chosen by selectPaymentChain
+  txHash        String?
+  blockNumber   BigInt?
+  failureReason String?
+
+  createdAt DateTime  @default(now())
+  settledAt DateTime?
+
+  bridges BridgeTransfer[]
+
+  @@index([merchantId])
+  @@index([mandateId])
+  @@index([status])
+  @@map("charges")
+}
+
+// ─── IdempotencyKey ───────────────────────────────────────────────────────────
+//
+// The renewal path gets idempotence free from RenewalClaim's
+// @@unique([subscriptionId, periodKey]) — a period is a natural lock. A public
+// charge API has no period key to lean on, so it needs the real thing, built on
+// the identical trick: the unique constraint IS the lock, and a caught P2002 on
+// create means the key was already used. See claimPeriod in billing/claims.ts.
+//
+// Replaying the stored response rather than charging again is the whole point: a
+// developer's retry loop must never move funds twice.
+model IdempotencyKey {
+  id         String   @id @default(cuid())
+  merchantId String
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  key        String
+  // sha256 of the canonical request body. The same key with a DIFFERENT body is a
+  // developer bug (a recycled key), not a replay — that returns 422 rather than
+  // the stored response, so a mistake surfaces instead of silently doing nothing.
+  requestHash    String
+  status         String // "in_flight" | "completed"
+  responseStatus Int?
+  responseBody   Json?
+  createdAt      DateTime @default(now())
+
+  @@unique([merchantId, key])
+  @@map("idempotency_keys")
 }

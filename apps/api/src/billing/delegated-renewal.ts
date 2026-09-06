@@ -218,7 +218,17 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
   const outcomes: RenewalOutcome[] = [];
 
   const mandates = await prisma.renewalDelegation.findMany({
-    where: { status: "active", expiry: { gt: now }, subscriptionId: { not: null } },
+    // `mode: "hosted"` is redundant beside `subscriptionId: { not: null }` today —
+    // rail mandates have no subscription. It is here so the exclusion is a stated
+    // rule rather than a happy accident: this cron owns the clock for hosted
+    // mandates only, and a rail mandate charged from here would collide with the
+    // developer's own charge call and burn the mandate's one redeem per period.
+    where: {
+      status: "active",
+      expiry: { gt: now },
+      subscriptionId: { not: null },
+      mode: "hosted",
+    },
     include: { subscription: { include: { merchant: true, plan: true } } },
   });
 

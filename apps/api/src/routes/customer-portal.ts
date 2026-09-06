@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { Address, Hex } from "viem";
 import { prisma } from "../lib/prisma";
 import { ok, err } from "../lib/response";
+import { ids } from "../lib/ids";
 import { verifyEmailToken, normalizeEmail } from "../lib/checkout/identity";
 import { revokeSubscription } from "../lib/subscriptions/revoke";
 import { supportedSourceChains } from "../lib/gateway/chains";
@@ -275,6 +276,7 @@ customerPortalRouter.post("/subscriptions/:id/grant", async (req, res) => {
     const data = {
       sessionId: null,
       subscriptionId: sub.id,
+      merchantId: sub.merchantId,
       walletAddress: d.wallet_address,
       accountAddress: d.account_address ?? d.wallet_address,
       delegateAddress: d.delegate_address,
@@ -293,9 +295,10 @@ customerPortalRouter.post("/subscriptions/:id/grant", async (req, res) => {
     const existing = await prisma.renewalDelegation.findFirst({
       where: { subscriptionId: sub.id, chainId: d.chain_id, status: "active" },
     });
+    // Create-only: a re-grant keeps the mandate's public id. See delegation.ts.
     const delegation = existing
       ? await prisma.renewalDelegation.update({ where: { id: existing.id }, data })
-      : await prisma.renewalDelegation.create({ data });
+      : await prisma.renewalDelegation.create({ data: { ...data, mandateId: ids.mandate() } });
 
     return ok(res, { delegation_id: delegation.id, status: delegation.status });
   } catch (e) {
