@@ -19,10 +19,17 @@ import { gatewayRouter } from "./routes/gateway";
 import { delegationRouter } from "./routes/delegation";
 import { devRouter } from "./routes/dev";
 import { circleWebhooksRouter } from "./routes/circle-webhooks";
+import { apiLimiter, authLimiter } from "./middleware/rateLimit";
 import { startBillingEngine } from "./billing/scheduler";
 import { prisma } from "./lib/prisma";
 
 const app = express();
+// Railway (and any PaaS) puts a proxy in front, so the client address arrives in
+// X-Forwarded-For. Without this, express reports the proxy's address for every
+// request and the rate limiters below would bucket the whole world together.
+// `1` — trust exactly one hop — rather than `true`, which lets a caller spoof its
+// own address by sending the header itself.
+app.set("trust proxy", 1);
 // Railway (and most PaaS) inject PORT; API_PORT is the local-dev override.
 const PORT = process.env.PORT ?? process.env.API_PORT ?? 4000;
 
@@ -65,7 +72,7 @@ app.get("/health", (_req, res) => {
 });
 
 // Auth (signup, email verification, password setup)
-app.use("/auth", authRouter);
+app.use("/auth", authLimiter, authRouter);
 
 // Portal (dashboard, settings, plans, subscriptions, payments, webhooks, wallet)
 app.use("/portal", portalRouter);
@@ -88,6 +95,7 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 // v1 merchant API (API-key authenticated)
+app.use("/v1", apiLimiter);
 app.use("/v1/plans", plansRouter);
 app.use("/v1/subscriptions", subscriptionsRouter);
 app.use("/v1/payments", paymentsRouter);

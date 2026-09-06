@@ -34,6 +34,16 @@ export async function verifyApiKey(
     return;
   }
 
+  // Live keys are not issued yet: nothing writes Merchant.liveKeyHash, and the only
+  // key the portal mints is ids.apiKey(false). Without this, a live_ key would fall
+  // through the loop below and come back "Invalid API key" — sending whoever holds
+  // it to look for a typo in a key that could never have worked. Say the real thing
+  // instead. Remove this once issuance lands and the branch below can actually match.
+  if (isLiveKey) {
+    err(res, "Live API keys are not available yet. Use your test key.", 403, "live_keys_unavailable");
+    return;
+  }
+
   const secret = process.env.PLATFORM_API_SIGNING_SECRET;
   if (!secret) {
     err(res, "Server misconfiguration", 500);
