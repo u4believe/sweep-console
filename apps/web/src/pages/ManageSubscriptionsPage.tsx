@@ -24,6 +24,21 @@ import {
 // the cross-chain renewal grant. No checkout session, no merchant context needed.
 
 const TIER2_ENABLED = import.meta.env.VITE_TIER2_DELEGATION === "true";
+
+/// The API sends a chain key ("base"); this is the name a person reads. Falls
+/// back to the key rather than a chain id, which means nothing to a subscriber.
+const CHAIN_NAMES: Record<string, string> = {
+  base: "Base",
+  optimism: "Optimism",
+  arbitrum: "Arbitrum",
+  arc: "Arc",
+};
+
+function chainLabel(chainId: number, s: PortalSubscription): string {
+  const g = s.grants.find((x) => x.chain_id === chainId);
+  if (!g) return "Cross-chain";
+  return CHAIN_NAMES[g.chain] ?? g.chain;
+}
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const INTERVAL_LABELS: Record<string, string> = {
   daily: "/ day",
@@ -152,13 +167,24 @@ export function ManageSubscriptionsPage() {
     }
   };
 
-  const onRevokeGrant = async (s: PortalSubscription) => {
-    setBusyId(s.id);
+  const onRevokeGrant = async (s: PortalSubscription, chainId?: number) => {
+    // Busy is keyed per chain so turning off Base does not grey out Optimism's
+    // button next to it.
+    setBusyId(chainId === undefined ? s.id : `${s.id}:${chainId}`);
     setError("");
     setNotice("");
     try {
-      await portalRevokeGrant(email.trim(), emailToken, s.id);
-      setNotice("Cross-chain renewals turned off. Your subscription stays active and bills on Arc.");
+      await portalRevokeGrant(email.trim(), emailToken, s.id, chainId);
+      // Says what this actually did. Revoking here stops US redeeming the mandate;
+      // it cannot remove the permission from the subscriber's wallet, because
+      // disableDelegation is onlyDeleGator. Claiming otherwise left people
+      // believing an authorization was gone while it was still signed and live.
+      const where = chainId === undefined ? "Cross-chain renewals" : `${chainLabel(chainId, s)} renewals`;
+      setNotice(
+        `${where} turned off — we won't charge ${chainId === undefined ? "those chains" : "that chain"} again. ` +
+          "Your subscription stays active and bills on Arc. The permission you signed stays in your wallet " +
+          "until you revoke it there."
+      );
       await reload();
     } catch (e) {
       setError(describeError(e));
@@ -307,30 +333,69 @@ export function ManageSubscriptionsPage() {
                               )}
                             </div>
 
-                            {/* Cross-chain renewal grant management */}
+                            {/* Cross-chain renewal grants, one row per authorized
+                                chain. A subscriber who authorized three chains
+                                should be able to withdraw one without losing the
+                                other two — the previous single switch was all or
+                                nothing. */}
                             {TIER2_ENABLED && s.status !== "cancelled" && (
-                              <div className="mt-3 flex items-center justify-between gap-2 border-t border-gray-100 pt-3">
-                                <span className="text-xs text-gray-500">
-                                  {s.cross_chain_enabled
-                                    ? "Cross-chain renewals are on — renewals can fall back to other chains."
-                                    : "Let renewals fall back to your USDC on Base / Arbitrum / Optimism."}
-                                </span>
+                              <div className="mt-3 border-t border-gray-100 pt-3">
                                 {s.cross_chain_enabled ? (
-                                  <button
-                                    onClick={() => onRevokeGrant(s)}
-                                    disabled={busy}
-                                    className="shrink-0 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                                  >
-                                    {busy ? "Working…" : "Turn off"}
-                                  </button>
+                                  <>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-xs text-gray-500">
+                                        Renewals can fall back to these chains:
+                                      </span>
+                                      {s.grants.length > 1 && (
+                                        <button
+                                          onClick={() => onRevokeGrant(s)}
+                                          disabled={busyId === s.id}
+                                          className="shrink-0 text-[11px] font-semibold text-gray-500 underline underline-offset-2 hover:text-gray-700 disabled:opacity-50"
+                                        >
+                                          {busyId === s.id ? "Working…" : "Turn off all"}
+                                        </button>
+                                      )}
+                                    </div>
+                                    <ul className="mt-2 space-y-1.5">
+                                      {s.grants.map((g) => {
+                                        const gBusy = busyId === `${s.id}:${g.chain_id}`;
+                                        return (
+                                          <li
+                                            key={g.chain_id}
+                                            className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-2.5 py-1.5"
+                                          >
+                                            <span className="text-xs text-gray-700">
+                                              {CHAIN_NAMES[g.chain] ?? g.chain}
+                                              <span className="text-gray-400">
+                                                {" "}
+                                                · up to {formatUnits(BigInt(g.period_amount), 6)} USDC per period
+                                              </span>
+                                            </span>
+                                            <button
+                                              onClick={() => onRevokeGrant(s, g.chain_id)}
+                                              disabled={gBusy || busyId === s.id}
+                                              className="shrink-0 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                            >
+                                              {gBusy ? "Working…" : "Turn off"}
+                                            </button>
+                                          </li>
+                                        );
+                                      })}
+                                    </ul>
+                                  </>
                                 ) : (
-                                  <button
-                                    onClick={() => onEnableGrant(s)}
-                                    disabled={busy}
-                                    className="shrink-0 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
-                                  >
-                                    {busy ? "Authorizing…" : address ? "Enable" : "Connect wallet"}
-                                  </button>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-xs text-gray-500">
+                                      Let renewals fall back to your USDC on Base / Arbitrum / Optimism.
+                                    </span>
+                                    <button
+                                      onClick={() => onEnableGrant(s)}
+                                      disabled={busy}
+                                      className="shrink-0 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                                    >
+                                      {busy ? "Authorizing…" : address ? "Enable" : "Connect wallet"}
+                                    </button>
+                                  </div>
                                 )}
                               </div>
                             )}
@@ -343,7 +408,10 @@ export function ManageSubscriptionsPage() {
               </div>
             )}
 
-            <p className="mt-6 text-center text-[11px] text-gray-400">Cancelling and turning off cross-chain are gasless — the platform covers it.</p>
+            <p className="mt-6 text-center text-[11px] text-gray-400">
+              Cancelling and turning off cross-chain are gasless — the platform covers it. Either one stops
+              us charging you; the permission you signed stays in your wallet until you remove it there.
+            </p>
           </div>
         )}
       </main>

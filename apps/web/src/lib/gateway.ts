@@ -304,8 +304,19 @@ export interface PortalSubscription {
   refundable_until: string | null;
   refundable_amount: number;
   permissions: { arc_subscription: boolean; cross_chain_grants: number };
+  /// One row per authorized chain, so the portal can offer per-chain control.
+  /// Status is the stored one, kept current by the nightly reconciliation pass.
+  grants: PortalGrant[];
   cross_chain_enabled: boolean;
   revocable: boolean;
+}
+
+export interface PortalGrant {
+  mandate_id: string | null;
+  chain_id: number;
+  chain: string;
+  period_amount: number;
+  expires_at: string;
 }
 
 /// OTP request for the portal (no checkout session — generic branding server-side).
@@ -361,14 +372,16 @@ export function portalSaveGrant(
   });
 }
 
+/// Omit `chainId` to turn off every chain at once.
 export function portalRevokeGrant(
   email: string,
   emailToken: string,
-  subscriptionId: string
+  subscriptionId: string,
+  chainId?: number
 ): Promise<{ revoked: number }> {
   return request(`/customer/portal/subscriptions/${subscriptionId}/grant-revoke`, {
     method: "POST",
-    body: JSON.stringify({ email, email_token: emailToken }),
+    body: JSON.stringify({ email, email_token: emailToken, chain_id: chainId }),
   });
 }
 

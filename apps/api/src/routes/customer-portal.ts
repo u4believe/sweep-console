@@ -15,7 +15,7 @@ import { ok, err } from "../lib/response";
 import { ids } from "../lib/ids";
 import { verifyEmailToken, normalizeEmail } from "../lib/checkout/identity";
 import { revokeSubscription } from "../lib/subscriptions/revoke";
-import { supportedSourceChains } from "../lib/gateway/chains";
+import { supportedSourceChains, chainKeyForId } from "../lib/gateway/chains";
 import { getDelegateAddress, decodePeriodTransferTerms, delegationIdentity } from "../lib/chain/delegation";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
 
@@ -142,6 +142,17 @@ customerPortalRouter.post("/subscriptions", async (req, res) => {
             arc_subscription: !!s.onChainSubId,
             cross_chain_grants: s.renewalDelegations.length,
           },
+          // The chains themselves, so the portal can offer per-chain control
+          // instead of one all-or-nothing switch. Status here is the stored one,
+          // kept honest by the 01:30 reconciliation pass rather than read live —
+          // a page load should not depend on three public RPCs answering.
+          grants: s.renewalDelegations.map((d) => ({
+            mandate_id: d.mandateId,
+            chain_id: d.chainId,
+            chain: chainKeyForId(d.chainId) ?? `chain-${d.chainId}`,
+            period_amount: Number(d.periodAmount),
+            expires_at: d.expiry.toISOString(),
+          })),
           cross_chain_enabled: s.renewalDelegations.length > 0,
           revocable: !!s.onChainSubId || s.renewalDelegations.length > 0,
         };
@@ -317,13 +328,24 @@ customerPortalRouter.post("/subscriptions/:id/grant", async (req, res) => {
 });
 
 // ─── POST /customer/portal/subscriptions/:id/grant-revoke ─────────────────────
-// Turn OFF cross-chain renewals only — the subscription stays active and keeps
-// billing on Arc. Marks the sub's active delegations revoked so the relayer's
-// cross-chain pass can never redeem them.
+// Turn OFF cross-chain renewals — the subscription stays active and keeps billing
+// on Arc. Marks delegations revoked so the relayer's cross-chain pass can never
+// redeem them.
+//
+// This is a SWEEP-SIDE revoke and cannot be anything else: disableDelegation on
+// the DelegationManager is onlyDeleGator, so only the subscriber's own wallet can
+// remove the signed permission. The portal copy says so rather than implying the
+// authorization is gone.
+const grantRevokeSchema = proofSchema.extend({
+  // One chain, or every chain when omitted. Grants are stored one row per chain,
+  // so scoping leaves the others untouched — mirroring the checkout undo.
+  chain_id: z.number().int().positive().optional(),
+});
+
 customerPortalRouter.post("/subscriptions/:id/grant-revoke", async (req, res) => {
-  const parsed = proofSchema.safeParse(req.body);
+  const parsed = grantRevokeSchema.safeParse(req.body);
   if (!parsed.success) return err(res, "Invalid payload", 422);
-  const { email, email_token } = parsed.data;
+  const { email, email_token, chain_id } = parsed.data;
   if (!verifyEmailToken(email_token, email)) return err(res, "Verify your email first.", 403);
 
   const sub = await loadOwnedSubscription(email, req.params.id as string);
@@ -331,7 +353,11 @@ customerPortalRouter.post("/subscriptions/:id/grant-revoke", async (req, res) =>
 
   try {
     const result = await prisma.renewalDelegation.updateMany({
-      where: { subscriptionId: sub.id, status: "active" },
+      where: {
+        subscriptionId: sub.id,
+        status: "active",
+        ...(chain_id !== undefined ? { chainId: chain_id } : {}),
+      },
       data: { status: "revoked" },
     });
     return ok(res, { revoked: result.count });
