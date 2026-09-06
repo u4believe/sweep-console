@@ -1,8 +1,15 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
-    "rootDir": ".",
-    "outDir": "../dist/scripts",
+    // Typecheck only. These scripts are run with tsx, never compiled, and nothing
+    // builds this project — the API's own build uses ../tsconfig.json, whose
+    // include is "src". rootDir/outDir were dropped when scripts started importing
+    // from ../src (the allocator, the id generators): a rootDir of "." rejects any
+    // file above it, and there is no emit here for an outDir to place.
+    "noEmit": true,
+    // Widened from "." to the package root: the parent config pins rootDir to
+    // "src", and these scripts sit beside it while importing from it.
+    "rootDir": "..",
     "types": ["node"]
   },
   "include": ["."]

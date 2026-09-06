@@ -326,6 +326,7 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
           chainId: chosenMandate.chainId,
           delegationManager: chosenMandate.delegationManager as Address,
           context: chosenMandate.context as Hex,
+          delegate: chosenMandate.delegateAddress as Address,
           token: getUsdcAddress(),
           recipient: creator,
           amount: merchantShare,
@@ -336,6 +337,7 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
             chainId: chosenMandate.chainId,
             delegationManager: chosenMandate.delegationManager as Address,
             context: chosenMandate.context as Hex,
+            delegate: chosenMandate.delegateAddress as Address,
             token: getUsdcAddress(),
             recipient: treasuryAddress(),
             amount: fee,
@@ -353,6 +355,7 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
           chainId: chosenMandate.chainId,
           delegationManager: chosenMandate.delegationManager as Address,
           context: chosenMandate.context as Hex,
+          delegate: chosenMandate.delegateAddress as Address,
           token: source.usdc,
           recipient: getDelegateAddress(),
           amount, // pull the full period; fee remains in the relayer's source balance

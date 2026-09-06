@@ -8,8 +8,9 @@ import {
   ContractFunctionRevertedError,
   type Hex,
 } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
 import { SUBSCRIPTION_MANAGER_ABI, ERC20_ABI } from "./abi";
+import { getPlatformAccount } from "./signers";
+import { withNonce } from "./nonce";
 
 // ─── Arc chain definitions ────────────────────────────────────────────────────
 
@@ -53,10 +54,7 @@ export function getPublicClient() {
 }
 
 function getArbiterClient() {
-  const privateKey = process.env.PLATFORM_PRIVATE_KEY;
-  if (!privateKey) throw new Error("PLATFORM_PRIVATE_KEY is not set");
-  const account = privateKeyToAccount(privateKey as Hex);
-  return createWalletClient({ account, chain: chain(), transport: http() });
+  return createWalletClient({ account: getPlatformAccount(), chain: chain(), transport: http() });
 }
 
 // ─── Write helpers ────────────────────────────────────────────────────────────
@@ -86,7 +84,11 @@ async function writeManager(
     account: walletClient.account,
   });
 
-  const txHash = await walletClient.writeContract(request);
+  // Allocated rather than left to viem: this same key also signs every renewal and
+  // settlement on the billing cron, and checkout runs concurrently with it.
+  const txHash = await withNonce(walletClient.account.address, chain().id, publicClient, (nonce) =>
+    walletClient.writeContract({ ...request, nonce })
+  );
   const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
 
   if (receipt.status !== "success") {

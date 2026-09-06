@@ -22,8 +22,9 @@ import {
   type Address,
   type Hex,
 } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
 import { arcChainId } from "./chains";
+import { getRelayerAccount } from "../chain/signers";
+import { withNonce } from "../chain/nonce";
 
 // CCTP v2 TokenMessengerV2.depositForBurn (7-arg).
 export const TOKEN_MESSENGER_ABI = [
@@ -83,6 +84,7 @@ const MESSAGE_TRANSMITTER_ABI = [
   },
 ] as const;
 
+
 // CCTP V2 deploys its contracts at the SAME address on every supported EVM
 // testnet. These are the published V2 testnet addresses — override per chain via
 // env if Circle's deployment differs (CONFIRM Arc + the source chains at
@@ -138,9 +140,7 @@ export async function fetchAttestation(
 }
 
 function arcRelayer() {
-  const pk = process.env.RENEWAL_DELEGATE_PRIVATE_KEY ?? process.env.PLATFORM_PRIVATE_KEY;
-  if (!pk) throw new Error("RENEWAL_DELEGATE_PRIVATE_KEY / PLATFORM_PRIVATE_KEY not set");
-  const account = privateKeyToAccount(pk as Hex);
+  const account = getRelayerAccount("hosted");
   const chain = defineChain({
     id: arcChainId(),
     name: "Arc",
@@ -167,7 +167,9 @@ export async function receiveOnArc(att: CctpAttestation): Promise<Hex> {
     args: [att.message, att.attestation],
     account,
   });
-  const txHash = await walletClient.writeContract(request);
+  const txHash = await withNonce(account.address, arcChainId(), publicClient, (nonce) =>
+    walletClient.writeContract({ ...request, nonce })
+  );
   const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
   if (receipt.status !== "success") throw new Error(`receiveMessage reverted on Arc: ${txHash}`);
   return txHash;

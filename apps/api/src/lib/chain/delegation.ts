@@ -28,7 +28,8 @@ import {
   type Address,
   type Hex,
 } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { accountForDelegate, getRelayerAccount, getRelayerAddress } from "./signers";
+import { withNonce } from "./nonce";
 import { TOKEN_MESSENGER_ABI, burnParams, type BurnSpeed } from "../gateway/cctp";
 
 const ZERO_BYTES32 = "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex;
@@ -97,26 +98,25 @@ function rpcUrlForChain(chainId: number): string {
 
 /** The relayer that holds the delegate role. Its address MUST equal the
  *  `delegate` the wallet granted to (VITE_RENEWAL_DELEGATE_ADDRESS). */
-function getDelegateAccount() {
-  const pk = process.env.RENEWAL_DELEGATE_PRIVATE_KEY ?? process.env.PLATFORM_PRIVATE_KEY;
-  if (!pk) throw new Error("RENEWAL_DELEGATE_PRIVATE_KEY / PLATFORM_PRIVATE_KEY not set");
-  return privateKeyToAccount(pk as Hex);
-}
-
 /// Public address the subscriber must delegate to — surfaced to checkout so the
 /// grant names the right delegate. Equals the relayer that submits redeemDelegations.
 export function getDelegateAddress(): Address {
-  return getDelegateAccount().address;
+  return getRelayerAddress("hosted");
 }
 
-function clientsFor(chainId: number) {
+// `delegate` is the address a mandate was actually granted to. Passing it is what
+// lets a redeem sign with the key that mandate names, rather than whichever relayer
+// happens to be the current default — grants are immutable, so old mandates keep
+// pointing at the key they were signed for. Omit it for sends that are not
+// redeeming a mandate (bridge legs, ERC-3009 pulls), which use the hosted relayer.
+function clientsFor(chainId: number, delegate?: Address) {
   const chain = defineChain({
     id: chainId,
     name: `chain-${chainId}`,
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
     rpcUrls: { default: { http: [rpcUrlForChain(chainId)] } },
   });
-  const account = getDelegateAccount();
+  const account = delegate ? accountForDelegate(delegate) : getRelayerAccount("hosted");
   return {
     account,
     publicClient: createPublicClient({ chain, transport: http() }),
@@ -204,9 +204,10 @@ async function redeemSingle(
   chainId: number,
   delegationManager: Address,
   context: Hex,
-  call: { target: Address; value: bigint; callData: Hex }
+  call: { target: Address; value: bigint; callData: Hex },
+  delegate?: Address
 ): Promise<RedeemResult> {
-  const { account, publicClient, walletClient } = clientsFor(chainId);
+  const { account, publicClient, walletClient } = clientsFor(chainId, delegate);
   const executionCallData = encodePacked(
     ["address", "uint256", "bytes"],
     [call.target, call.value, call.callData]
@@ -241,7 +242,9 @@ async function redeemSingle(
       }),
     600_000n
   );
-  const txHash = await walletClient.writeContract({ ...sim.request, gas });
+  const txHash = await withNonce(account.address, chainId, publicClient, (nonce) =>
+    walletClient.writeContract({ ...sim.request, gas, nonce })
+  );
   const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
   if (receipt.status !== "success") {
     throw new Error(`redeemDelegations reverted: ${txHash}`);
@@ -259,6 +262,12 @@ export interface PeriodicTransferInput {
   recipient: Address;
   /** One period's amount — must be ≤ the enforcer's per-period cap. */
   amount: bigint;
+  /**
+   * The address this mandate was granted to, from RenewalDelegation.delegateAddress.
+   * Omit only when no stored mandate is involved — a grant's delegate is fixed at
+   * signature time, so a redeem must use the key that address names.
+   */
+  delegate?: Address;
 }
 
 /// Redeem one period as `transfer(recipient, amount)` from the subscriber.
@@ -267,7 +276,8 @@ export async function redeemPeriodicTransfer(input: PeriodicTransferInput): Prom
     input.chainId,
     input.delegationManager,
     input.context,
-    transferCall(input.token, input.recipient, input.amount)
+    transferCall(input.token, input.recipient, input.amount),
+    input.delegate
   );
 }
 
@@ -455,14 +465,18 @@ export async function relayerBridgeToArc(input: RelayerBridgeInput): Promise<{ b
   // 1. Ensure the TokenMessenger is approved for the full burn (amount + fee), and
   //    don't proceed until the approval is visible to the node we'll read from.
   if ((await readAllowance()) < burnAmount) {
-    const approveHash = await walletClient.sendTransaction({
-      to: approveCall.target,
-      value: approveCall.value,
-      data: approveCall.callData,
-      gas: await boundedGas(publicClient, () =>
-        publicClient.estimateGas({ account, to: approveCall.target, value: approveCall.value, data: approveCall.callData })
-      ),
-    });
+    const approveGas = await boundedGas(publicClient, () =>
+      publicClient.estimateGas({ account, to: approveCall.target, value: approveCall.value, data: approveCall.callData })
+    );
+    const approveHash = await withNonce(account.address, input.chainId, publicClient, (nonce) =>
+      walletClient.sendTransaction({
+        to: approveCall.target,
+        value: approveCall.value,
+        data: approveCall.callData,
+        gas: approveGas,
+        nonce,
+      })
+    );
     const receipt = await publicClient.waitForTransactionReceipt({ hash: approveHash });
     if (receipt.status !== "success") throw new Error(`relayer approve reverted: ${approveHash}`);
     let confirmed = false;
@@ -480,16 +494,20 @@ export async function relayerBridgeToArc(input: RelayerBridgeInput): Promise<{ b
   //    may still estimate against pre-approve state).
   for (let attempt = 0; ; attempt++) {
     try {
-      const burnHash = await walletClient.sendTransaction({
-        to: burnCall.target,
-        value: burnCall.value,
-        data: burnCall.callData,
-        gas: await boundedGas(
-          publicClient,
-          () => publicClient.estimateGas({ account, to: burnCall.target, value: burnCall.value, data: burnCall.callData }),
-          400_000n
-        ),
-      });
+      const burnGas = await boundedGas(
+        publicClient,
+        () => publicClient.estimateGas({ account, to: burnCall.target, value: burnCall.value, data: burnCall.callData }),
+        400_000n
+      );
+      const burnHash = await withNonce(account.address, input.chainId, publicClient, (nonce) =>
+        walletClient.sendTransaction({
+          to: burnCall.target,
+          value: burnCall.value,
+          data: burnCall.callData,
+          gas: burnGas,
+          nonce,
+        })
+      );
       const receipt = await publicClient.waitForTransactionReceipt({ hash: burnHash });
       if (receipt.status !== "success") throw new Error(`relayer depositForBurn reverted: ${burnHash}`);
       return { burnTxHash: burnHash };
@@ -580,7 +598,9 @@ export async function relayerPullViaAuthorization(
   // Pin a bounded gas limit so an over-estimating RPC can't trip "intrinsic gas
   // too high" — the platform always covers this gas.
   const gas = await boundedGas(publicClient, () => publicClient.estimateContractGas(callParams));
-  const txHash = await walletClient.writeContract({ ...request, gas });
+  const txHash = await withNonce(account.address, input.chainId, publicClient, (nonce) =>
+    walletClient.writeContract({ ...request, gas, nonce })
+  );
   const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
   if (receipt.status !== "success") throw new Error(`transferWithAuthorization reverted: ${txHash}`);
   return { txHash };

@@ -609,3 +609,24 @@ model WebhookDelivery {
   @@index([status, nextRetryAt]) // webhook retry queue
   @@map("webhook_deliveries")
 }
+
+// Every relayer-paid send allocates its nonce here in a single atomic upsert, so
+// two senders can never be given the same one. Before this, each send let viem
+// fetch the pending nonce itself — which is only safe while exactly one
+// transaction is in flight per key, and that was never true: the billing cron and
+// checkout's subscribeWithPermitOnChain both sign with PLATFORM_PRIVATE_KEY on
+// Arc, so a subscriber activating during a settlement sweep could take the same
+// nonce and have one of the two transactions dropped.
+//
+// The allocator takes GREATEST(stored, on-chain pending), which is what heals a
+// gap left by a send that failed before it was broadcast: once the mempool drops
+// the missing nonce, the chain's pending count catches up and re-anchors the row.
+model RelayerNonce {
+  address   String // lowercased signing address
+  chainId   Int
+  nextNonce Int // the next nonce to hand out
+  updatedAt DateTime
+
+  @@id([address, chainId])
+  @@map("relayer_nonces")
+}
