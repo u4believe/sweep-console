@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import { processRenewals, retryFailed, transitionTrials, retryWebhooks, settleDuePeriods } from "./engine";
 import { runDelegatedRenewalsOnce } from "./delegated-renewal";
+import { reconcileMandatesOnce } from "./reconcile-mandates";
 import { runIndexerOnce } from "./indexer";
 
 // Registers every billing cron job. Pure side-effect-on-call (no auto-start on
@@ -15,6 +16,15 @@ export function startBillingEngine(): void {
   cron.schedule("0 1 * * *", async () => {
     console.log("[cron] transitionTrials triggered");
     await transitionTrials().catch((e) => console.error("[cron] transitionTrials error:", e));
+  });
+
+  // Deliberately BEFORE the renewal run: a mandate the subscriber disabled in
+  // their wallet is invisible to us until we ask, and attempting it wastes a
+  // relayer transaction to learn what a view call answers for free. Reconciling
+  // first means the renewal pass only sees mandates that can still be redeemed.
+  cron.schedule("30 1 * * *", async () => {
+    console.log("[cron] reconcileMandates triggered");
+    await reconcileMandatesOnce().catch((e) => console.error("[cron] reconcileMandates error:", e));
   });
 
   // Renewals run Arc-FIRST, then cross-chain: processRenewals charges every due sub

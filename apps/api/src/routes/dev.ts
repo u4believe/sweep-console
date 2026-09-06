@@ -24,6 +24,7 @@ import {
 import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../lib/gateway/cctp";
 import { chainKeyForId, getSourceChain, ARC_DOMAIN } from "../lib/gateway/chains";
 import { runDelegatedRenewalsOnce } from "../billing/delegated-renewal";
+import { reconcileMandatesOnce } from "../billing/reconcile-mandates";
 
 export const devRouter = Router();
 
@@ -181,6 +182,18 @@ devRouter.post("/dev/run-delegated-renewals", async (_req, res) => {
 // ─── POST /dev/clear-delegated-subs ──────────────────────────────────────────
 // Removes the dev merchant's subscriptions + their mandates/bridges/payments so
 // re-runs start clean.
+// ─── POST /dev/reconcile-mandates ────────────────────────────────────────────
+// Run the on-chain reconciliation pass now instead of waiting for 01:30. Marks
+// active mandates revoked when the subscriber has disabled them in their wallet.
+devRouter.post("/dev/reconcile-mandates", async (_req, res) => {
+  try {
+    return ok(res, { outcomes: await reconcileMandatesOnce() });
+  } catch (e) {
+    console.error("[dev/reconcile-mandates]", e);
+    return err(res, e instanceof Error ? e.message : "Reconcile failed", 500);
+  }
+});
+
 devRouter.post("/dev/clear-delegated-subs", async (_req, res) => {
   try {
     const merchant = await prisma.merchant.findUnique({ where: { email: DEV_EMAIL } });
