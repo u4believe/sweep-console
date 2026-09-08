@@ -52,12 +52,18 @@ export async function verifyApiKey(
 
   const expected = createHmac("sha256", secret).update(rawKey).digest("hex");
 
+  // Anything a downstream guard reads off `req.merchant` MUST be listed here.
+  // The `as Merchant` cast below asserts the whole model, so a field left out of
+  // this select arrives as undefined and the compiler says nothing — which is
+  // exactly how requireExternalRail first read externalRailEnabled as undefined
+  // and refused an account that had been granted the rail.
   const merchants = await prisma.merchant.findMany({
     select: {
       id: true, liveKeyHash: true, testKeyHash: true,
       merchantId: true, email: true, name: true,
       webhookSecret: true, walletAddress: true, walletType: true,
-      passwordHash: true, isLive: true, createdAt: true, updatedAt: true,
+      passwordHash: true, isLive: true, externalRailEnabled: true,
+      createdAt: true, updatedAt: true,
     },
   });
 

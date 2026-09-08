@@ -8,6 +8,7 @@ import cookieParser from "cookie-parser";
 
 import { authRouter } from "./routes/auth";
 import { plansRouter } from "./routes/plans";
+import { mandatesRouter } from "./routes/mandates";
 import { subscriptionsRouter } from "./routes/subscriptions";
 import { paymentsRouter } from "./routes/payments";
 import { webhooksRouter } from "./routes/webhooks";
@@ -101,6 +102,10 @@ app.use("/v1/subscriptions", subscriptionsRouter);
 app.use("/v1/payments", paymentsRouter);
 app.use("/v1/webhooks", webhooksRouter);
 app.use("/v1/checkout", checkoutRouter);
+// External rail: mandates (the authorization a developer charges against). Every
+// route also passes requireExternalRail, so an account that never asked for the
+// rail cannot reach it.
+app.use("/v1/mandates", mandatesRouter);
 // /v1/passport is retired: the Passport model is superseded by Customer, and the
 // activate route never verified the wallet_signature it required.
 
