@@ -27,10 +27,22 @@ export type RelayerMode = "hosted" | "external";
 // privateKeyToAccount does real secp256k1 work, so derive each account once.
 const cache = new Map<string, PrivateKeyAccount>();
 
-function accountFor(privateKey: string): PrivateKeyAccount {
+// A key pasted into a Railway variable straight out of a wallet export often has
+// no 0x and sometimes trailing whitespace. viem rejects both, and because keys are
+// only derived at the first send, an unprefixed key boots fine and then fails at
+// the first redeem — hours later, on a real charge. Normalise, and say which
+// variable is wrong when it still cannot be read.
+function accountFor(privateKey: string, name: string): PrivateKeyAccount {
   const cached = cache.get(privateKey);
   if (cached) return cached;
-  const account = privateKeyToAccount(privateKey as Hex);
+  const trimmed = privateKey.trim();
+  const hex = (trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`) as Hex;
+  let account: PrivateKeyAccount;
+  try {
+    account = privateKeyToAccount(hex);
+  } catch {
+    throw new Error(`${name} is not a valid 32-byte private key`);
+  }
   cache.set(privateKey, account);
   return account;
 }
@@ -43,7 +55,7 @@ function platformKey(): string {
 
 /// The arbiter that calls the SubscriptionManager on Arc.
 export function getPlatformAccount(): PrivateKeyAccount {
-  return accountFor(platformKey());
+  return accountFor(platformKey(), "PLATFORM_PRIVATE_KEY");
 }
 
 /**
@@ -54,9 +66,12 @@ export function getPlatformAccount(): PrivateKeyAccount {
  */
 export function getRelayerAccount(mode: RelayerMode = "hosted"): PrivateKeyAccount {
   if (mode === "external" && process.env.EXTERNAL_RELAYER_PRIVATE_KEY) {
-    return accountFor(process.env.EXTERNAL_RELAYER_PRIVATE_KEY);
+    return accountFor(process.env.EXTERNAL_RELAYER_PRIVATE_KEY, "EXTERNAL_RELAYER_PRIVATE_KEY");
   }
-  return accountFor(process.env.RENEWAL_DELEGATE_PRIVATE_KEY ?? platformKey());
+  const renewal = process.env.RENEWAL_DELEGATE_PRIVATE_KEY;
+  return renewal
+    ? accountFor(renewal, "RENEWAL_DELEGATE_PRIVATE_KEY")
+    : accountFor(platformKey(), "PLATFORM_PRIVATE_KEY");
 }
 
 /// The address checkout shows the subscriber, so the grant names the right delegate.
