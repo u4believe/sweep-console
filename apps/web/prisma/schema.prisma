@@ -388,18 +388,17 @@ model RenewalDelegation {
   // Public identifier ("mdt_..."). This model was internal-only until the rail
   // needed to name a mandate in an API response.
   //
-  // STILL NULLABLE, DELIBERATELY, even though the backfill has run and every row
-  // has one. Railway's buildCommand applies db:push while the PREVIOUS container
-  // is still serving traffic, so a NOT NULL added in the same deploy as the code
-  // that populates it would make the old container's checkout grants fail for the
-  // length of the rollout. Tighten in a LATER deploy, once every running process
-  // already writes the column. Same for merchantId below.
+  // Required as of the contract half of the rollout: the column was added
+  // nullable so the previous Railway container — which did not yet write it —
+  // could keep serving checkout grants while the new one deployed, then
+  // backfilled, then tightened here once every create site wrote it. Do not
+  // widen it again; the rail names mandates by this id.
   //
   // Note the house convention, which reads confusingly here: on THIS model
   // `mandateId` is the public id, while `mandateId` on Charge and BridgeTransfer
   // is a foreign key holding the internal cuid. Same as Plan.planId (public) vs
   // Subscription.planId (FK).
-  mandateId      String?  @unique
+  mandateId      String   @unique
   // "hosted"   — granted through Sweep's own checkout; our cron owns the clock.
   // "external" — granted through the public rail; the developer's API call owns it.
   // Set by whichever surface created the row and never mutated afterwards. The
@@ -409,11 +408,11 @@ model RenewalDelegation {
   sessionId      String?  // bound at checkout, before the Subscription row exists
   subscriptionId String?
   subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
-  // Direct scope. Until now a mandate could only find its merchant transitively,
-  // through the Subscription — which an external mandate does not have. Nullable
-  // until the backfill copies it from the linked subscription, then required.
-  merchantId     String?
-  merchant       Merchant? @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  // Direct scope. A mandate used to find its merchant only transitively, through
+  // the Subscription — which an external mandate does not have. Backfilled from
+  // the linked subscription, then made required alongside mandateId above.
+  merchantId     String
+  merchant       Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   // The developer's own identifier for the payer (their user id). fireWebhook
   // takes an externalRef positionally and with no Subscription there is nowhere
   // else to read one from.
