@@ -17,6 +17,9 @@ export const ids = {
   paymentLink: ()  => `plink_${randomHex(10)}`,
   customer: ()     => `cus_${randomHex(10)}`,
   mandate: ()      => `mdt_${randomHex(10)}`,
+  // One chain's redeemable grant under a mandate. The Manage Subscription page
+  // already calls these grants; the id says so too.
+  grant: ()        => `grt_${randomHex(10)}`,
   charge: ()       => `chg_${randomHex(10)}`,
   apiKey: (live: boolean) => `${live ? "live" : "test"}_${randomHex(24)}`,
 

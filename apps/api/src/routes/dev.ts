@@ -109,6 +109,7 @@ devRouter.post("/dev/seed-delegated-sub", async (req, res) => {
     const mandate = await prisma.renewalDelegation.create({
       data: {
         mandateId: ids.mandate(),
+        grantId: ids.grant(),
         merchantId: merchant.id,
         subscriptionId: sub.id,
         walletAddress: d.wallet,

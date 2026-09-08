@@ -59,7 +59,8 @@ model Merchant {
   customers        Customer[]
   customerWallets  CustomerWallet[]
   challenges       MerchantChallenge[]
-  mandates         RenewalDelegation[]
+  mandates         Mandate[]
+  grants           RenewalDelegation[]
   charges          Charge[]
   idempotencyKeys  IdempotencyKey[]
 
@@ -388,22 +389,26 @@ model RenewalDelegation {
   // Public identifier ("mdt_..."). This model was internal-only until the rail
   // needed to name a mandate in an API response.
   //
-  // STILL NULLABLE, DELIBERATELY. Every row has one and every create site in
-  // THIS branch writes it — but the branch is not deployed. Production runs main,
-  // whose Prisma client has no such field, so its INSERT never mentions the
-  // column; a NOT NULL here makes every checkout grant fail with 23502 against
-  // the shared database. Verified, not assumed: a raw insert in main's shape was
-  // rejected while this was NOT NULL.
-  //
-  // The precondition for tightening is a DEPLOY, not a backfill: merge and roll
-  // out this branch first, so no running process can insert without it, then
-  // tighten in a later push. Same for merchantId below.
+  // Required. The precondition was a DEPLOY, not a backfill: the column went out
+  // nullable, was backfilled, and only became NOT NULL once every running process
+  // wrote it — an earlier attempt to tighten while production still ran a build
+  // without the field made every checkout grant fail with 23502 against the shared
+  // database. Keep that ordering for any future column. Same for merchantId below.
   //
   // Note the house convention, which reads confusingly here: on THIS model
   // `mandateId` is the public id, while `mandateId` on Charge and BridgeTransfer
   // is a foreign key holding the internal cuid. Same as Plan.planId (public) vs
   // Subscription.planId (FK).
-  mandateId      String?  @unique
+  mandateId      String   @unique
+  // Public identifier for THIS ROW ("grt_..."), which is one chain's redeemable
+  // grant — not the authorization. A Mandate has many of these, one per chain the
+  // subscriber signed on, and the Manage Subscription page already calls them
+  // grants. Nullable for one deploy while every create site starts writing it.
+  //
+  // It replaces `mandateId` above, which becomes the FK to Mandate once this is
+  // populated everywhere: null out its 85 legacy "mdt_..." values, retype it as a
+  // relation, and tighten grantId. Expand first, deploy, then contract.
+  grantId        String?  @unique
   // "hosted"   — granted through Sweep's own checkout; our cron owns the clock.
   // "external" — granted through the public rail; the developer's API call owns it.
   // Set by whichever surface created the row and never mutated afterwards. The
@@ -414,10 +419,9 @@ model RenewalDelegation {
   subscriptionId String?
   subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
   // Direct scope. A mandate used to find its merchant only transitively, through
-  // the Subscription — which an external mandate does not have. Backfilled, but
-  // nullable until this branch is deployed, for the reason on mandateId above.
-  merchantId     String?
-  merchant       Merchant? @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  // the Subscription — which an external mandate does not have.
+  merchantId     String
+  merchant       Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   // The developer's own identifier for the payer (their user id). fireWebhook
   // takes an externalRef positionally and with no Subscription there is nowhere
   // else to read one from.
@@ -458,7 +462,6 @@ model RenewalDelegation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  charges Charge[]
 
   @@index([subscriptionId])
   @@index([sessionId])
@@ -702,6 +705,78 @@ model RelayerNonce {
   @@map("relayer_nonces")
 }
 
+// ─── Mandate (external rail) ──────────────────────────────────────────────────
+//
+// A subscriber's signed, capped authorization for one merchant — the object a
+// developer names when they charge. This is what "mandate" means in the public
+// API; the per-chain RenewalDelegation rows it produces are its GRANTS.
+//
+// It exists before the signature does, because a mandate cannot be created
+// server-to-server: the grant is a wallet signature, so POST /v1/mandates mints
+// a row in status "pending" and returns a hosted URL the subscriber opens. That
+// is the same two-step shape checkout already has, and the reason this is not
+// simply a RenewalDelegation — that model needs a wallet, a chain and a signed
+// context, none of which exist yet, and one authorization yields one row PER
+// CHAIN.
+//
+// Not CheckoutSession either, for the same reason Charge is not Payment:
+// CheckoutSession requires a planId, and an external mandate has no Sweep plan.
+// Relaxing that column would push null-handling into the hosted read paths this
+// rail is meant to leave alone.
+model Mandate {
+  id         String   @id @default(cuid())
+  mandateId  String   @unique // "mdt_abc123" — the id the developer holds
+  merchantId String
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  externalRef String  // the developer's own id for this payer
+  email       String? // shown on the authorization page; not proof of anything
+  // Null until the subscriber signs. Which wallet authorized is not known when
+  // the developer creates the mandate.
+  walletAddress String?
+
+  // The ceiling and the clock the subscriber is asked to sign, in the units the
+  // grants store them: USDC micro-units, and seconds. periodDuration is derived
+  // from `interval`, which is kept because it is the word the page shows.
+  maxAmount      BigInt
+  periodDuration Int
+  interval       String
+  // Chain keys the developer asked for ("arc", "base"). The subscriber may sign
+  // fewer — the grants are the truth about what is redeemable.
+  chains         String[]
+  // When the AUTHORIZATION stops being redeemable. Distinct from linkExpiresAt.
+  expiresAt      DateTime
+
+  metadata  Json?
+  returnUrl String? // where to send the subscriber after they sign
+
+  // "pending" | "active" | "revoked" | "expired"
+  status     String   @default("pending")
+  isTestMode Boolean  @default(false)
+
+  // Guards mutations from the authorization page, the way CheckoutSession.sessionToken
+  // does for checkout. linkExpiresAt is the LINK's lifetime: a stale authorization
+  // URL must stop working long before the mandate's own expiry.
+  sessionToken  String   @unique
+  linkExpiresAt DateTime
+
+  authorizedAt DateTime?
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  charges Charge[]
+  // The grants this authorization produced (RenewalDelegation, one per chain) are
+  // NOT linked yet: the FK belongs under the name `mandateId` on that model, and
+  // that name is still held by its legacy public id until the contract step drops
+  // it. Added there, with the relation, in the same push.
+
+  @@index([merchantId])
+  @@index([externalRef])
+  @@index([status])
+  @@map("mandates")
+}
+
 // ─── Charge (external rail) ───────────────────────────────────────────────────
 //
 // One capped pull against a mandate, requested by the developer's own billing
@@ -719,9 +794,11 @@ model Charge {
   chargeId    String   @unique // "chg_abc123"
   merchantId  String
   merchant    Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
-  // FK to RenewalDelegation.id (the internal cuid), NOT to its public mandateId.
+  // FK to Mandate.id (the internal cuid), NOT to its public "mdt_..." id. A charge
+  // is made against the AUTHORIZATION; which chain's grant actually pays is chosen
+  // at charge time by selectPaymentChain and recorded in `chain` below.
   mandateId   String
-  mandate     RenewalDelegation @relation(fields: [mandateId], references: [id])
+  mandate     Mandate @relation(fields: [mandateId], references: [id])
 
   amount      BigInt   // USDC in smallest unit
   currency    String   @default("USDC")

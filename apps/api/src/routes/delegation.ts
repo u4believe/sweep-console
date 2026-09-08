@@ -243,7 +243,12 @@ delegationRouter.post("/internal/checkout/:session_id/delegation", async (req, r
     // reference a developer already has.
     const delegation = existing
       ? await prisma.renewalDelegation.update({ where: { id: existing.id }, data })
-      : await prisma.renewalDelegation.create({ data: { ...data, mandateId: ids.mandate() } });
+      : await prisma.renewalDelegation.create({
+        // grantId is this row's public id. mandateId is still written because the
+        // column is NOT NULL until the contract step retypes it as the FK to
+        // Mandate — hosted grants have no Mandate, so it goes null there.
+        data: { ...data, mandateId: ids.mandate(), grantId: ids.grant() },
+      });
 
     return ok(res, { delegation_id: delegation.id, status: delegation.status });
   } catch (e) {

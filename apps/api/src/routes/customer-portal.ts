@@ -351,7 +351,9 @@ customerPortalRouter.post("/subscriptions/:id/grant", async (req, res) => {
     // Create-only: a re-grant keeps the mandate's public id. See delegation.ts.
     const delegation = existing
       ? await prisma.renewalDelegation.update({ where: { id: existing.id }, data })
-      : await prisma.renewalDelegation.create({ data: { ...data, mandateId: ids.mandate() } });
+      : await prisma.renewalDelegation.create({
+        data: { ...data, mandateId: ids.mandate(), grantId: ids.grant() },
+      });
 
     return ok(res, { delegation_id: delegation.id, status: delegation.status });
   } catch (e) {
