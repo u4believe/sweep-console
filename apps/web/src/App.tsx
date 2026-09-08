@@ -26,6 +26,7 @@ import { DocsPage } from "@/pages/DocsPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import { ManageSubscriptionsPage } from "@/pages/ManageSubscriptionsPage";
+import { AuthorizePage } from "@/pages/AuthorizePage";
 
 export default function App() {
   return (
@@ -57,6 +58,10 @@ export default function App() {
 
       {/* Standalone customer portal — public, email+OTP gated inside */}
       <Route path="/manage" element={<ManageSubscriptionsPage />} />
+
+      {/* External rail: the mandate a subscriber signs. Public and merchant-less,
+          like /checkout — the link is the credential. */}
+      <Route path="/authorize/:mandate_id" element={<AuthorizePage />} />
 
       {/* Dev-only: ERC-7715 grant + caveat-scope test harness */}
       {import.meta.env.DEV && (

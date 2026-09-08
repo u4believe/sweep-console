@@ -18,6 +18,7 @@ import { publicRouter } from "./routes/public";
 import { customerPortalRouter } from "./routes/customer-portal";
 import { gatewayRouter } from "./routes/gateway";
 import { delegationRouter } from "./routes/delegation";
+import { authorizeRouter } from "./routes/authorize";
 import { devRouter } from "./routes/dev";
 import { circleWebhooksRouter } from "./routes/circle-webhooks";
 import { apiLimiter, authLimiter } from "./middleware/rateLimit";
@@ -89,6 +90,10 @@ app.use("/", gatewayRouter);
 
 // Tier-2 (ERC-7710): persist a one-time renewal-permission grant from checkout
 app.use("/", delegationRouter);
+
+// External rail: the page a subscriber signs a mandate on. Unauthenticated — the
+// subscriber has no Sweep account; the link is the credential, as at checkout.
+app.use("/", authorizeRouter);
 
 // Dev-only diagnostics (e.g. the grant-test harness) — never in production
 if (process.env.NODE_ENV !== "production") {

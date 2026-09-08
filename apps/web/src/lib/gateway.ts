@@ -429,3 +429,53 @@ export function saveSubscriptionDelegation(
     body: JSON.stringify(body),
   });
 }
+
+// ─── External rail: the mandate authorization page ────────────────────────────
+//
+// Unauthenticated, like checkout: the mandate id in the URL is the credential and
+// session_token guards the writes. The subscriber has no Sweep account.
+
+export interface AuthorizationView {
+  id: string;
+  /** "pending" | "active" | "revoked" | "expired" */
+  status: string;
+  merchant_name: string;
+  email: string | null;
+  /** USDC micro-units — the ceiling per period, not a charge. */
+  max_amount: number;
+  currency: string;
+  interval: string;
+  period_duration: number;
+  /** When the authorization itself stops being usable. */
+  expires_at: string;
+  /** When THIS LINK dies — much sooner, and a different thing. */
+  link_expires_at: string;
+  link_expired: boolean;
+  wallet_address: string | null;
+  return_url: string | null;
+  session_token: string;
+  targets: GrantTarget[];
+  granted_chain_ids: number[];
+}
+
+export function getAuthorization(mandateId: string): Promise<AuthorizationView> {
+  return request(`/authorize/${mandateId}`);
+}
+
+export function saveAuthorizationGrant(
+  mandateId: string,
+  body: Record<string, unknown>
+): Promise<{ grant_id: string; chain_id: number; status: string }> {
+  return request(`/authorize/${mandateId}/grant`, { method: "POST", body: JSON.stringify(body) });
+}
+
+export function completeAuthorization(
+  mandateId: string,
+  sessionToken: string,
+  walletAddress: string
+): Promise<{ id: string; status: string; chain_ids: number[] }> {
+  return request(`/authorize/${mandateId}/complete`, {
+    method: "POST",
+    body: JSON.stringify({ session_token: sessionToken, wallet_address: walletAddress }),
+  });
+}
