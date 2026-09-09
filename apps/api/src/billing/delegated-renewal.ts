@@ -20,15 +20,14 @@ import type { Address, Hex } from "viem";
 import type { Prisma, BridgeTransfer } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { selectPaymentChain } from "../lib/gateway/selector";
-import { chainKeyForId, getSourceChain, ARC_DOMAIN } from "../lib/gateway/chains";
+import { chainKeyForId, getSourceChain } from "../lib/gateway/chains";
 import {
   redeemPeriodicTransfer,
-  relayerBridgeToArc,
   getDelegateAddress,
   decodePeriodTransferTerms,
 } from "../lib/chain/delegation";
+import { advanceBridge } from "./bridge";
 import { claimPeriod, releaseClaim, periodKeyFor } from "./claims";
-import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../lib/gateway/cctp";
 import { getUsdcAddress } from "../lib/chain/contract";
 import { fireWebhook } from "../lib/webhooks/delivery";
 import { sendPaymentReceipt } from "../lib/email/receipt";
@@ -117,78 +116,6 @@ async function recordRenewalSettled(
   });
 }
 
-/// Phase 2 of a source renewal: fetch the burn's attestation and mint on Arc, then
-/// settle. Returns the mint tx hash if minted (settled this pass), or null if the
-/// attestation isn't ready yet (the BridgeTransfer stays "burned" and resumes next
-/// pass). Only a real mint failure throws.
-async function mintAndSettleBridge(
-  bridge: BridgeTransfer,
-  sub: RenewalSub,
-  periodDurationSec: number
-): Promise<string | null> {
-  if (!bridge.burnTxHash) throw new Error(`bridge ${bridge.id} has no burnTxHash`);
-  let att;
-  try {
-    att = await fetchAttestation(bridge.sourceDomain, bridge.burnTxHash as Hex, {
-      timeoutMs: 90_000,
-      pollMs: 8_000,
-    });
-  } catch (e) {
-    if (e instanceof Error && e.message.includes("Timed out")) {
-      console.log(`[billing/tier2] bridge ${bridge.burnTxHash} attestation pending — will resume`);
-      return null;
-    }
-    throw e;
-  }
-  const mintTxHash = await receiveOnArc(att);
-  await recordRenewalSettled(
-    sub,
-    bridge.mandateId,
-    bridge.grossAmount,
-    mintTxHash,
-    undefined,
-    chainKeyForId(bridge.chainId) ?? "source",
-    periodDurationSec,
-    bridge.id
-  );
-  console.log(`[billing/tier2] bridge minted + settled ${sub.subscriptionId} (mint ${mintTxHash})`);
-  return mintTxHash;
-}
-
-/// Drive an in-flight source bridge to completion from whatever phase it's in:
-/// "pulled" (funds with the relayer) → burn → "burned" → attest + mint → settle.
-/// Each step is persisted, so a failure resumes here next pass and the subscriber's
-/// period is NEVER pulled twice. Returns the mint tx hash, or null if still pending.
-async function advanceBridge(
-  bridge: BridgeTransfer,
-  sub: RenewalSub,
-  periodDurationSec: number
-): Promise<string | null> {
-  let b = bridge;
-  if (b.status === "pulled") {
-    const chainKey = chainKeyForId(b.chainId);
-    if (!chainKey || chainKey === "arc") throw new Error(`bridge ${b.id} has a non-source chain ${b.chainId}`);
-    const source = getSourceChain(chainKey);
-    const burn = await relayerBridgeToArc({
-      chainId: b.chainId,
-      token: source.usdc,
-      tokenMessenger: getTokenMessenger(chainKey),
-      amount: b.bridgedAmount,
-      destinationDomain: ARC_DOMAIN,
-      mintRecipient: b.mintRecipient as Address,
-      // Fast (soft finality, small maxFee) so cross-chain renewals settle in
-      // seconds like the first payment. Override with CCTP_RENEWAL_SPEED=standard
-      // to trade speed for the free hard-finality path.
-      speed: process.env.CCTP_RENEWAL_SPEED === "standard" ? "standard" : "fast",
-    });
-    b = await prisma.bridgeTransfer.update({
-      where: { id: b.id },
-      data: { status: "burned", burnTxHash: burn.burnTxHash },
-    });
-  }
-  return mintAndSettleBridge(b, sub, periodDurationSec);
-}
-
 /// Per-subscription outcome of a renewal pass — surfaced by the dev integration
 /// harness so a no-op is explained (insufficient funds, attestation pending, …).
 export type RenewalOutcome = {
@@ -257,7 +184,10 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
         where: { subscriptionId: sub.id, status: { in: ["pulled", "burned"] } },
       });
       if (pending) {
-        const mintTx = await advanceBridge(pending, sub, periodDur);
+        const mintTx = await advanceBridge(pending, (tx) =>
+          recordRenewalSettled(sub, pending.mandateId, pending.grossAmount, tx, undefined,
+            chainKeyForId(pending.chainId) ?? "source", periodDur, pending.id)
+        );
         outcomes.push({
           subscriptionId: sub.subscriptionId,
           result: mintTx ? "settled" : "bridge_pending",
@@ -383,7 +313,10 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
             status: "pulled",
           },
         });
-        const mintTx = await advanceBridge(bridge, sub, periodDur);
+        const mintTx = await advanceBridge(bridge, (tx) =>
+          recordRenewalSettled(sub, bridge.mandateId, bridge.grossAmount, tx, undefined,
+            chosenKey, periodDur, bridge.id)
+        );
         outcomes.push({
           subscriptionId: sub.subscriptionId,
           result: mintTx ? "settled" : "bridge_pending",
