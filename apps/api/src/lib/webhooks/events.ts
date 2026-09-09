@@ -22,6 +22,8 @@ export const WEBHOOK_EVENTS = [
   "payment.refunded",
   "mandate.authorized",
   "mandate.revoked",
+  "charge.succeeded",
+  "charge.failed",
 ] as const;
 
 export type WebhookEventType = (typeof WEBHOOK_EVENTS)[number];
@@ -40,4 +42,6 @@ export const WEBHOOK_EVENT_DESCRIPTIONS: Record<WebhookEventType, string> = {
     "A subscriber authorized recurring payments from their wallet on the external rail.",
   "mandate.revoked":
     "A subscriber withdrew a renewal authorization in their wallet — future charges on that chain will fail.",
+  "charge.succeeded": "USDC settled on Arc for a charge you requested.",
+  "charge.failed": "A charge could not be collected.",
 };

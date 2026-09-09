@@ -2,6 +2,7 @@ import cron from "node-cron";
 import { processRenewals, retryFailed, transitionTrials, retryWebhooks, settleDuePeriods } from "./engine";
 import { runDelegatedRenewalsOnce } from "./delegated-renewal";
 import { reconcileMandatesOnce } from "./reconcile-mandates";
+import { resumeChargeBridges } from "./direct-charge";
 import { runIndexerOnce } from "./indexer";
 
 // Registers every billing cron job. Pure side-effect-on-call (no auto-start on
@@ -43,6 +44,15 @@ export function startBillingEngine(): void {
   cron.schedule("0 6 * * *", async () => {
     console.log("[cron] retryFailed triggered");
     await retryFailed().catch((e) => console.error("[cron] retryFailed error:", e));
+  });
+
+  // Rail charges in flight. A charge is pulled, burned, attested and minted; if
+  // the mint fails the subscriber's money is already with the relayer, so this
+  // pass is the only thing that finishes it. Every 5 minutes rather than daily,
+  // because a developer polling GET /v1/charges/:id is waiting on it — and it
+  // resumes, never re-pulls.
+  cron.schedule("*/5 * * * *", async () => {
+    await resumeChargeBridges().catch((e) => console.error("[cron] resumeChargeBridges error:", e));
   });
 
   // Settlement sweep — releases escrowed first payments whose window has closed.
