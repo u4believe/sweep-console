@@ -26,10 +26,18 @@ import { supportedSourceChains } from "../lib/gateway/chains";
 
 export const mandatesRouter = Router();
 
-/// Every chain a mandate may be granted on: Arc, plus whatever source chains this
-/// deployment supports. Read at request time so SUPPORTED_SOURCE_CHAINS still governs.
+/// Every chain a mandate may be granted on. Read at request time so
+/// SUPPORTED_SOURCE_CHAINS still governs.
+///
+/// Arc is deliberately absent. Recurring authority on Arc is an ERC-2612 permit
+/// granting an allowance to the SubscriptionManager, which the platform draws as
+/// the arbiter — not an ERC-7715 delegation, which is the off-Arc mechanism and
+/// which wallets correctly refuse to issue there. The manager's charge path is
+/// also shaped around a Subscription, and a mandate has none, so the rail has no
+/// way to collect on Arc until that is designed. Saying so at creation beats
+/// minting a mandate whose only requested chain can never be signed.
 function allowedChains(): string[] {
-  return ["arc", ...supportedSourceChains().map((c) => c.key)];
+  return supportedSourceChains().map((c) => c.key);
 }
 
 const INTERVALS = ["daily", "weekly", "monthly", "yearly"] as const;
@@ -122,8 +130,12 @@ mandatesRouter.post("/", verifyApiKey, requireExternalRail, async (req, res) => 
   const allowed = allowedChains();
   const unknown = [...new Set(d.chains.map((c) => c.toLowerCase()))].filter((c) => !allowed.includes(c));
   if (unknown.length > 0) {
+    const arc = unknown.includes("arc");
     return validationError(res, {
-      chains: `Unsupported: ${unknown.join(", ")}. Supported: ${allowed.join(", ")}.`,
+      chains: arc
+        ? `Arc cannot back a mandate: recurring payments there run on an ERC-2612 permit to the ` +
+          `subscription contract, not on the wallet permission this rail redeems. Supported: ${allowed.join(", ")}.`
+        : `Unsupported: ${unknown.join(", ")}. Supported: ${allowed.join(", ")}.`,
     });
   }
 

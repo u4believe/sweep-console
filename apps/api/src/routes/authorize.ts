@@ -21,8 +21,7 @@ import { ids } from "../lib/ids";
 import { ok, err } from "../lib/response";
 import { decodePeriodTransferTerms, delegationIdentity } from "../lib/chain/delegation";
 import { getRelayerAddress } from "../lib/chain/signers";
-import { supportedSourceChains, arcChainId } from "../lib/gateway/chains";
-import { getUsdcAddress } from "../lib/chain/contract";
+import { supportedSourceChains } from "../lib/gateway/chains";
 import { fireWebhook } from "../lib/webhooks/delivery";
 
 export const authorizeRouter = Router();
@@ -49,9 +48,21 @@ interface MandateForPage {
 }
 
 /// The chains this mandate can actually be granted on, as the grant loop wants
-/// them. Arc is included when the developer asked for it; whether the subscriber's
-/// wallet can issue an ERC-7715 permission there is decided by the wallet, and a
-/// chain that refuses fails on its own without costing the others.
+/// them.
+///
+/// ARC IS NOT ONE OF THEM, and cannot be. Arc holds the SubscriptionManager, so
+/// recurring authority there is an ERC-2612 permit granting a USDC allowance TO
+/// THAT CONTRACT, which the platform draws against as the arbiter — see
+/// lib/subscriptions/allowance.ts and the header of DelegatedRenewalToggle
+/// ("Arc needs no grant at all; it rides the ERC-2612 permit"). ERC-7715
+/// delegation is the off-Arc mechanism: a 7702 smart account per source chain,
+/// redeemed by the relayer and bridged over. A wallet asked for a 7715
+/// permission on Arc simply refuses, which is correct behaviour and not a bug to
+/// route around.
+///
+/// The rail therefore cannot charge on Arc today: the manager's charge path is
+/// shaped around a Subscription, and a mandate has none. Arc mandates are
+/// rejected at creation; this stays defensive for rows created before that.
 function targetsFor(m: MandateForPage) {
   const sources = supportedSourceChains();
   const delegate = getRelayerAddress("external");
@@ -71,18 +82,6 @@ function targetsFor(m: MandateForPage) {
   const unavailable: string[] = [];
 
   for (const key of m.chains) {
-    if (key === "arc") {
-      targets.push({
-        chain_id: arcChainId(),
-        chain_key: "arc",
-        name: "Arc",
-        token: getUsdcAddress(),
-        period_amount: m.maxAmount.toString(),
-        period_duration: m.periodDuration,
-        delegate,
-      });
-      continue;
-    }
     const c = sources.find((s) => s.key === key);
     if (!c) {
       unavailable.push(key);
