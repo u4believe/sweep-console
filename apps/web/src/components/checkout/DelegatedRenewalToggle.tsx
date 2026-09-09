@@ -31,7 +31,12 @@ import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import { enableCrossChain, fetchGrantPlan, revokeGrant, saveDelegation } from "@/lib/gateway";
 import type { GrantTarget } from "@/lib/gateway";
 
-const TIER2_ENABLED = import.meta.env.VITE_TIER2_DELEGATION === "true";
+// Exported so the shell can skip the whole "04 Automatic renewal" step rather
+// than rendering its heading above nothing. VITE_ vars are inlined at BUILD time,
+// so a deployment that forgets this one ships the flag as false — and the failure
+// mode should be an absent section, not an empty numbered one that reads as a
+// broken page.
+export const TIER2_ENABLED = import.meta.env.VITE_TIER2_DELEGATION === "true";
 
 interface Props {
   sessionId: string;

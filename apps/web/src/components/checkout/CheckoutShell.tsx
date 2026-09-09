@@ -14,7 +14,7 @@ import { formatUnits } from "viem";
 import { ERC20_ABI } from "@/lib/chain/abis";
 import { arcTestnet } from "@/lib/chain/config";
 import { GatewaySweepPanel } from "./GatewaySweepPanel";
-import { DelegatedRenewalToggle } from "./DelegatedRenewalToggle";
+import { DelegatedRenewalToggle, TIER2_ENABLED } from "./DelegatedRenewalToggle";
 import { ManageSubscriptionsPanel } from "./ManageSubscriptionsPanel";
 import { PostPaymentGrants } from "./PostPaymentGrants";
 import { ArcLogo, BaseLogo, ArbitrumLogo, OptimismLogo } from "./ChainBadge";
@@ -1170,7 +1170,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                 {/* 04 — automatic renewal. Shown as soon as a wallet is connected:
                     this is a decision the subscriber makes alongside the payment
                     details, so it must be on screen with them, not revealed later. */}
-                {verified && walletPresent && !walletBlocked && payAddress && (
+                {TIER2_ENABLED && verified && walletPresent && !walletBlocked && payAddress && (
                   <StepRow n="04" label="Automatic renewal" strong>
                     <DelegatedRenewalToggle
                       sessionId={sessionId}
