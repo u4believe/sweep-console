@@ -1,15 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { useConfig, useConnectorClient, useSignTypedData, useSwitchChain } from "wagmi";
-import { getChainId } from "wagmi/actions";
+import { useConnectorClient } from "wagmi";
 import {
   activateCrossChain,
   fetchGrantPlan,
   fetchSweepStatus,
-  hydrateTypedData,
   saveDelegation,
   type GrantPlan,
   type GrantTarget,
-  type TypedDataPayload,
 } from "@/lib/gateway";
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
@@ -27,10 +24,16 @@ function hasAnyGrant(plan: { granted_chain_ids?: number[]; already_enabled: bool
 // Cross-chain checkout via CCTP V2 (delegation-gated).
 //
 // Arc is primary; this panel is the Arc-SHORT path. Enabling cross-chain is a
-// one-time setup: the subscriber signs (1) an ERC-7715 delegation per funded source
-// chain and (2) the Arc permit — no fee. The platform then funds + activates the
-// subscription from a source chain via CCTP — covering gas + bridge fees, so the
-// subscriber is charged only the exact subscription amount.
+// one-time setup: the subscriber signs ONE ERC-7715 delegation per funded source
+// chain, and nothing else. The platform then funds the subscription from a source
+// chain via CCTP, minting the merchant's share straight to their payout wallet —
+// covering gas + bridge fees, so the subscriber is charged only the exact
+// subscription amount.
+//
+// There is no Arc permit here any more. It used to be signed for the activation
+// escrow and a recurring Arc allowance; this path settles without the contract, so
+// it had neither purpose left — and asking for it was a second wallet prompt
+// granting spending authority nothing would use.
 
 interface Props {
   sessionId: string;
@@ -67,7 +70,6 @@ interface Props {
 type Phase = "planning" | "review" | "signing" | "executing" | "insufficient" | "error";
 
 const POLL_MS = 3_000;
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /// Map noisier wallet-side ERC-7715 failures to guidance the subscriber can act on.
 function describeError(e: unknown): string {
@@ -85,9 +87,6 @@ export function GatewaySweepPanel({
   autoStart = false,
 }: Props) {
   const { data: connectorClient } = useConnectorClient();
-  const { signTypedDataAsync } = useSignTypedData();
-  const { switchChainAsync } = useSwitchChain();
-  const wagmiConf = useConfig();
   const [phase, setPhase] = useState<Phase>("planning");
   const [plan, setPlan] = useState<GrantPlan | null>(null);
   const [targets, setTargets] = useState<GrantTarget[]>([]);
@@ -175,29 +174,6 @@ export function GatewaySweepPanel({
     }, POLL_MS);
   };
 
-  // Switch to `chainId` and WAIT for the connector to report it before signing —
-  // signTypedData validates the payload's domain.chainId against the active chain.
-  const signOnChain = async (chainId: number, payload: TypedDataPayload): Promise<string> => {
-    if (getChainId(wagmiConf) !== chainId) {
-      await switchChainAsync({ chainId });
-      for (let i = 0; i < 40 && getChainId(wagmiConf) !== chainId; i++) await sleep(150);
-    }
-    const hydrated = hydrateTypedData(payload) as never;
-    for (let attempt = 0; ; attempt++) {
-      try {
-        return await signTypedDataAsync(hydrated);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (attempt < 6 && /does not match the connection|ConnectorChainMismatch|must match the active chain/.test(msg)) {
-          await switchChainAsync({ chainId }).catch(() => {});
-          await sleep(250);
-          continue;
-        }
-        throw e;
-      }
-    }
-  };
-
   const onApprove = async () => {
     if (!plan || approvingRef.current) return;
     const enabled = hasAnyGrant(plan);
@@ -219,18 +195,17 @@ export function GatewaySweepPanel({
         );
       }
 
-      // Final — Arc permit (recurring allowance + activation escrow). Always signed.
-      const permitChainId = Number(plan.permit_payload.domain.chainId);
-      const permitSignature = await signOnChain(permitChainId, plan.permit_payload);
-
+      // No Arc permit. It used to be signed here for two reasons — the activation
+      // escrow and a recurring Arc allowance — and this path has neither now: the
+      // merchant's share is minted straight to their payout wallet, and renewals
+      // come from the same delegations granted above. Asking for it anyway would
+      // be a second wallet prompt granting a contract spending authority nothing
+      // would ever use.
       const { sweep_id } = await activateCrossChain(sessionId, {
         session_token: sessionToken,
         wallet_address: walletAddress,
         email,
         email_token: emailToken ?? undefined,
-        permit_signature: permitSignature,
-        permit_value: plan.permit_value,
-        permit_deadline: plan.permit_deadline,
       });
 
       setPhase("executing");

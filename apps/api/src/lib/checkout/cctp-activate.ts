@@ -114,11 +114,6 @@ export async function buildPermitPayload(
 
 // ─── Cross-chain activation (Arc-short checkout) ─────────────────────────────
 
-export interface ActivationPermit {
-  permitSignature: Hex;
-  permitValue: bigint;
-  permitDeadline: bigint;
-}
 
 async function setSweepStatus(sweepDbId: string, status: string, error?: string) {
   await withRetry(() =>
@@ -134,16 +129,7 @@ async function setSweepStatus(sweepDbId: string, status: string, error?: string)
 /// → CCTP-bridge to Arc (relayer covers gas + fee, so the full amount mints to the
 /// subscriber) → subscribeWithPermit (escrow first period) → record + webhooks.
 /// Status is persisted on the Sweep row for the checkout UI to poll.
-export async function executeCrossChainActivation(
-  sweepDbId: string,
-  // VESTIGIAL. The Arc EIP-2612 permit existed to feed subscribeWithPermit, and
-  // nothing consumes it now. It is still accepted so the route and the checkout UI
-  // keep working unchanged, but the subscriber is signing an allowance to a
-  // contract this path no longer calls — which is a standing spending authority
-  // for no reason. Dropping the prompt is a checkout-surface change and belongs
-  // with the rest of the manager's retirement.
-  _permit: ActivationPermit
-): Promise<void> {
+export async function executeCrossChainActivation(sweepDbId: string): Promise<void> {
   const sweep = await withRetry(() =>
     prisma.sweep.findUniqueOrThrow({
       where: { id: sweepDbId },

@@ -244,7 +244,8 @@ export function revokeGrant(
 }
 
 /// Fund + activate the subscription cross-chain. No subscriber fee — the platform
-/// covers gas + bridge from the 2% fee on each charge.
+/// covers gas + bridge from the 2% fee on each charge — and no Arc permit, because
+/// this path settles by minting to the merchant rather than through the contract.
 export function activateCrossChain(
   sessionId: string,
   body: {
@@ -252,9 +253,6 @@ export function activateCrossChain(
     wallet_address: string;
     email?: string;
     email_token?: string;
-    permit_signature: string;
-    permit_value: string;
-    permit_deadline: string;
   }
 ): Promise<{ sweep_id: string; status: string }> {
   return request(`/internal/checkout/${sessionId}/cross-chain/activate`, {

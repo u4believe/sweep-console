@@ -260,7 +260,7 @@ delegationRouter.post("/internal/checkout/:session_id/delegation", async (req, r
 // ─── POST /internal/checkout/:session_id/cross-chain/activate ─────────────────
 //
 // Arc-short cross-chain activation. The subscriber has already granted the
-// delegation(s) via POST /delegation above, and now signs the Arc permit. We fund
+// delegation(s) via POST /delegation above. We fund
 // + activate the subscription from a granted source chain (detached; the UI polls
 // the sweep status). Idempotent per session — one non-failed sweep. The subscriber
 // pays no fee; the platform covers gas + bridge from the 2% fee on each charge.
@@ -269,9 +269,10 @@ const activateSchema = z.object({
   wallet_address: z.string().regex(ADDRESS_RE),
   email: z.string().email().optional(),
   email_token: z.string().optional(), // OTP proof, required to link a new wallet
-  permit_signature: z.string().regex(/^0x[a-fA-F0-9]{130}$/),
-  permit_value: z.string().regex(/^\d+$/),
-  permit_deadline: z.string().regex(/^\d+$/),
+  // No Arc permit. This path settles by minting the merchant's share straight to
+  // their payout wallet — no SubscriptionManager call, so there is nothing for an
+  // ERC-2612 allowance to feed. Older clients may still send permit_* fields;
+  // unknown keys are ignored rather than rejected, so they keep working.
 });
 
 delegationRouter.post("/internal/checkout/:session_id/cross-chain/activate", async (req, res) => {
@@ -338,11 +339,9 @@ delegationRouter.post("/internal/checkout/:session_id/cross-chain/activate", asy
     });
 
     // Detached — the checkout UI polls GET /checkout/:id/sweep/:sweep_id.
-    executeCrossChainActivation(sweep.id, {
-      permitSignature: d.permit_signature as Hex,
-      permitValue: BigInt(d.permit_value),
-      permitDeadline: BigInt(d.permit_deadline),
-    }).catch((e) => console.error("[cross-chain/activate] detached run crashed:", e));
+    executeCrossChainActivation(sweep.id).catch((e) =>
+      console.error("[cross-chain/activate] detached run crashed:", e)
+    );
 
     return ok(res, { sweep_id: sweep.sweepId, status: "depositing" });
   } catch (e) {
