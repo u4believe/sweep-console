@@ -16,6 +16,7 @@ import { type Address, type Client } from "viem";
 import { getSmartAccountsEnvironment } from "@metamask/smart-accounts-kit";
 import { sendCalls } from "wagmi/actions";
 import { wagmiConfig } from "@/lib/wagmi";
+import { logPaymasterSupport } from "./paymaster";
 
 // EIP-7702 delegation designator: an upgraded EOA's code is exactly this prefix
 // followed by the 20-byte implementation address it delegates to.
@@ -62,6 +63,12 @@ export async function ensureSmartAccount(client: Client, address: Address, chain
   if (await isSmartAccount(client, address, chainId)) return;
 
   console.info(`[upgrade] chain ${chainId} — prompting EIP-7702 smart-account upgrade for ${address}`);
+
+  // This prompt is the ONLY gas a subscriber pays on this platform. Ask, right
+  // here, whether the wallet would let us sponsor it instead — the answer decides
+  // whether an ERC-7677 paymaster is worth building. Fire-and-forget: it must
+  // never delay or fail an upgrade the subscriber is already confirming.
+  void logPaymasterSupport(address, [chainId]);
 
   // `data` is deliberately omitted below (not `"0x"`) — MetaMask validates
   // calldata against /^0x[0-9a-f]+$/, which an empty string fails. Two no-op
