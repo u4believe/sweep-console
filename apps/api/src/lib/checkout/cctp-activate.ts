@@ -5,29 +5,41 @@
 //   1. an ERC-7715 delegation per funded source chain (cap = plan amount),
 //   2. an Arc EIP-2612 permit.
 // The platform then funds the activation by redeeming the delegation on a source
-// chain, CCTP-bridging the EXACT plan amount to Arc (platform covers gas + the
-// bridge fee), and activating via subscribeWithPermit. The subscriber pays NO
-// extra fee — the 2% platform fee on every charge covers the relayer's gas/bridge
-// costs. Renewals reuse the same delegation (Arc-first, source otherwise — see
-// billing/delegated-renewal.ts).
+// chain and CCTP-bridging the merchant's share straight into their Arc payout
+// wallet. The relayer covers gas and the bridge fee out of the 2% platform fee, so
+// the subscriber pays nothing extra.
+//
+// NO CONTRACT IS CALLED. This used to mint to the subscriber and then activate
+// through SubscriptionManager.subscribeWithPermit, which escrowed the first period
+// for the settlement window. It now settles exactly the way a cross-chain RENEWAL
+// already does (billing/delegated-renewal.ts): fee split off-chain, merchant paid
+// by the mint itself, nothing held.
+//
+// Two consequences, both deliberate:
+//   • the merchant is paid in seconds rather than after a 24h window, and
+//   • there is no escrow, so there is no refund path — the contract calls the
+//     settlement window "the ONLY refund path", and this path no longer has one.
 
 import { type Address, type Hex } from "viem";
 import { prisma, withRetry } from "../prisma";
-import { ids } from "../ids";
-import { completeCheckoutSession, INTERVAL_SECONDS } from "./complete";
+import { completeCheckoutSession } from "./complete";
+import { findWalletConflict } from "./wallet-guard";
+
+/// The platform's cut, in basis points. Split here rather than by a contract —
+/// the same arithmetic billing/delegated-renewal.ts does for a renewal.
+function platformFeeBps(): bigint {
+  return BigInt(process.env.PLATFORM_FEE_BPS ?? "0");
+}
 import { resolveTier } from "./tiers";
 import {
   getManagerAddress,
   getPublicClient,
   getUsdcAddress,
-  subscribeWithPermitOnChain,
 } from "../chain/contract";
-import { settlementWindowSeconds } from "../chain/subscription";
 import {
   getDelegateAddress,
   redeemPeriodicTransfer,
   relayerBridgeToArc,
-  splitSignature,
 } from "../chain/delegation";
 import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../gateway/cctp";
 import { ARC_DOMAIN, chainKeyForId, getSourceChain } from "../gateway/chains";
@@ -124,7 +136,13 @@ async function setSweepStatus(sweepDbId: string, status: string, error?: string)
 /// Status is persisted on the Sweep row for the checkout UI to poll.
 export async function executeCrossChainActivation(
   sweepDbId: string,
-  permit: ActivationPermit
+  // VESTIGIAL. The Arc EIP-2612 permit existed to feed subscribeWithPermit, and
+  // nothing consumes it now. It is still accepted so the route and the checkout UI
+  // keep working unchanged, but the subscriber is signing an allowance to a
+  // contract this path no longer calls — which is a standing spending authority
+  // for no reason. Dropping the prompt is a checkout-surface change and belongs
+  // with the rest of the manager's retirement.
+  _permit: ActivationPermit
 ): Promise<void> {
   const sweep = await withRetry(() =>
     prisma.sweep.findUniqueOrThrow({
@@ -163,6 +181,29 @@ export async function executeCrossChainActivation(
     if (!mandate) throw new Error(`no mandate for ${chosenKey}`);
     const source = getSourceChain(chosenKey);
 
+    // The route checked this before accepting the activation, but funds have not
+    // moved yet and this is the last moment a refusal is free. Without escrow
+    // there is nothing to refund afterwards, so the window between the two checks
+    // is the entire exposure — keep it to this.
+    const clash = await findWalletConflict({
+      merchantId: session.merchantId,
+      walletAddress: subscriber,
+      identity: { customerDbId: sweep.customerId, email: sweep.subscriberEmail },
+    });
+    if (clash) {
+      throw new Error(
+        `wallet ${subscriber.toLowerCase()} is already paying for ${clash.subscriptionId} at this merchant`
+      );
+    }
+
+    // The merchant's share and the platform's, split here rather than on-chain.
+    // The full amount is pulled from the subscriber; only the share is bridged, so
+    // the fee stays behind as source-chain USDC in the relayer's balance.
+    const fee = (amount * platformFeeBps()) / 10_000n;
+    const merchantShare = amount - fee;
+    const payout = session.merchant.walletAddress as Hex;
+    if (!payout) throw new Error("merchant has no payout wallet");
+
     // 1. Redeem the delegation — pull EXACTLY `amount` to the relayer.
     await setSweepStatus(sweepDbId, "depositing");
     await redeemPeriodicTransfer({
@@ -174,39 +215,24 @@ export async function executeCrossChainActivation(
       amount,
     });
 
-    // 2. CCTP Fast burn → mint EXACTLY `amount` to the subscriber on Arc (relayer
-    //    burns amount + fee from its float, so the bridge fee never reduces it).
+    // 2. CCTP Fast burn → mint the merchant's share DIRECTLY to their Arc payout
+    //    wallet. The relayer absorbs the bridge fee from its float, so the
+    //    merchant receives the full share.
     await setSweepStatus(sweepDbId, "bridging");
     const { burnTxHash } = await relayerBridgeToArc({
       chainId: source.chain.id,
       token: source.usdc,
       tokenMessenger: getTokenMessenger(chosenKey),
-      amount,
+      amount: merchantShare,
       destinationDomain: ARC_DOMAIN,
-      mintRecipient: subscriber,
+      mintRecipient: payout,
       speed: "fast",
     });
     const att = await fetchAttestation(source.domain, burnTxHash, { timeoutMs: 180_000, pollMs: 6_000 });
-    await receiveOnArc(att);
 
-    // 3. Activate on Arc via the permit path (escrow the first period).
+    // 3. The mint IS the settlement. There is no third step any more.
     await setSweepStatus(sweepDbId, "minting");
-    const { v, r, s } = splitSignature(permit.permitSignature);
-    const { txHash, blockNumber } = await subscribeWithPermitOnChain({
-      subId: ids.toBytes32(session.sessionId),
-      subscriber,
-      merchantPayout: session.merchant.walletAddress as Hex,
-      planId: ids.toBytes32(plan.planId),
-      amount,
-      interval: BigInt(INTERVAL_SECONDS[tier.interval] ?? INTERVAL_SECONDS.monthly),
-      trialDuration: BigInt(tier.trialDays * 86_400),
-      settlementWindow: BigInt(settlementWindowSeconds(tier.settlementWindowHours)),
-      permitValue: permit.permitValue,
-      permitDeadline: permit.permitDeadline,
-      permitV: v,
-      permitR: r,
-      permitS: s,
-    });
+    const txHash = await receiveOnArc(att);
 
     await completeCheckoutSession({
       session,
@@ -217,7 +243,9 @@ export async function executeCrossChainActivation(
       // link and attributes the subscription to the wrong customer.
       customerDbId: sweep.customerId,
       txHash,
-      blockNumber: Number(blockNumber),
+      // Settled by the platform: no SubscriptionManager call, so there is nothing
+      // on-chain to verify and no escrow to mirror.
+      platformSettled: true,
       // The chain the money was actually pulled from, so the receipt and the
       // merchant's webhook name it rather than defaulting to Arc.
       sourceChain: chosenKey,

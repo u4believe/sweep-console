@@ -54,6 +54,17 @@ export interface CompleteCheckoutInput {
    */
   sourceChain?: string | null;
   /**
+   * The PLATFORM settled this activation itself — it redeemed the delegation,
+   * bridged the funds and minted them to the merchant, with no
+   * SubscriptionManager call anywhere in the path.
+   *
+   * That changes what completion can and cannot do. There is nothing on-chain to
+   * verify, because we are not taking an untrusted caller's word for it — we are
+   * the actor. There is no escrow to mirror, because nothing was escrowed. And
+   * there is no onChainSubId, because no on-chain subscription exists.
+   */
+  platformSettled?: boolean;
+  /**
    * A Customer already resolved from a verified OTP proof by the caller. The
    * cross-chain path proves ownership synchronously (at /cross-chain/activate)
    * and then bridges detached, by which point the email token is gone — so it
@@ -75,6 +86,7 @@ export class CheckoutVerificationError extends Error {
 /// session complete) and fires the merchant webhooks.
 export async function completeCheckoutSession(input: CompleteCheckoutInput) {
   const { session, walletAddress, activationMethod, email, emailToken, txHash, allowanceTxHash, blockNumber } = input;
+  const platformSettled = input.platformSettled ?? false;
   // Arc is both the settlement chain and the default funding chain.
   const paidFromChain = input.sourceChain ?? "arc";
 
@@ -106,33 +118,41 @@ export async function completeCheckoutSession(input: CompleteCheckoutInput) {
   const normalizedEmail = customer.email;
 
   // Don't trust the caller — confirm subscribe() actually landed on-chain for
-  // this session ID and wallet before recording anything.
-  const onChainSubId = ids.toBytes32(session.sessionId);
-  let onChain;
-  try {
-    onChain = await getOnChainSubscription(onChainSubId);
-  } catch (e) {
-    console.error("[checkout/complete] on-chain read failed:", e);
-    throw new CheckoutVerificationError(
-      "Could not verify the subscription on-chain. Try again shortly.",
-      502
-    );
-  }
-  if (onChain.status === 0) {
-    throw new CheckoutVerificationError("Subscription not found on-chain for this session", 409);
-  }
-  if (onChain.subscriber.toLowerCase() !== walletAddress.toLowerCase()) {
-    throw new CheckoutVerificationError(
-      "On-chain subscriber does not match the connected wallet",
-      409
-    );
+  // this session ID and wallet before recording anything. This guard exists for
+  // the DIRECT path, where the subscriber submits subscribe() themselves and the
+  // server only hears about it afterwards.
+  //
+  // A platform-settled activation has no such claim to check: we redeemed the
+  // delegation, we burned it, we minted it. Reading a contract that was never
+  // called would only ever find nothing.
+  const onChainSubId = platformSettled ? null : ids.toBytes32(session.sessionId);
+  let onChain: Awaited<ReturnType<typeof getOnChainSubscription>> | null = null;
+  if (onChainSubId) {
+    try {
+      onChain = await getOnChainSubscription(onChainSubId);
+    } catch (e) {
+      console.error("[checkout/complete] on-chain read failed:", e);
+      throw new CheckoutVerificationError(
+        "Could not verify the subscription on-chain. Try again shortly.",
+        502
+      );
+    }
+    if (onChain.status === 0) {
+      throw new CheckoutVerificationError("Subscription not found on-chain for this session", 409);
+    }
+    if (onChain.subscriber.toLowerCase() !== walletAddress.toLowerCase()) {
+      throw new CheckoutVerificationError(
+        "On-chain subscriber does not match the connected wallet",
+        409
+      );
+    }
   }
 
   const plan = session.plan;
   // Effective terms come from the chosen tier (or the plan's default tier).
   const tier = await resolveTier(plan, session.tierId);
   // The on-chain subscription committed an amount — it must match the chosen tier.
-  if (onChain.amount !== tier.amount) {
+  if (onChain && onChain.amount !== tier.amount) {
     throw new CheckoutVerificationError("On-chain amount does not match the selected tier", 409);
   }
   // Last-resort wallet guard. Every path that can pre-empt this checks before the
@@ -146,8 +166,22 @@ export async function completeCheckoutSession(input: CompleteCheckoutInput) {
     identity: { customerDbId: customer.customerDbId, email: normalizedEmail },
   });
   if (conflict) {
+    // Platform-settled: the merchant already holds the money, and there is no
+    // escrow to return it from. Refusing here would leave the subscriber charged
+    // with nothing to show for it and no automated remedy — strictly the worst
+    // outcome available. So record the subscription they paid for and shout, so a
+    // human can untangle the identity clash. The route re-checks immediately
+    // before the pull, which is what keeps this window to seconds.
+    if (platformSettled) {
+      console.error(
+        `[checkout/complete] IDENTITY CLASH after settlement — wallet ${walletAddress.toLowerCase()} ` +
+          `conflicts with ${conflict.subscriptionId} at merchant ${session.merchantId}, but ${tier.amount} ` +
+          `has already been paid to the merchant and cannot be recalled. Recording the subscription; ` +
+          `needs manual review.`
+      );
+    } else {
     try {
-      await cancelOnChain(onChainSubId);
+      await cancelOnChain(onChainSubId!);
     } catch (e) {
       // The subscription is left uncancelled on-chain with the escrow still in it.
       // Nothing is recorded here, so no renewal can ever charge it, but the funds
@@ -162,6 +196,7 @@ export async function completeCheckoutSession(input: CompleteCheckoutInput) {
       walletConflictMessage(conflict, session.merchant.name),
       409
     );
+    }
   }
 
   const hasTrial = tier.trialDays > 0;
@@ -171,9 +206,15 @@ export async function completeCheckoutSession(input: CompleteCheckoutInput) {
 
   // Mirror the contract's settlement-window escrow: the first payment stays in
   // escrow until the billing engine's settleDuePeriods() pushes it out.
-  const escrowBalance = onChain.escrowBalance;
+  //
+  // A platform-settled activation escrows nothing — the merchant was paid by the
+  // mint itself, seconds ago. Zero here is not "unknown", it is the truth, and it
+  // keeps this subscription out of settleDuePeriods() entirely.
+  const escrowBalance = onChain ? onChain.escrowBalance : 0n;
   const settlementDeadline =
-    onChain.settlementDeadline > 0n ? new Date(Number(onChain.settlementDeadline) * 1000) : null;
+    onChain && onChain.settlementDeadline > 0n
+      ? new Date(Number(onChain.settlementDeadline) * 1000)
+      : null;
 
   const subscription = await prisma.subscription.create({
     data: {
@@ -192,7 +233,9 @@ export async function completeCheckoutSession(input: CompleteCheckoutInput) {
       activationMethod,
       isTestMode: session.isTestMode,
       onChainSubId,
-      contractAddress: getManagerAddress(),
+      // No contract was involved, so naming one would be a lie a support ticket
+      // would later be answered with.
+      contractAddress: platformSettled ? null : getManagerAddress(),
       allowanceTxHash: allowanceTxHash ?? null,
       activationTxHash: txHash ?? null,
       escrowBalance,

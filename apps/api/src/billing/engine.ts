@@ -215,7 +215,24 @@ async function renewSubscription(sub: SubWithRelations, type: "renewal" | "initi
   const periodKey = periodKeyFor(sub);
   let claimed = false;
   try {
-    if (!sub.onChainSubId) throw new Error(`Subscription ${sub.subscriptionId} has no onChainSubId`);
+    // No on-chain subscription means this one was settled by the platform, with
+    // no SubscriptionManager call — so there is no allowance to draw and this pass
+    // has nothing to do. Defer to the delegated pass, which is the ONLY way such
+    // a subscription can be renewed.
+    //
+    // It must not fall through to the throw below: that lands in the catch and
+    // marks the subscription past_due, which would flap on every tick for a
+    // subscription that is perfectly healthy.
+    if (!sub.onChainSubId) {
+      if (await hasActiveDelegation(sub.id, now)) {
+        console.log(`[billing] ${sub.subscriptionId} has no on-chain sub — deferring to delegated pass`);
+        return false;
+      }
+      throw new Error(
+        `Subscription ${sub.subscriptionId} has neither an on-chain subscription nor an active ` +
+          `delegation — nothing can charge it`
+      );
+    }
 
     const hasFunds = await checkSubscriberFunds(sub.walletAddress, amount);
     if (!hasFunds) {
