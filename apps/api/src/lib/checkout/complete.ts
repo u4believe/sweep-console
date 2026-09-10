@@ -26,6 +26,13 @@ import { resolveTier } from "./tiers";
 import { retirePriorActiveSubscriptions } from "../subscriptions/revoke";
 import type { CheckoutSession, Merchant, Plan } from "@prisma/client";
 
+/// The platform's cut, in basis points — the same figure delegated-renewal.ts and
+/// cctp-activate.ts split with. Reported to the merchant so the event explains the
+/// difference between what the subscriber paid and what arrived.
+function platformFeeBps(): bigint {
+  return BigInt(process.env.PLATFORM_FEE_BPS ?? "0");
+}
+
 export const INTERVAL_SECONDS: Record<string, number> = {
   daily: 86_400,
   weekly: 604_800,
@@ -275,8 +282,12 @@ export async function completeCheckoutSession(input: CompleteCheckoutInput) {
       subscriptionId: subscription.id,
       amount: hasTrial ? 0n : tier.amount,
       currency: plan.currency,
-      // Escrowed first payments stay "pending" until settlement pushes them
-      status: hasTrial ? "succeeded" : "pending",
+      // Escrowed first payments stay "pending" until settlement pushes them out.
+      // A platform-settled one was never escrowed — the merchant was paid by the
+      // mint, seconds ago — so "pending" would be a lie that never resolves:
+      // settleDuePeriods only looks at rows with escrowBalance > 0, so nothing
+      // would ever move it.
+      status: hasTrial || platformSettled ? "succeeded" : "pending",
       type: "initial",
       isTestMode: session.isTestMode,
       txHash: txHash ?? null,
@@ -333,6 +344,27 @@ export async function completeCheckoutSession(input: CompleteCheckoutInput) {
       "checkout.session.completed", eventData),
     fireWebhook(session.merchantId, session.externalRef, session.merchant.merchantId,
       "subscription.created", eventData),
+    // The money is already in the merchant's wallet, so the event that says so
+    // belongs here. On the escrowed path settleDuePeriods fires it a day later;
+    // this path never reaches settleDuePeriods, and without this the merchant
+    // would be paid and never told.
+    ...(platformSettled && !hasTrial
+      ? [
+          fireWebhook(session.merchantId, session.externalRef, session.merchant.merchantId,
+            "payment.succeeded", {
+              subscription_id: subscription.subscriptionId,
+              plan_id: plan.planId,
+              amount: Number(tier.amount),
+              merchant_share: Number(tier.amount - (tier.amount * platformFeeBps()) / 10_000n),
+              platform_fee: Number((tier.amount * platformFeeBps()) / 10_000n),
+              currency: plan.currency,
+              type: "initial",
+              tx_hash: txHash ?? null,
+              chain: "arc",
+              source_chain: paidFromChain,
+            }),
+        ]
+      : []),
   ]);
 
   const redirectUrl = session.successUrl.includes("{SESSION_ID}")
