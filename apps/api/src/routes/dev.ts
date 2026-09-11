@@ -13,6 +13,7 @@ import { Router } from "express";
 import { z } from "zod";
 import type { Address, Hex } from "viem";
 import { ok, err } from "../lib/response";
+import { transitionTrials } from "../billing/engine";
 import { prisma } from "../lib/prisma";
 import { ids } from "../lib/ids";
 import {
@@ -186,6 +187,43 @@ devRouter.post("/dev/run-delegated-renewals", async (_req, res) => {
 // ─── POST /dev/reconcile-mandates ────────────────────────────────────────────
 // Run the on-chain reconciliation pass now instead of waiting for 01:30. Marks
 // active mandates revoked when the subscriber has disabled them in their wallet.
+// ─── POST /dev/make-due ───────────────────────────────────────────────────────
+//
+// Back-date a subscription so the renewal pass considers it due, without waiting
+// a billing period. Touches nothing else: the delegation, the wallet balance and
+// the chain are all real, so what follows is a real collection rather than a
+// simulation.
+devRouter.post("/dev/make-due", async (req, res) => {
+  const id = (req.body as { subscription_id?: string } | undefined)?.subscription_id;
+  if (!id) return err(res, "subscription_id is required", 422);
+  const sub = await prisma.subscription.findUnique({ where: { subscriptionId: id } });
+  if (!sub) return err(res, "Subscription not found", 404);
+  const past = new Date(Date.now() - 60_000);
+  const updated = await prisma.subscription.update({
+    where: { id: sub.id },
+    data: { currentPeriodEnd: past, ...(sub.trialEnd ? { trialEnd: past } : {}) },
+    select: { subscriptionId: true, status: true, currentPeriodEnd: true, trialEnd: true },
+  });
+  return ok(res, { ...updated, note: "now due — POST /dev/run-delegated-renewals to collect it" });
+});
+
+// ─── POST /dev/transition-trials ──────────────────────────────────────────────
+//
+// Run the trial pass on demand. It no longer charges anything: it flips an ended
+// trial to active and leaves the period end in the past, so the renewal pass
+// collects it like any other due period. Worth watching precisely because that
+// hand-off is new.
+devRouter.post("/dev/transition-trials", async (_req, res) => {
+  await transitionTrials();
+  const trials = await prisma.subscription.findMany({
+    where: { trialEnd: { not: null } },
+    orderBy: { updatedAt: "desc" },
+    take: 5,
+    select: { subscriptionId: true, status: true, trialEnd: true, currentPeriodEnd: true },
+  });
+  return ok(res, { trials });
+});
+
 devRouter.post("/dev/reconcile-mandates", async (_req, res) => {
   try {
     return ok(res, { outcomes: await reconcileMandatesOnce() });
