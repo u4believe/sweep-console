@@ -14,17 +14,32 @@ export function mandateGrantsWhere(mandateId: string) {
   return { sessionId: mandateId, mode: "external" as const };
 }
 
-/// Whether this grant's period has already been redeemed.
+/// Whether this grant's CURRENT enforcer period has already been redeemed.
 ///
-/// ERC20PeriodTransferEnforcer allows one transfer per periodDuration, so a second
-/// redeem inside the same window reverts on chain. Checking the stored
-/// lastRedeemedAt first turns that revert into a cheap 409 instead of a wasted gas
-/// bill — but it is advisory only: the enforcer remains the real guard, and a row
-/// that is stale in either direction costs correctness nothing.
+/// ERC20PeriodTransferEnforcer divides time into FIXED periods anchored at the
+/// grant's startDate — [start, start+d), [start+d, start+2d), … — and allows one
+/// transfer in each. It is not a sliding window, and that distinction is not
+/// academic: an earlier version of this compared `now - lastRedeemedAt` against
+/// the duration, which stays "consumed" for a full duration after the redeem
+/// rather than until the period boundary. A daily grant redeemed a minute before
+/// its boundary would have been reported consumed for nearly another day, and the
+/// renewal it blocked would have run 24h late.
+///
+/// Advisory only. The enforcer is the real guard; this just turns a reverted
+/// transaction into free arithmetic, so being stale in either direction costs
+/// correctness nothing — only gas, or a delay until the next pass.
 export function periodConsumed(
-  grant: { lastRedeemedAt: Date | null; periodDuration: number },
+  grant: { lastRedeemedAt: Date | null },
+  terms: { startDate: number; periodDuration: number },
   now: Date = new Date()
 ): boolean {
   if (!grant.lastRedeemedAt) return false;
-  return now.getTime() - grant.lastRedeemedAt.getTime() < grant.periodDuration * 1000;
+  if (terms.periodDuration <= 0) return false;
+  const periodOf = (unixSeconds: number) =>
+    Math.floor((unixSeconds - terms.startDate) / terms.periodDuration);
+  const last = Math.floor(grant.lastRedeemedAt.getTime() / 1000);
+  // A redeem recorded before the grant's own start date cannot belong to this
+  // schedule at all — treat the current period as free rather than guessing.
+  if (last < terms.startDate) return false;
+  return periodOf(last) === periodOf(Math.floor(now.getTime() / 1000));
 }

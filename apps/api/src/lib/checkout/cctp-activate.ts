@@ -168,6 +168,17 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
       amount,
     });
 
+    // Record that this grant's period is now spent. The enforcer knows, but the
+    // database did not, and the renewal pass reads this to decide whether an
+    // attempt is worth making — without it, the first renewal after a checkout
+    // pays gas for a transaction the enforcer is certain to reject.
+    await withRetry(() =>
+      prisma.renewalDelegation.update({
+        where: { id: mandate.id },
+        data: { lastRedeemedAt: new Date() },
+      })
+    );
+
     // 2. CCTP Fast burn → mint the merchant's share DIRECTLY to their Arc payout
     //    wallet. The relayer absorbs the bridge fee from its float, so the
     //    merchant receives the full share.

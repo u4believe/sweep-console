@@ -26,6 +26,7 @@ import {
   getDelegateAddress,
   decodePeriodTransferTerms,
 } from "../lib/chain/delegation";
+import { periodConsumed } from "../lib/rail";
 import { advanceBridge } from "./bridge";
 import { claimPeriod, releaseClaim, periodKeyFor } from "./claims";
 import { getUsdcAddress } from "../lib/chain/contract";
@@ -309,6 +310,22 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
           result: "over_cap",
           chain: chosenKey,
           detail: `renewal amount ${amount} exceeds the signed per-period cap ${cap.periodAmount} on ${chosenKey}`,
+        });
+        continue;
+      }
+
+      // And whether this period is already spent. The enforcer is the real guard
+      // — it will reject a second redeem either way — but learning that from a
+      // reverted transaction costs the relayer gas every time, and the grant's
+      // own schedule answers it for free. Observed on a real subscription: the
+      // checkout redeemed the delegation, the renewal pass an hour later tried
+      // anyway, and paid for the revert to be told so.
+      if (cap && periodConsumed(chosenMandate, cap)) {
+        outcomes.push({
+          subscriptionId: sub.subscriptionId,
+          result: "period_consumed",
+          chain: chosenKey,
+          detail: "delegation's current period was already redeemed — retries next period",
         });
         continue;
       }

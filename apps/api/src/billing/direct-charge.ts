@@ -103,11 +103,14 @@ export async function planCharge(c: ChargeContext) {
   }
 
   // The signed context is authoritative for the cap, not the mandate row: the
-  // subscriber may have granted less than the developer asked for.
-  const affordable = grants.filter((g) => {
-    const terms = decodePeriodTransferTerms(g.context as Hex, g.token as Address);
-    return !terms || terms.periodAmount >= c.amount;
-  });
+  // subscriber may have granted less than the developer asked for. It also carries
+  // the enforcer's period schedule, which is the only way to know whether this
+  // period is already spent — so decode once and keep it.
+  const decoded = grants.map((g) => ({
+    grant: g,
+    terms: decodePeriodTransferTerms(g.context as Hex, g.token as Address),
+  }));
+  const affordable = decoded.filter(({ terms }) => !terms || terms.periodAmount >= c.amount);
   if (affordable.length === 0) {
     throw new ChargeError(
       "amount_over_cap",
@@ -117,7 +120,9 @@ export async function planCharge(c: ChargeContext) {
 
   // One redeem per period, per chain. A chain consumed this period is not a
   // failure — another chain may be free.
-  const usable = affordable.filter((g) => !periodConsumed(g));
+  const usable = affordable
+    .filter(({ grant, terms }) => !terms || !periodConsumed(grant, terms))
+    .map(({ grant }) => grant);
   if (usable.length === 0) {
     throw new ChargeError(
       "mandate_period_consumed",
