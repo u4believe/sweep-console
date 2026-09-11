@@ -84,13 +84,21 @@ export async function releaseNonce(
  *
  * The asymmetry matters. Releasing a nonce that WAS broadcast hands the same nonce
  * to the next send, which either bounces off "nonce too low" or — worse — replaces
- * a real payment mid-flight. Failing to release one merely leaves a gap: later
- * transactions queue unmined until the node drops the missing nonce, at which point
- * the GREATEST in allocateNonce re-anchors the row on its own.
+ * a real payment mid-flight. Failing to release one leaves a gap, and a stall is
+ * strictly safer than a replacement — so anything ambiguous, every transport-level
+ * failure where the node may have accepted the transaction and only the response
+ * was lost, counts as broadcast and keeps its nonce.
  *
- * A stall that heals is strictly safer than a replacement, so anything ambiguous —
- * every transport-level failure, where the node may have accepted the transaction
- * and only the response was lost — counts as broadcast and keeps its nonce.
+ * BUT THE GAP DOES NOT HEAL ITSELF. An earlier version of this comment claimed
+ * GREATEST would re-anchor the row once the node dropped the missing transaction;
+ * it cannot, because GREATEST only ever RAISES the stored counter. Once the
+ * mempool is empty at that nonce the row stays high forever, every later send is
+ * signed with a future nonce, and none of them mine — which on Arc jams
+ * receiveOnArc and therefore every cross-chain payment.
+ *
+ * Observed in practice: six on-chain cancels, two dropped, left the Arc row five
+ * ahead of the chain with an empty mempool. Recovery is scripts/nonce-reanchor.ts,
+ * which re-anchors only when latest == pending proves nothing is in flight.
  */
 function mayHaveBroadcast(e: unknown): boolean {
   const msg = e instanceof Error ? e.message : String(e);
