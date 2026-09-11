@@ -5,7 +5,6 @@ import { verifyApiKey, type AuthedRequest } from "../middleware/auth";
 import { ok, err } from "../lib/response";
 import { fireWebhook } from "../lib/webhooks/delivery";
 import { ids } from "../lib/ids";
-import { refundOnChain } from "../lib/chain/subscription";
 import { revokeSubscription } from "../lib/subscriptions/revoke";
 
 export const subscriptionsRouter = Router();
@@ -150,82 +149,21 @@ subscriptionsRouter.post("/:id/refund", verifyApiKey, async (req, res) => {
   const { merchant } = req as AuthedRequest;
   const sub = await prisma.subscription.findFirst({
     where: { subscriptionId: req.params.id as string, merchantId: merchant.id },
-    include: { plan: true },
+    select: { subscriptionId: true },
   });
   if (!sub) return err(res, "Subscription not found", 404, "not_found");
-  if (!sub.onChainSubId) return err(res, "Subscription has no on-chain record", 409);
 
-  const parsedBody = refundSchema.safeParse(req.body ?? {});
-  if (!parsedBody.success) return err(res, "refund_pct must be an integer between 1 and 100", 422);
-  const { refund_pct } = parsedBody.data;
-
-  if (sub.escrowBalance <= 0n) {
-    return err(
-      res,
-      "Nothing left in escrow. The settlement window has closed and funds were pushed to the merchant.",
-      409,
-      "escrow_empty"
-    );
-  }
-
-  try {
-    const result = await refundOnChain(sub.onChainSubId, refund_pct);
-    const remaining = sub.escrowBalance - result.refundedAmount;
-
-    await prisma.$transaction([
-      prisma.subscription.update({
-        where: { id: sub.id },
-        data: {
-          escrowBalance: remaining,
-          ...(remaining === 0n ? { settlementDeadline: null } : {}),
-        },
-      }),
-      prisma.payment.create({
-        data: {
-          paymentId: ids.payment(),
-          merchantId: merchant.id,
-          subscriptionId: sub.id,
-          amount: result.refundedAmount,
-          currency: sub.plan.currency,
-          status: "succeeded",
-          type: "refund",
-          isTestMode: sub.isTestMode,
-          txHash: result.txHash,
-          blockNumber: result.blockNumber,
-          chain: "arc",
-        },
-      }),
-      // A fully refunded first payment will never settle — close out its record
-      ...(refund_pct === 100
-        ? [
-            prisma.payment.updateMany({
-              where: { subscriptionId: sub.id, status: "pending", type: "initial" },
-              data: { status: "refunded" },
-            }),
-          ]
-        : []),
-    ]);
-
-    await fireWebhook(merchant.id, sub.externalRef, merchant.merchantId, "payment.refunded", {
-      subscription_id: sub.subscriptionId,
-      plan_id: sub.plan.planId,
-      refund_pct,
-      amount: Number(result.refundedAmount),
-      currency: sub.plan.currency,
-      tx_hash: result.txHash,
-      block_number: Number(result.blockNumber),
-      chain: "arc",
-    });
-
-    return ok(res, {
-      id: sub.subscriptionId,
-      refund_pct,
-      refunded_amount: Number(result.refundedAmount),
-      remaining_escrow: Number(remaining),
-      tx_hash: result.txHash,
-    });
-  } catch (e) {
-    console.error(`[subscriptions/refund] failed for ${sub.subscriptionId}:`, e);
-    return err(res, "On-chain refund failed. Try again shortly.", 502);
-  }
+  // Refunds are gone with the settlement-window escrow they operated on. A charge
+  // now settles by minting the merchant's share straight into their wallet, so
+  // there is never a moment when this platform holds the money and could return
+  // it. The endpoint stays so an existing integration gets a reason rather than a
+  // 404 that reads like a bug.
+  return err(
+    res,
+    "Refunds are no longer available. Payments settle directly to your payout wallet with no " +
+      "escrow held, so there are no funds for this platform to return — refund the subscriber " +
+      "from your wallet, and cancel the subscription to stop future charges.",
+    409,
+    "refunds_unavailable"
+  );
 });

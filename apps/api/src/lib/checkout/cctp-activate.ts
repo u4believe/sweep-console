@@ -32,7 +32,6 @@ function platformFeeBps(): bigint {
 }
 import { resolveTier } from "./tiers";
 import {
-  getManagerAddress,
   getPublicClient,
   getUsdcAddress,
 } from "../chain/contract";
@@ -83,38 +82,6 @@ async function usdcDomain(
   return { name: name as string, version: version as string, chainId, verifyingContract: usdc };
 }
 
-/// Build the EIP-2612 Arc-USDC permit payload (the recurring allowance). Shared
-/// with the same-chain gasless checkout path in routes/public.ts.
-export async function buildPermitPayload(
-  subscriber: Hex,
-  permitValue: bigint,
-  deadline: bigint
-): Promise<TypedDataPayload> {
-  const client = getPublicClient();
-  const usdc = getUsdcAddress();
-  const [domain, nonce] = await Promise.all([
-    usdcDomain(client as never, usdc, client.chain!.id),
-    client
-      .readContract({ address: usdc, abi: ERC20_META_ABI, functionName: "nonces", args: [subscriber] })
-      .catch(() => 0n),
-  ]);
-  return {
-    domain,
-    types: PERMIT_TYPES,
-    primaryType: "Permit",
-    message: {
-      owner: subscriber,
-      spender: getManagerAddress(),
-      value: permitValue.toString(),
-      nonce: (nonce as bigint).toString(),
-      deadline: deadline.toString(),
-    },
-  };
-}
-
-// ─── Cross-chain activation (Arc-short checkout) ─────────────────────────────
-
-
 async function setSweepStatus(sweepDbId: string, status: string, error?: string) {
   await withRetry(() =>
     prisma.sweep.update({
@@ -127,7 +94,7 @@ async function setSweepStatus(sweepDbId: string, status: string, error?: string)
 /// Fund + activate a cross-chain subscription, detached from the HTTP request:
 /// redeem the granted delegation on a source chain (pull EXACTLY the plan amount)
 /// → CCTP-bridge to Arc (relayer covers gas + fee, so the full amount mints to the
-/// subscriber) → subscribeWithPermit (escrow first period) → record + webhooks.
+/// merchant's payout wallet) → record + webhooks. The mint IS the settlement.
 /// Status is persisted on the Sweep row for the checkout UI to poll.
 export async function executeCrossChainActivation(sweepDbId: string): Promise<void> {
   const sweep = await withRetry(() =>

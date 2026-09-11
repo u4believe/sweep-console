@@ -2,7 +2,8 @@
 //
 // Deleting a plan stops billing immediately (the plan is archived; every billing
 // pass skips cancelled/archived-plan subs) and, for each active subscriber:
-//   - cancels on-chain via cancelSubscription(), which RETURNS any escrowed funds
+//   - stops billing in the database (there is no contract to cancel and no
+//     escrow to return — payments settle straight to the merchant)
 //     to the subscriber in the same tx (owner-callable; no contract change),
 //   - flips the DB status to "cancelled" so the relayer never touches it again,
 //   - fires subscription.cancelled, and
@@ -12,7 +13,6 @@
 
 import { formatUnits } from "viem";
 import { prisma } from "./prisma";
-import { cancelOnChain } from "./chain/contract";
 import { sendEmail, planClosedEmailHtml } from "./email";
 import { fireWebhook } from "./webhooks/delivery";
 
@@ -52,20 +52,10 @@ export function findSubsToClose(planDbId: string) {
 /// callers fire-and-forget this after archiving the plan and responding.
 export async function closePlanSubscriptions(plan: ClosingPlan, subs: ClosingSub[]): Promise<void> {
   for (const sub of subs) {
-    let refundTx: string | null = null;
-    let refundAmount: string | null = null;
-    try {
-      if (sub.onChainSubId) {
-        const result = await cancelOnChain(sub.onChainSubId);
-        refundTx = result.txHash;
-        if (result.refundedEscrow > 0n) {
-          refundAmount = `${formatUnits(result.refundedEscrow, 6)} ${plan.currency}`;
-        }
-      }
-    } catch (e) {
-      console.error(`[plan-lifecycle] cancelOnChain failed for ${sub.subscriptionId}:`, e);
-      // Stop billing regardless — flip the DB status below.
-    }
+    // Nothing to cancel or refund on-chain: no contract holds these subscriptions
+    // and no escrow exists, so stopping the billing IS the whole cancellation.
+    const refundTx: string | null = null;
+    const refundAmount: string | null = null;
 
     await prisma.subscription.update({
       where: { id: sub.id },

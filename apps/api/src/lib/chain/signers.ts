@@ -3,8 +3,11 @@
 //
 // Three roles, which today may all resolve to the same private key:
 //
-//   platform  — the SubscriptionManager arbiter on Arc (settle, renew, refund,
-//               cancel, subscribeWithPermit). Holds a privileged on-chain role.
+//   platform  — the relayer on Arc. It no longer holds any contract role: the
+//               SubscriptionManager is retired, so on Arc this key only submits
+//               CCTP mints (receiveOnArc) and pays their gas. Every mandate
+//               granted before the rail existed still names this address, which
+//               is why it must stay resolvable forever.
 //   hosted    — the delegate that subscribers coming through Sweep's own checkout
 //               grant to. Falls back to the platform key, which is what every
 //               mandate granted so far names.
@@ -53,7 +56,7 @@ function platformKey(): string {
   return pk;
 }
 
-/// The arbiter that calls the SubscriptionManager on Arc.
+/// The platform relayer on Arc — submits CCTP mints and pays their gas.
 export function getPlatformAccount(): PrivateKeyAccount {
   return accountFor(platformKey(), "PLATFORM_PRIVATE_KEY");
 }

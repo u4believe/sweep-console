@@ -1,9 +1,8 @@
 import cron from "node-cron";
-import { processRenewals, retryFailed, transitionTrials, retryWebhooks, settleDuePeriods } from "./engine";
+import { transitionTrials, retryWebhooks } from "./engine";
 import { runDelegatedRenewalsOnce } from "./delegated-renewal";
 import { reconcileMandatesOnce } from "./reconcile-mandates";
 import { resumeChargeBridges } from "./direct-charge";
-import { runIndexerOnce } from "./indexer";
 
 // Registers every billing cron job. Pure side-effect-on-call (no auto-start on
 // import) so it can be driven from TWO places without double-registering:
@@ -28,22 +27,16 @@ export function startBillingEngine(): void {
     await reconcileMandatesOnce().catch((e) => console.error("[cron] reconcileMandates error:", e));
   });
 
-  // Renewals run Arc-FIRST, then cross-chain: processRenewals charges every due sub
-  // from its Arc balance; subs that are Arc-short but enabled cross-chain are left
-  // due (not failed) and then picked up by the delegated CCTP pass — which pulls one
-  // period from a granted source chain and bridges it to Arc. Sequential so Arc
-  // genuinely comes first; the delegated pass no-ops when there are no due mandates.
+  // The renewal run. One pass now, not two: every due subscription is collected
+  // by redeeming a delegation on a granted source chain and bridging it to Arc.
+  // The Arc-first allowance pass is gone with the contract, and with it the
+  // separate retry job — a subscription that fails stays due and past_due, so the
+  // next run of this same pass is its retry.
   cron.schedule(renewalSchedule, async () => {
-    console.log("[cron] renewals triggered (Arc-first → cross-chain)");
-    await processRenewals().catch((e) => console.error("[cron] processRenewals error:", e));
+    console.log("[cron] renewals triggered");
     await runDelegatedRenewalsOnce().catch((e) =>
       console.error("[cron] delegated renewals error:", e)
     );
-  });
-
-  cron.schedule("0 6 * * *", async () => {
-    console.log("[cron] retryFailed triggered");
-    await retryFailed().catch((e) => console.error("[cron] retryFailed error:", e));
   });
 
   // Rail charges in flight. A charge is pulled, burned, attested and minted; if
@@ -53,21 +46,6 @@ export function startBillingEngine(): void {
   // resumes, never re-pulls.
   cron.schedule("*/5 * * * *", async () => {
     await resumeChargeBridges().catch((e) => console.error("[cron] resumeChargeBridges error:", e));
-  });
-
-  // Settlement sweep — releases escrowed first payments whose window has closed.
-  // Runs hourly so a 24h window settles within at most an hour of the deadline.
-  cron.schedule("0 * * * *", async () => {
-    console.log("[cron] settleDuePeriods triggered");
-    await settleDuePeriods().catch((e) => console.error("[cron] settleDuePeriods error:", e));
-  });
-
-  // Event indexer — reconciles contract state the API never saw (a subscriber
-  // calling cancelSubscription() directly, or a tx that landed after our commit
-  // failed). Runs often: until it catches a cancel, the DB still shows the
-  // subscription active and its escrow pending.
-  cron.schedule("*/5 * * * *", async () => {
-    await runIndexerOnce().catch((e) => console.error("[cron] indexer error:", e));
   });
 
   cron.schedule("*/10 * * * *", async () => {

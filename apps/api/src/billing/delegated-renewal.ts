@@ -64,7 +64,15 @@ async function recordRenewalSettled(
   const [, renewalPayment] = await prisma.$transaction([
     prisma.subscription.update({
       where: { id: sub.id },
-      data: { currentPeriodStart: sub.currentPeriodEnd, currentPeriodEnd: newPeriodEnd },
+      data: {
+        currentPeriodStart: sub.currentPeriodEnd,
+        currentPeriodEnd: newPeriodEnd,
+        // A subscription that fell behind and then paid is current again. Leaving
+        // it past_due would keep dunning a paid-up subscriber and march it toward
+        // the max-retry cancel on a counter that should have been cleared.
+        status: "active",
+        retryCount: 0,
+      },
     }),
     prisma.payment.create({
       data: {
@@ -118,6 +126,55 @@ async function recordRenewalSettled(
 
 /// Per-subscription outcome of a renewal pass — surfaced by the dev integration
 /// harness so a no-op is explained (insufficient funds, attestation pending, …).
+/// A renewal that could not be collected. Ported from the Arc allowance pass,
+/// which used to own dunning — with that gone, this is the only place a
+/// subscription can fall behind, and subscription.past_due the only place the
+/// merchant hears about it.
+///
+/// The subscription stays DUE either way, so the next pass retries it. After
+/// MAX_RENEWAL_RETRIES it is closed: retrying a wallet that has been empty for a
+/// week is just noise to everyone involved.
+const MAX_RENEWAL_RETRIES = 7;
+
+async function markRenewalFailed(sub: RenewalSub, amount: bigint, reason: string): Promise<void> {
+  const attempts = sub.retryCount + 1;
+  if (attempts >= MAX_RENEWAL_RETRIES) {
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: {
+        status: "cancelled",
+        cancelledAt: new Date(),
+        cancelReason: "Payment failed after maximum retries",
+        retryCount: attempts,
+      },
+    });
+    await prisma.renewalDelegation.updateMany({
+      where: { subscriptionId: sub.id, status: "active" },
+      data: { status: "revoked" },
+    });
+    await fireWebhook(sub.merchantId, sub.externalRef, sub.merchant.merchantId, "subscription.cancelled", {
+      subscription_id: sub.subscriptionId,
+      cancel_reason: "Payment failed after maximum retries",
+    });
+    console.log(`[billing/tier2] cancelled ${sub.subscriptionId} after ${attempts} failed renewals`);
+    return;
+  }
+
+  await prisma.subscription.update({
+    where: { id: sub.id },
+    data: { status: "past_due", retryCount: attempts },
+  });
+  await fireWebhook(sub.merchantId, sub.externalRef, sub.merchant.merchantId, "subscription.past_due", {
+    subscription_id: sub.subscriptionId,
+    plan_id: sub.plan.planId,
+    amount: Number(amount),
+    currency: sub.plan.currency,
+    attempt: attempts,
+    reason,
+  });
+  console.warn(`[billing/tier2] ${sub.subscriptionId} past_due (attempt ${attempts}): ${reason}`);
+}
+
 export type RenewalOutcome = {
   subscriptionId: string;
   result:
@@ -171,7 +228,16 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
   for (const group of bySub.values()) {
     const sub = group[0].subscription;
     // Skip cancelled/not-due subs AND any sub whose plan was closed (deleted).
-    if (!sub || sub.status !== "active" || sub.currentPeriodEnd > now || sub.plan.archived) continue;
+    // past_due is still chargeable: it means earlier attempts failed, not that the
+    // subscription is over. Excluding it here is how dunning quietly stops.
+    if (
+      !sub ||
+      !["active", "past_due"].includes(sub.status) ||
+      sub.currentPeriodEnd > now ||
+      sub.plan.archived
+    ) {
+      continue;
+    }
     const periodDur = group[0].periodDuration;
     const periodKey = periodKeyFor(sub);
     let claimed = false;
@@ -214,7 +280,7 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
         requireDeployedAccount: true,
       });
       if (!selection.sufficient) {
-        console.warn(`[billing/tier2] no granted chain holds ${amount} for ${sub.subscriptionId}`);
+        await markRenewalFailed(sub, amount, "no granted chain holds a full period");
         outcomes.push({
           subscriptionId: sub.subscriptionId,
           result: "insufficient_funds",

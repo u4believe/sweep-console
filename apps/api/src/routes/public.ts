@@ -3,11 +3,7 @@ import { z } from "zod";
 import { prisma, withRetry } from "../lib/prisma";
 import { ok, err } from "../lib/response";
 import { ids } from "../lib/ids";
-import {
-  getManagerAddress,
-  getUsdcAddress,
-  settlementWindowSeconds,
-} from "../lib/chain/subscription";
+import { getUsdcAddress } from "../lib/chain/contract";
 import {
   completeCheckoutSession,
   CheckoutVerificationError,
@@ -525,18 +521,14 @@ publicRouter.get("/checkout/:session_id", async (req, res) => {
       merchant: { name: session.merchant.name },
       isTestMode: session.isTestMode,
       cancelUrl: session.cancelUrl,
-      // Everything the checkout page needs for the two on-chain transactions:
-      // USDC.approve(manager, amount × 12) then manager.subscribe(...)
+      // The terms the page prices and renders. It used to carry the arguments for
+      // two on-chain transactions — approve(manager) then subscribe() — and none
+      // of those exist any more: payment is a delegation on a source chain.
       onchain: {
-        subId: ids.toBytes32(session.sessionId),
-        managerAddress: getManagerAddress(),
         usdcAddress: getUsdcAddress(),
-        merchantPayout: walletAddress,
-        planIdBytes32: ids.toBytes32(session.plan.planId),
         amount: session.plan.amount.toString(),
         intervalSeconds: INTERVAL_SECONDS[session.plan.interval] ?? INTERVAL_SECONDS.monthly,
         trialSeconds: session.plan.trialDays * 86_400,
-        settlementWindowSeconds: settlementWindowSeconds(session.plan.settlementWindowHours),
       },
     });
   } catch (e) {

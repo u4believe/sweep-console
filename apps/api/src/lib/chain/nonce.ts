@@ -3,9 +3,9 @@
 // Every relayer-paid send used to let viem pick its own nonce, which it does by
 // asking the node for the pending transaction count. That is only correct while
 // exactly one transaction is in flight per key — and that was never true here.
-// The billing cron is a sequential loop, but checkout's subscribeWithPermitOnChain
-// runs on a request thread and signs with the SAME account on Arc, so a subscriber
-// activating during a settlement sweep reads the same pending count as the sweep.
+// The billing cron is a sequential loop, but a checkout's CCTP mint runs on a
+// request thread and signs with the SAME account on Arc, so a subscriber
+// activating during a renewal pass reads the same pending count as the pass.
 // Both sign nonce N; one is dropped, or replaces the other.
 //
 // Allocation happens in a single atomic upsert against relayer_nonces, so the lock

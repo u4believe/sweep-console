@@ -6,7 +6,7 @@
 // engine — the Arc allowance pass nor the cross-chain CCTP/7715 pass — can ever
 // charge it again.
 //
-// Note on on-chain cleanup: the contract's cancelSubscription() is owner-callable
+// Note on on-chain cleanup: there is no contract to cancel. What used to be
 // (the platform IS owner) and is fully gasless for the subscriber. The lingering
 // ERC-7715 delegation can only be disabled on-chain by the delegator (the user's
 // own wallet) — `disableDelegation` is `onlyDeleGator` — so we cannot revoke it
@@ -17,7 +17,6 @@
 import { prisma } from "../prisma";
 import { ids } from "../ids";
 import { fireWebhook } from "../webhooks/delivery";
-import { cancelOnChain, describeChainError } from "../chain/subscription";
 import type { Plan, Subscription } from "@prisma/client";
 
 type SubWithPlan = Subscription & { plan: Plan };
@@ -33,12 +32,10 @@ export interface RevokeResult {
 
 /**
  * Cancels a subscription and revokes all of its renewal authority:
- *   1. cancelSubscription() on-chain (owner-paid) — stops contract renewals and
- *      returns any settlement-window escrow to the subscriber in the same tx.
- *   2. flips the Subscription to "cancelled" and clears its escrow mirror.
- *   3. marks every active RenewalDelegation "revoked" — both renewal engines
+ *   1. flips the Subscription to "cancelled" and clears its escrow mirror.
+ *   2. marks every active RenewalDelegation "revoked" — both renewal engines
  *      filter on status, so this alone prevents any future charge.
- *   4. records the escrow refund and fires subscription.cancelled.
+ *   3. fires subscription.cancelled.
  *
  * The on-chain cancel is best-effort by default: if it reverts, the DB revoke in
  * steps 2–3 still guarantees no future charge, so the upgrade path must not be
@@ -61,22 +58,6 @@ export async function revokeSubscription(
   // the merchant nor refunded — stranded and invisible.
   let escrowReturned = true;
 
-  if (sub.onChainSubId) {
-    try {
-      const result = await cancelOnChain(sub.onChainSubId);
-      refundedEscrow = result.refundedEscrow;
-      cancelTxHash = result.txHash;
-      cancelBlockNumber = result.blockNumber;
-    } catch (e) {
-      if (opts.throwOnChainError) throw e;
-      onChainError = e;
-      escrowReturned = false;
-      console.error(
-        `[revoke] on-chain cancel failed for ${sub.subscriptionId} — DB revoke continues, but escrow ` +
-          `mirror is left intact because escrow may still be held on-chain: ${describeChainError(e)}`
-      );
-    }
-  }
 
   const [, delg] = await prisma.$transaction([
     prisma.subscription.update({
