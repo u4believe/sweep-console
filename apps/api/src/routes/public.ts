@@ -8,8 +8,6 @@ import {
   getUsdcAddress,
   settlementWindowSeconds,
 } from "../lib/chain/subscription";
-import { subscribeWithPermitOnChain } from "../lib/chain/contract";
-import { buildPermitPayload } from "../lib/checkout/cctp-activate";
 import {
   completeCheckoutSession,
   CheckoutVerificationError,
@@ -31,20 +29,10 @@ import {
   walletConflictMessage,
   identifyPayer,
 } from "../lib/checkout/wallet-guard";
-import { requiredAllowance } from "../lib/subscriptions/allowance";
 import { revokeSubscription } from "../lib/subscriptions/revoke";
 import { verifyTurnstile, clientIp } from "../lib/turnstile";
 import type { Hex } from "viem";
 
-function splitSignature(signature: string): { v: number; r: Hex; s: Hex } {
-  const sig = signature.startsWith("0x") ? signature.slice(2) : signature;
-  if (sig.length !== 130) throw new Error("Expected a 65-byte signature");
-  const r = `0x${sig.slice(0, 64)}` as Hex;
-  const s = `0x${sig.slice(64, 128)}` as Hex;
-  let v = parseInt(sig.slice(128, 130), 16);
-  if (v < 27) v += 27;
-  return { v, r, s };
-}
 
 export const publicRouter = Router();
 
@@ -217,17 +205,14 @@ publicRouter.post("/customer/wallet-availability", async (req, res) => {
       identity,
     });
 
-    // The allowance this wallet needs to cover this plan ON TOP OF whatever else
-    // it already pays for. The direct (gas-paying) path approves to this figure;
-    // the permit paths are handed the same number server-side.
-    const tier = await resolveTier(session.plan, session.tierId);
-
+    // No allowance_target any more. It told the client how large an Arc USDC
+    // approval this wallet would need — a figure nothing approves now that Arc is
+    // settlement-only and every payment is a per-chain delegation.
     return ok(res, {
       available: !conflict,
       // Masked: the blocked party must not learn who holds the wallet.
       owner_email_masked: conflict?.ownerEmailMasked ?? null,
       message: conflict ? walletConflictMessage(conflict, session.merchant.name) : null,
-      allowance_target: (await requiredAllowance(address, tier.amount)).toString(),
     });
   } catch (e) {
     console.error("[public/customer/wallet-availability]", e);
@@ -651,128 +636,3 @@ publicRouter.post("/internal/checkout/confirm", async (req, res) => {
   }
 });
 
-// ─── Gasless same-chain checkout ──────────────────────────────────────────────
-// The subscriber signs ONE EIP-2612 permit off-chain; the platform submits
-// subscribeWithPermit() on Arc and pays the gas. Step 1 returns the typed data
-// to sign; step 2 submits it.
-
-const permitRequestSchema = z.object({
-  wallet_address: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
-});
-
-publicRouter.post("/internal/checkout/:session_id/permit", async (req, res) => {
-  const parsed = permitRequestSchema.safeParse(req.body);
-  if (!parsed.success) return err(res, "Invalid payload", 422);
-
-  try {
-    const session = await withRetry(() => prisma.checkoutSession.findUnique({
-      where: { sessionId: req.params.session_id as string },
-      include: { plan: true },
-    }));
-    if (!session || session.status !== "open" || new Date() > session.expiresAt) {
-      return err(res, "Checkout session is not open", 409);
-    }
-
-    const tier = await resolveTier(session.plan, session.tierId);
-    // Sized for EVERY subscription this wallet pays for, not just this plan — a
-    // permit SETS the allowance, so sizing it from this plan alone would reset
-    // the runway of whatever else the wallet is already paying for.
-    const permitValue = await requiredAllowance(parsed.data.wallet_address, tier.amount);
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 3_600);
-    const payload = await buildPermitPayload(parsed.data.wallet_address as Hex, permitValue, deadline);
-
-    return ok(res, {
-      permit_payload: payload,
-      permit_value: permitValue.toString(),
-      permit_deadline: deadline.toString(),
-    });
-  } catch (e) {
-    console.error("[internal/checkout/permit]", e);
-    return err(res, "Failed to build permit", 502);
-  }
-});
-
-const gaslessSchema = z.object({
-  session_id: z.string(),
-  wallet_address: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
-  email: z.string().email().optional(),
-  email_token: z.string().optional(),
-  permit_signature: z.string().regex(/^0x[a-fA-F0-9]{130}$/),
-  permit_value: z.string().regex(/^\d+$/),
-  permit_deadline: z.string().regex(/^\d+$/),
-});
-
-publicRouter.post("/internal/checkout/gasless", async (req, res) => {
-  const parsed = gaslessSchema.safeParse(req.body);
-  if (!parsed.success) return err(res, "Invalid payload", 422);
-
-  const { session_id, wallet_address, email, email_token, permit_signature, permit_value, permit_deadline } = parsed.data;
-
-  try {
-    const session = await withRetry(() => prisma.checkoutSession.findUnique({
-      where: { sessionId: session_id },
-      include: { plan: true, merchant: true },
-    }));
-    if (!session || session.status !== "open") {
-      return err(res, "Session not found or already complete", 404);
-    }
-    if (!session.merchant.walletAddress) {
-      return err(res, "Merchant has no payout wallet", 409);
-    }
-
-    // Refuse a spoken-for wallet before the arbiter submits anything on-chain —
-    // completeCheckoutSession would catch it below, but only after the subscriber's
-    // first period is already escrowed.
-    const conflict = await findWalletConflict({
-      merchantId: session.merchantId,
-      walletAddress: wallet_address,
-      identity: await identifyPayer({
-        merchantId: session.merchantId,
-        walletAddress: wallet_address,
-        email,
-        emailProven: !!email && verifyEmailToken(email_token, email),
-      }),
-    });
-    if (conflict) return err(res, walletConflictMessage(conflict, session.merchant.name), 409);
-
-    const plan = session.plan;
-    const tier = await resolveTier(plan, session.tierId);
-    const { v, r, s } = splitSignature(permit_signature);
-
-    // Platform arbiter submits + pays Arc gas — gasless for the subscriber.
-    // The hash is surfaced to the confirmation page, so keep it.
-    const activation = await subscribeWithPermitOnChain({
-      subId: ids.toBytes32(session.sessionId),
-      subscriber: wallet_address as Hex,
-      merchantPayout: session.merchant.walletAddress as Hex,
-      planId: ids.toBytes32(plan.planId),
-      amount: tier.amount,
-      interval: BigInt(INTERVAL_SECONDS[tier.interval] ?? INTERVAL_SECONDS.monthly),
-      trialDuration: BigInt(tier.trialDays * 86_400),
-      settlementWindow: BigInt(settlementWindowSeconds(tier.settlementWindowHours)),
-      permitValue: BigInt(permit_value),
-      permitDeadline: BigInt(permit_deadline),
-      permitV: v,
-      permitR: r,
-      permitS: s,
-    });
-
-    const { subscription, redirectUrl } = await completeCheckoutSession({
-      session,
-      walletAddress: wallet_address,
-      activationMethod: "wallet",
-      email,
-      emailToken: email_token,
-    });
-
-    return ok(res, {
-      subscription_id: subscription.subscriptionId,
-      tx_hash: activation.txHash,
-      redirect_url: redirectUrl,
-    });
-  } catch (e) {
-    if (e instanceof CheckoutVerificationError) return err(res, e.message, e.httpStatus);
-    console.error("[internal/checkout/gasless]", e);
-    return err(res, "Gasless activation failed — you can retry or pay directly.", 502);
-  }
-});

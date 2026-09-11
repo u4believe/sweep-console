@@ -45,9 +45,7 @@ interface Props {
   email?: string;
   emailToken?: string | null;
   /** Signs (or returns the already-signed) Arc EIP-2612 permit. */
-  signArcPermit: () => Promise<unknown>;
   /** True once that permit exists, whoever collected it. */
-  arcPermitSigned: boolean;
   /**
    * Called once every chain is authorized, so the shell can go on to charge —
    * Arc first, then whichever approved chain holds enough USDC.
@@ -141,8 +139,6 @@ export function DelegatedRenewalToggle({
   walletAddress,
   email,
   emailToken,
-  signArcPermit,
-  arcPermitSigned,
   onAuthorizedAll,
 }: Props) {
   const { address } = useAccount();
@@ -208,7 +204,6 @@ export function DelegatedRenewalToggle({
     try {
       // Arc: ERC-2612 permit. Signed once per checkout and shared with the pay
       // button, so a subscriber who authorizes here never signs it twice.
-      if (!arcPermitSigned) await signArcPermit();
 
       // One ERC-7715 delegation per chain. A single chain failing never aborts
       // the rest — grantRenewalMandates keeps going and reports what didn't land.
@@ -280,12 +275,13 @@ export function DelegatedRenewalToggle({
   const unusable = !probing && usable.length === 0;
 
   const grantedUsable = usable.filter((t) => granted.includes(t.chain_id));
-  // ON only when everything it authorizes is in place: every chain granted AND
-  // Arc's permit signed. PARTIAL whenever some of that landed but not all — the
-  // ordinary result when one chain is declined or its wallet prompt fails, and
-  // previously indistinguishable from OFF. It also covers every chain being
-  // granted while the Arc permit is still outstanding.
-  const allOn = usable.length > 0 && grantedUsable.length === usable.length && arcPermitSigned;
+  // ON only when every chain it can authorize is granted. PARTIAL whenever some
+  // landed but not all — the ordinary result when one chain is declined or its
+  // wallet prompt fails, and previously indistinguishable from OFF.
+  //
+  // There is no Arc permit in this any more: Arc is the settlement chain, not a
+  // funding one, so there is nothing to sign there.
+  const allOn = usable.length > 0 && grantedUsable.length === usable.length;
   const partiallyOn = !allOn && grantedUsable.length > 0;
 
   /**

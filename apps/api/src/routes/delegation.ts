@@ -18,17 +18,13 @@ import {
   mandateCovers,
 } from "../lib/chain/delegation";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
-import {
-  buildPermitPayload,
-  executeCrossChainActivation,
-} from "../lib/checkout/cctp-activate";
+import { executeCrossChainActivation } from "../lib/checkout/cctp-activate";
 import { resolveCheckoutCustomer, verifyEmailToken } from "../lib/checkout/identity";
 import {
   findWalletConflict,
   walletConflictMessage,
   identifyPayer,
 } from "../lib/checkout/wallet-guard";
-import { requiredAllowance } from "../lib/subscriptions/allowance";
 import { resolveTier } from "../lib/checkout/tiers";
 import { ids } from "../lib/ids";
 
@@ -120,22 +116,13 @@ delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, re
     const alreadyEnabled =
       targets.length > 0 && targets.every((t) => grantedChainIds.includes(t.chain_id));
 
-    // Arc permit (recurring allowance) — funds Arc-first renewals + the escrow on
-    // cross-chain activation.
-    const nowSec = BigInt(Math.floor(Date.now() / 1000));
-    // Sized for every subscription this wallet pays for — a permit SETS the
-    // allowance, so this plan's figure alone would reset the others' runway.
-    const permitValue = await requiredAllowance(wallet, amount);
-    const permitDeadline = nowSec + 3_600n;
-    const permitPayload = await buildPermitPayload(wallet as Hex, permitValue, permitDeadline);
-
+    // No Arc permit. It funded Arc-first renewals and the escrow on cross-chain
+    // activation, and neither exists now: Arc is the settlement chain, so nothing
+    // is ever pulled from it and nothing is held.
     return ok(res, {
       targets,
       granted_chain_ids: grantedChainIds,
       already_enabled: alreadyEnabled,
-      permit_payload: permitPayload,
-      permit_value: permitValue.toString(),
-      permit_deadline: permitDeadline.toString(),
     });
   } catch (e) {
     console.error("[internal/checkout/grant-plan]", e);

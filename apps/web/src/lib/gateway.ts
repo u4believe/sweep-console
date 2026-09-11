@@ -34,9 +34,6 @@ export interface GrantPlan {
   granted_chain_ids: number[];
   // True only once EVERY offered chain is authorized — nothing left to grant.
   already_enabled: boolean;
-  permit_payload: TypedDataPayload;
-  permit_value: string;
-  permit_deadline: string;
 }
 
 export interface SweepStatus {
@@ -95,7 +92,6 @@ export interface WalletAvailability {
   message: string | null;
   /// USDC allowance this wallet needs to cover this plan ON TOP OF everything
   /// else it already pays for (across merchants), as a decimal string.
-  allowance_target: string;
 }
 
 /// Pre-flight, run on wallet connect and again before the direct pay path: may

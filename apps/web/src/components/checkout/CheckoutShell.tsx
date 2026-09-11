@@ -2,14 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import {
   useAccount,
-  useConfig,
   useDisconnect,
   useReadContract,
   useReconnect,
-  useSignTypedData,
-  useSwitchChain,
 } from "wagmi";
-import { getAccount, getChainId } from "wagmi/actions";
 import { formatUnits } from "viem";
 import { ERC20_ABI } from "@/lib/chain/abis";
 import { arcTestnet } from "@/lib/chain/config";
@@ -17,7 +13,7 @@ import { GatewaySweepPanel } from "./GatewaySweepPanel";
 import { DelegatedRenewalToggle, TIER2_ENABLED } from "./DelegatedRenewalToggle";
 import { ManageSubscriptionsPanel } from "./ManageSubscriptionsPanel";
 import { PostPaymentGrants } from "./PostPaymentGrants";
-import { ArcLogo, BaseLogo, ArbitrumLogo, OptimismLogo } from "./ChainBadge";
+import { BaseLogo, ArbitrumLogo, OptimismLogo } from "./ChainBadge";
 import { CheckoutFrame, RULE, HAIRLINE } from "./CheckoutFrame";
 import { PlanShowcase } from "./PlanShowcase";
 import { Turnstile, TURNSTILE_ENABLED } from "@/components/Turnstile";
@@ -27,11 +23,9 @@ import {
   fetchWalletAvailability,
   fetchWalletBalances,
   fetchWalletStatus,
-  hydrateTypedData,
   requestOtp,
   saveDelegation,
   verifyOtp,
-  type TypedDataPayload,
 } from "@/lib/gateway";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 
@@ -166,9 +160,6 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
   const { openConnectModal } = useConnectModal();
   const { disconnect } = useDisconnect();
   const { reconnect } = useReconnect();
-  const { switchChainAsync } = useSwitchChain();
-  const { signTypedDataAsync } = useSignTypedData();
-  const wagmiConf = useConfig();
 
   /**
    * wagmi drops to `reconnecting` — isConnected false, address undefined — for a
@@ -191,37 +182,6 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
   const payAddress = address ?? lastAccount;
   const walletPresent = isConnected || (!!lastAccount && accountStatus !== "disconnected");
 
-  /**
-   * Wait out a transient `reconnecting` before touching the connector, and hand
-   * back the address wagmi actually holds. Every wallet action goes through this
-   * rather than through the render-time `address`, which may be a beat stale.
-   */
-  const ensureConnected = async (): Promise<`0x${string}`> => {
-    for (let i = 0; i < 40; i++) {
-      const acct = getAccount(wagmiConf);
-      if (acct.status === "connected" && acct.address) return acct.address;
-      if (acct.status === "disconnected") break;
-      await new Promise((r) => setTimeout(r, 150));
-    }
-    const acct = getAccount(wagmiConf);
-    if (acct.address) return acct.address;
-    throw new Error("Your wallet disconnected. Reconnect it and try again — nothing was charged.");
-  };
-
-  // Ensure the wallet is on Arc and WAIT for the connector to report it — the
-  // gasless permit is an Arc-domain EIP-712 payload, so signing it while the
-  // wallet is still on another chain throws a chainId-mismatch.
-  const ensureArc = async () => {
-    if (getChainId(wagmiConf) === arcTestnet.id) return;
-    await switchChainAsync({ chainId: arcTestnet.id });
-    for (let i = 0; i < 40; i++) {
-      if (getChainId(wagmiConf) === arcTestnet.id) break;
-      await new Promise((r) => setTimeout(r, 150));
-    }
-    // The switch itself is what knocks the connector into `reconnecting`; settle
-    // it here so the caller signs against a live connector.
-    await ensureConnected();
-  };
   const [step, setStep] = useState<Step>("idle");
   const [txHashDisplay, setTxHashDisplay] = useState<string | undefined>();
   /**
@@ -424,14 +384,12 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
    * which is the only control on this page that should ever reach the wallet.
    */
   const PAY_CHAINS = [
-    { key: "arc", name: "USDC on Arc", note: "Recommended · gasless · instant settlement", Logo: ArcLogo },
     { key: "base", name: "USDC on Base", note: "Settled on Arc · ~20s", Logo: BaseLogo },
     { key: "arbitrum", name: "USDC on Arbitrum", note: "Settled on Arc · ~25s", Logo: ArbitrumLogo },
     { key: "optimism", name: "USDC on Optimism", note: "Settled on Arc · ~25s", Logo: OptimismLogo },
   ] as const;
 
-  const [payChain, setPayChain] = useState<string>("arc");
-  const payingFromArc = payChain === "arc";
+  const [payChain, setPayChain] = useState<string>("base");
 
   /** chain_keys already authorized in this session. */
   const [grantedChains, setGrantedChains] = useState<string[]>([]);
@@ -451,7 +409,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
    * cannot cover. Saying so before they click beats a surprise fee prompt.
    */
   const anySourceNeedsSetup = PAY_CHAINS.some(
-    ({ key }) => key !== "arc" && !grantedChains.includes(key) && grantingChain !== key,
+    ({ key }) => !grantedChains.includes(key) && grantingChain !== key,
   );
 
   /**
@@ -494,12 +452,6 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
         return;
       }
 
-      if (key === "arc") {
-        setGrantingChain(null);
-        await onPayGasless();
-        return;
-      }
-
       // Authorize this chain only, unless it is already covered.
       if (!grantedChains.includes(key)) {
         const plan = await fetchGrantPlan(sessionId, payAddress);
@@ -539,16 +491,13 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
 
   /**
    * The master switch's payment: authorize every chain that isn't yet granted,
-   * then charge Arc first and fall back to whichever approved chain has funds.
+   * then charge whichever approved chain has funds. Arc is not among them — it is
+   * where the money settles, not where it is pulled from.
    */
   const payAcrossAllChains = async () => {
     if (!payAddress) return;
     setGrantError("");
     if (walletBlocked) { setGrantError(walletBlocked); return; }
-    if (await chainCanPay("arc")) {
-      await onPayGasless();
-      return;
-    }
     const balances = await fetchWalletBalances(payAddress);
     const funded = balances.chains.find(
       (c) => BigInt(c.wallet_balance) >= planAmount && grantedChains.includes(c.chain)
@@ -563,13 +512,6 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
   };
 
   // Persist the chosen tier on the session so the backend resolves the same terms.
-  const syncTier = async () => {
-    await fetch(`${API_URL}/checkout/${sessionId}/tier`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_token: sessionToken, tier_id: selectedTierId }),
-    }).catch(() => { /* non-fatal; the server falls back to the default tier */ });
-  };
 
   const { data: usdcBalance } = useReadContract({
     address: onchain.usdcAddress,
@@ -579,102 +521,6 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
     chainId: arcTestnet.id,
     query: { enabled: !!address },
   });
-
-  const hasEnoughBalance =
-    hasTrial || (usdcBalance !== undefined && (usdcBalance as bigint) >= planAmount);
-
-  // The Arc EIP-2612 permit. It covers BOTH the opening charge and a year of
-  // renewals, so it is signed once and reused: "Automatic renewal" signs it as
-  // part of authorizing every chain, and if the subscriber never turns that on,
-  // the pay button signs it instead. Either way exactly one Arc permit exists.
-  const [signedPermit, setSignedPermit] = useState<SignedPermit | null>(null);
-
-  const signArcPermit = useCallback(async (): Promise<SignedPermit> => {
-    // Mirror the chosen tier to the server, then ensure we're on Arc to sign —
-    // the permit is an Arc-domain EIP-712 payload. ensureArc settles the
-    // connector after the switch, and ensureConnected hands back the address
-    // wagmi actually holds rather than the render-time one, which is undefined
-    // for the beat the switch takes.
-    await syncTier();
-    await ensureArc();
-    const signer = await ensureConnected();
-
-    const permitRes = await fetch(`${API_URL}/internal/checkout/${sessionId}/permit`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ wallet_address: signer }),
-    });
-    if (!permitRes.ok) throw new Error("Could not prepare the permit");
-    const permit = (await permitRes.json()) as {
-      permit_payload: TypedDataPayload;
-      permit_value: string;
-      permit_deadline: string;
-    };
-
-    const signature = await signTypedDataAsync(hydrateTypedData(permit.permit_payload) as never);
-    const signed: SignedPermit = {
-      signature,
-      permit_value: permit.permit_value,
-      permit_deadline: permit.permit_deadline,
-    };
-    setSignedPermit(signed);
-    return signed;
-  }, [address, sessionId, signTypedDataAsync, syncTier, ensureArc]);
-
-  // Gasless primary path — the platform submits subscribeWithPermit() on Arc and
-  // pays the gas. Reuses the permit the renewal toggle already collected, if any.
-  const onPayGasless = async () => {
-    if (!payAddress) return;
-    if (!verified) { setErrorMsg("Verify your email to continue."); return; }
-    if (walletBlocked) { setErrorMsg(walletBlocked); return; }
-    setErrorMsg("");
-
-    try {
-      setStep("approving"); // "Authorizing…" — single off-chain signature
-
-      const payer = await ensureConnected();
-      const permit = signedPermit ?? (await signArcPermit());
-      const signature = permit.signature;
-
-      setStep("confirming");
-      const res = await fetch(`${API_URL}/internal/checkout/gasless`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: sessionId,
-          wallet_address: payer,
-          email: email.trim(),
-          email_token: emailToken,
-          permit_signature: signature,
-          permit_value: permit.permit_value,
-          permit_deadline: permit.permit_deadline,
-        }),
-      });
-
-      const activated = (await res.json().catch(() => ({}))) as {
-        subscription_id?: string;
-        tx_hash?: string;
-        error?: { message?: string };
-      };
-
-      if (!res.ok) {
-        // Every path is gasless for the subscriber, so there is nothing to fall
-        // back to: a failure here is ours to fix or theirs to retry, never a
-        // reason to hand them a gas bill.
-        throw new Error(
-          activated.error?.message ??
-            "We couldn't complete this payment. Nothing was charged — please try again."
-        );
-      }
-
-      if (activated.tx_hash) setTxHashDisplay(activated.tx_hash);
-      if (activated.subscription_id) setSubscriptionId(activated.subscription_id);
-      setStep("success");
-    } catch (e: unknown) {
-      setErrorMsg(friendlyWalletError(e));
-      setStep("error");
-    }
-  };
 
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1036,7 +882,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                         </span>
                         {usdcBalance !== undefined && (
                           <span className="tag tag-neutral">
-                            Balance {formatUnits(usdcBalance, 6)} USDC
+                            Arc balance {formatUnits(usdcBalance, 6)} USDC
                           </span>
                         )}
                         <button
@@ -1071,10 +917,6 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                     <div className="flex flex-col" role="radiogroup" aria-label="Pay from">
                       {PAY_CHAINS.map(({ key, name, note, Logo }) => {
                         const on = payChain === key;
-                        const isArc = key === "arc";
-                        // Only Arc's row depends on the Arc balance; a sweep
-                        // chain is selectable regardless of what's on Arc.
-                        const short = isArc && !hasEnoughBalance;
                         return (
                           <button
                             key={key}
@@ -1117,11 +959,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                                     ? "Confirm in your wallet…"
                                     : grantedChains.includes(key)
                                       ? "Authorized · renewals can charge from here"
-                                      : short
-                                        ? usdcBalance === undefined && !hasTrial
-                                          ? "Checking your Arc balance…"
-                                          : "Not enough USDC on Arc — pick another chain."
-                                        : note}
+                                      : note}
                               </span>
                             </span>
                             <span
@@ -1153,16 +991,14 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                       </p>
                     )}
 
-                    {(!payingFromArc || anySourceNeedsSetup) && (
-                      <p
-                        className="m-0 mt-2"
-                        style={{ fontSize: 11, color: "var(--color-neutral-700)", lineHeight: 1.5 }}
-                      >
-                        {!payingFromArc && `${merchant.name} receives the full amount. `}
-                        {anySourceNeedsSetup &&
-                          "Paying from Base, Arbitrum or Optimism for the first time, your wallet may ask for a one-time setup — a few cents of gas. Every charge after is on us."}
-                      </p>
-                    )}
+                    <p
+                      className="m-0 mt-2"
+                      style={{ fontSize: 11, color: "var(--color-neutral-700)", lineHeight: 1.5 }}
+                    >
+                      {`${merchant.name} receives the full amount, settled on Arc. `}
+                      {anySourceNeedsSetup &&
+                        "The first time you pay from a network, your wallet may ask for a one-time setup — a few cents of gas. Every charge after is on us."}
+                    </p>
 
                   </StepRow>
                 )}
@@ -1178,8 +1014,6 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                       walletAddress={payAddress}
                       email={EMAIL_RE.test(email.trim()) ? email.trim() : undefined}
                       emailToken={emailToken}
-                      signArcPermit={signArcPermit}
-                      arcPermitSigned={signedPermit !== null}
                       onAuthorizedAll={() => void payAcrossAllChains()}
                     />
                   </StepRow>
