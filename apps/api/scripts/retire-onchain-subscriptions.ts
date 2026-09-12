@@ -71,11 +71,8 @@ async function main() {
     }
     try {
       const r = await revokeSubscription(sub, sub.merchant.merchantId, { reason: "arc_path_retired" });
-      const chain = r.cancelTxHash
-        ? `on-chain ${r.cancelTxHash}`
-        : `ON-CHAIN FAILED (${r.onChainError instanceof Error ? r.onChainError.message.split("\n")[0] : r.onChainError})`;
       console.log(`  cancelled ${label}`);
-      console.log(`      ${chain} · grants revoked ${r.revokedDelegations} · escrow returned ${Number(r.refundedEscrow) / 1e6}`);
+      console.log(`      grants revoked ${r.revokedDelegations}`);
     } catch (e) {
       console.error(`  FAILED ${label}:`, e instanceof Error ? e.message : e);
     }

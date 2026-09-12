@@ -224,16 +224,15 @@ export function stepUpEmailHtml(
   });
 }
 
-/// Sent ONCE when a creator closes a plan. Trust-first: billing already stopped
-/// and any escrow already returned on-chain, so this is a receipt, not a request.
+/// Sent ONCE when a creator closes a plan. Trust-first: billing has already
+/// stopped, so this is a receipt, not a request. It carries no refund line — the
+/// platform holds nothing to return, and saying "Refund: not applicable" on every
+/// closure only raises a question the subscriber wasn't asking.
 export function planClosedEmailHtml(opts: {
   merchantName: string;
   planName: string;
   subscriptionId: string;
-  refundTx?: string | null;
-  refundAmount?: string | null; // human-readable, e.g. "9.00 USDC"
 }): string {
-  const refunded = Boolean(opts.refundTx && opts.refundAmount);
   return shell({
     preheader: `${opts.planName} is closed. You won't be charged again — nothing to cancel.`,
     sender: "notice",
@@ -249,13 +248,6 @@ export function planClosedEmailHtml(opts: {
         { k: "Plan", v: esc(opts.planName) },
         { k: "Subscription", v: mono(opts.subscriptionId) },
         { k: "Further charges", v: "None", accent: true },
-        {
-          k: "Refund",
-          v: refunded
-            ? `${esc(opts.refundAmount!)} returned on-chain`
-            : "Not applicable — nothing was held in escrow",
-        },
-        ...(refunded ? [{ k: "Refund transaction", v: mono(opts.refundTx!) }] : []),
       ]) +
       fineprint(
         `The renewal permission you granted is now dormant — we won't use it. If you'd like full ` +

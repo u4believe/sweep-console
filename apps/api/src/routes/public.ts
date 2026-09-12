@@ -329,9 +329,9 @@ publicRouter.post("/customer/subscriptions", async (req, res) => {
   }
 });
 
-// Self-serve revoke before upgrading — same proof as the reveal above. On-chain
-// cancel gas is platform-paid; the DB revoke is the guarantee, so a transient
-// chain failure still neutralises the permission (on_chain_cancelled = false).
+// Self-serve revoke before upgrading — same proof as the reveal above. Nothing
+// happens on-chain: marking the delegation revoked is the whole guarantee, since
+// we are the sole named delegate and the renewal pass filters on status.
 publicRouter.post("/customer/subscriptions/:id/revoke", async (req, res) => {
   const parsed = provenLookupSchema.safeParse(req.body);
   if (!parsed.success) return err(res, "Invalid payload", 422);
@@ -369,9 +369,6 @@ publicRouter.post("/customer/subscriptions/:id/revoke", async (req, res) => {
       id: sub.subscriptionId,
       status: "cancelled",
       revoked_delegations: result.revokedDelegations,
-      refunded_escrow: Number(result.refundedEscrow),
-      on_chain_cancelled: !result.onChainError,
-      tx_hash: result.cancelTxHash,
     });
   } catch (e) {
     console.error("[public/customer/subscriptions/revoke]", e);

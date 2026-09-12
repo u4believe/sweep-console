@@ -117,16 +117,15 @@ export function ManageSubscriptionsPage() {
   };
 
   const onCancel = async (s: PortalSubscription) => {
-    if (!confirm(`Cancel your ${s.plan.name} subscription with ${s.merchant.name}? Any escrow held is returned to your wallet.`)) return;
+    if (!confirm(`Cancel your ${s.plan.name} subscription with ${s.merchant.name}? You won't be charged again. Charges already taken are not reversed.`)) return;
     setBusyId(s.id);
     setError("");
     setNotice("");
     try {
-      const r = await portalCancelSubscription(email.trim(), emailToken, s.id);
+      await portalCancelSubscription(email.trim(), emailToken, s.id);
       setNotice(
-        r.refunded_escrow > 0
-          ? `Cancelled. ${formatUnits(BigInt(r.refunded_escrow), 6)} USDC was returned to your wallet. You can also revoke the USDC allowance in your wallet for full on-chain control.`
-          : "Cancelled. No funds were held in escrow."
+        "Cancelled. You won't be charged again. Your renewal permission is now dormant — " +
+          "you can also revoke it in your wallet for full on-chain control."
       );
       await reload();
     } catch (e) {

@@ -170,13 +170,7 @@ export function revokeLinkedSubscription(
   subscriptionId: string,
   email: string,
   emailToken: string
-): Promise<{
-  id: string;
-  status: string;
-  revoked_delegations: number;
-  on_chain_cancelled: boolean;
-  refunded_escrow: number;
-}> {
+): Promise<{ id: string; status: string; revoked_delegations: number }> {
   return request(`/customer/subscriptions/${subscriptionId}/revoke`, {
     method: "POST",
     body: JSON.stringify({ session_id: sessionId, email, email_token: emailToken }),
@@ -335,7 +329,7 @@ export function portalCancelSubscription(
   email: string,
   emailToken: string,
   subscriptionId: string
-): Promise<{ id: string; status: string; refunded_escrow: number; on_chain_cancelled: boolean; tx_hash: string | null }> {
+): Promise<{ id: string; status: string; revoked_delegations: number }> {
   return request(`/customer/portal/subscriptions/${subscriptionId}/cancel`, {
     method: "POST",
     body: JSON.stringify({ email, email_token: emailToken }),

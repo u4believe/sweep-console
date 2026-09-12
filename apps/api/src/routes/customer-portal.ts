@@ -190,10 +190,7 @@ customerPortalRouter.post("/subscriptions/:id/cancel", async (req, res) => {
     return ok(res, {
       id: sub.subscriptionId,
       status: "cancelled",
-      refunded_escrow: Number(result.refundedEscrow),
       revoked_delegations: result.revokedDelegations,
-      on_chain_cancelled: !result.onChainError,
-      tx_hash: result.cancelTxHash,
     });
   } catch (e) {
     console.error("[portal/cancel]", e);

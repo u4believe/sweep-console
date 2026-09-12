@@ -54,9 +54,6 @@ export async function closePlanSubscriptions(plan: ClosingPlan, subs: ClosingSub
   for (const sub of subs) {
     // Nothing to cancel or refund on-chain: no contract holds these subscriptions
     // and no escrow exists, so stopping the billing IS the whole cancellation.
-    const refundTx: string | null = null;
-    const refundAmount: string | null = null;
-
     await prisma.subscription.update({
       where: { id: sub.id },
       data: { status: "cancelled", cancelledAt: new Date(), cancelReason: "plan_deleted" },
@@ -65,8 +62,6 @@ export async function closePlanSubscriptions(plan: ClosingPlan, subs: ClosingSub
     await fireWebhook(sub.merchantId, sub.externalRef, plan.merchantPublicId, "subscription.cancelled", {
       subscription_id: sub.subscriptionId,
       reason: "plan_deleted",
-      refunded_escrow: refundAmount,
-      tx_hash: refundTx,
     }).catch((e) => console.error(`[plan-lifecycle] webhook failed for ${sub.subscriptionId}:`, e));
 
     if (sub.subscriberEmail) {
@@ -77,12 +72,9 @@ export async function closePlanSubscriptions(plan: ClosingPlan, subs: ClosingSub
           merchantName: plan.merchantName,
           planName: plan.name,
           subscriptionId: sub.subscriptionId,
-          refundTx,
-          refundAmount,
         }),
         text:
           `${plan.name} was closed by ${plan.merchantName}. Billing has stopped and will never resume. ` +
-          `${refundAmount ? `We returned ${refundAmount} held in escrow to your wallet (tx ${refundTx}). ` : ""}` +
           `Your renewal permission is now dormant — you can revoke it in your wallet anytime, but you don't need to. Your funds are safe.`,
       }).catch((e) => console.error(`[plan-lifecycle] email failed for ${sub.subscriptionId}:`, e));
     }

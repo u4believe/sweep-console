@@ -2,63 +2,43 @@
 //
 // Shared by the cancel API (POST /v1/subscriptions/:id/cancel) and the upgrade
 // auto-replace path (checkout completion). This is the actual double-bill guard:
-// it neutralises EVERY authorization a subscription holds so neither renewal
-// engine — the Arc allowance pass nor the cross-chain CCTP/7715 pass — can ever
-// charge it again.
+// it neutralises EVERY authorization a subscription holds so the renewal pass can
+// never charge it again.
 //
-// Note on on-chain cleanup: there is no contract to cancel. What used to be
-// (the platform IS owner) and is fully gasless for the subscriber. The lingering
-// ERC-7715 delegation can only be disabled on-chain by the delegator (the user's
+// Note on on-chain cleanup: there is nothing of ours to cancel on-chain. The
+// lingering ERC-7715 delegation can only be disabled by the delegator (the user's
 // own wallet) — `disableDelegation` is `onlyDeleGator` — so we cannot revoke it
 // for them. We don't need to: we are the sole named delegate, and marking the
 // RenewalDelegation "revoked" stops us redeeming it. The on-chain delegation then
 // sits inert until its expiry.
 
 import { prisma } from "../prisma";
-import { ids } from "../ids";
 import { fireWebhook } from "../webhooks/delivery";
 import type { Plan, Subscription } from "@prisma/client";
 
 type SubWithPlan = Subscription & { plan: Plan };
 
 export interface RevokeResult {
-  refundedEscrow: bigint;
-  cancelTxHash: string | null;
-  cancelBlockNumber: bigint | null;
-  /// Set when the on-chain cancel reverted but the DB revoke still proceeded.
-  onChainError: unknown | null;
   revokedDelegations: number;
 }
 
 /**
  * Cancels a subscription and revokes all of its renewal authority:
- *   1. flips the Subscription to "cancelled" and clears its escrow mirror.
- *   2. marks every active RenewalDelegation "revoked" — both renewal engines
- *      filter on status, so this alone prevents any future charge.
+ *   1. flips the Subscription to "cancelled".
+ *   2. marks every active RenewalDelegation "revoked" — the renewal engine
+ *      filters on status, so this alone prevents any future charge.
  *   3. fires subscription.cancelled.
  *
- * The on-chain cancel is best-effort by default: if it reverts, the DB revoke in
- * steps 2–3 still guarantees no future charge, so the upgrade path must not be
- * blocked by a transient chain failure. The explicit cancel API passes
- * `throwOnChainError` so a merchant-initiated cancel surfaces a 502 instead.
+ * Cancelling moves no money. It used to: the contract returned the unsettled
+ * escrow in the same transaction, which is why this once reported a refund and
+ * a tx hash. Nothing is held back any more, so a cancel is purely the removal of
+ * future authority — there is no refund to make and nothing on-chain to fail.
  */
 export async function revokeSubscription(
   sub: SubWithPlan,
   merchantPublicId: string,
-  opts: { reason: string; throwOnChainError?: boolean }
+  opts: { reason: string }
 ): Promise<RevokeResult> {
-  let refundedEscrow = 0n;
-  let cancelTxHash: string | null = null;
-  let cancelBlockNumber: bigint | null = null;
-  let onChainError: unknown | null = null;
-  // Only the on-chain cancel returns escrow to the subscriber, so the mirror may
-  // only be zeroed when that call actually landed. Zeroing it after a failed
-  // cancel would hide USDC that is still sitting in the contract: the settlement
-  // sweep filters on escrowBalance > 0, so those funds would never be settled to
-  // the merchant nor refunded — stranded and invisible.
-  let escrowReturned = true;
-
-
   const [, delg] = await prisma.$transaction([
     prisma.subscription.update({
       where: { id: sub.id },
@@ -66,29 +46,19 @@ export async function revokeSubscription(
         status: "cancelled",
         cancelledAt: new Date(),
         cancelReason: opts.reason,
-        // Left untouched when the on-chain cancel failed — see escrowReturned.
-        ...(escrowReturned ? { escrowBalance: 0n, settlementDeadline: null } : {}),
+        // Vestigial mirrors of the retired contract; kept tidy until the columns go.
+        escrowBalance: 0n,
+        settlementDeadline: null,
       },
     }),
     prisma.renewalDelegation.updateMany({
       where: { subscriptionId: sub.id, status: "active" },
       data: { status: "revoked" },
     }),
-    prisma.payment.create({
-      data: {
-        paymentId: ids.payment(),
-        merchantId: sub.merchantId,
-        subscriptionId: sub.id,
-        amount: refundedEscrow,
-        currency: sub.plan.currency,
-        status: "succeeded",
-        type: "refund",
-        isTestMode: sub.isTestMode,
-        txHash: cancelTxHash,
-        blockNumber: cancelBlockNumber,
-        chain: "arc",
-      },
-    }),
+    // No refund Payment row: this used to record the escrow the contract handed
+    // back, and with escrow gone it only ever wrote a 0-value "refund" that never
+    // happened. A refund row is now written when money actually moves, or not at
+    // all.
   ]);
 
   await fireWebhook(sub.merchantId, sub.externalRef, merchantPublicId, "subscription.cancelled", {
@@ -97,19 +67,10 @@ export async function revokeSubscription(
     cancel_reason: opts.reason,
     wallet_address: sub.walletAddress,
     cancelled_at: new Date().toISOString(),
-    refunded_escrow: Number(refundedEscrow),
     revoked_delegations: delg.count,
-    tx_hash: cancelTxHash,
-    block_number: cancelBlockNumber !== null ? Number(cancelBlockNumber) : null,
   });
 
-  return {
-    refundedEscrow,
-    cancelTxHash,
-    cancelBlockNumber,
-    onChainError,
-    revokedDelegations: delg.count,
-  };
+  return { revokedDelegations: delg.count };
 }
 
 /**

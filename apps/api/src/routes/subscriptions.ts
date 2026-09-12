@@ -114,32 +114,30 @@ subscriptionsRouter.post("/:id/cancel", verifyApiKey, async (req, res) => {
 
   const { cancel_reason } = cancelSchema.parse(req.body ?? {});
 
-  // Cancel on-chain (stops renewals + returns escrow), flip the sub to cancelled,
-  // and revoke its renewal delegations — the shared single-active-sub kill switch.
-  // A merchant-initiated cancel surfaces an on-chain failure as a 502.
+  // Flip the sub to cancelled and revoke its renewal delegations — the shared
+  // single-active-sub kill switch. No money moves: nothing is held in escrow, so
+  // cancelling only removes future authority.
   let result;
   try {
     result = await revokeSubscription(sub, merchant.merchantId, {
       reason: cancel_reason ?? "cancelled",
-      throwOnChainError: true,
     });
   } catch (e) {
-    console.error(`[subscriptions/cancel] on-chain cancel failed for ${sub.subscriptionId}:`, e);
-    return err(res, "On-chain cancellation failed. Try again shortly.", 502);
+    console.error(`[subscriptions/cancel] failed for ${sub.subscriptionId}:`, e);
+    return err(res, "Failed to cancel subscription. Try again shortly.", 500);
   }
 
   return ok(res, {
     id: sub.subscriptionId,
     status: "cancelled",
-    refunded_escrow: Number(result.refundedEscrow),
-    tx_hash: result.cancelTxHash,
+    revoked_delegations: result.revokedDelegations,
   });
 });
 
 // ─── POST /:id/refund ─────────────────────────────────────────────────────────
-// The settlement window is the ONLY refund path: refund(refundPct) operates on
-// USDC still held in escrow. Funds already pushed to the merchant's payout
-// address cannot be recovered by the platform.
+// Retired. A charge settles straight into the merchant's payout wallet, so the
+// platform never holds funds it could return. Kept as an explicit 409 so an
+// existing integration gets a reason instead of a 404 that reads like a bug.
 
 const refundSchema = z.object({
   refund_pct: z.number().int().min(1).max(100),
