@@ -23,7 +23,7 @@ const FEATURES = [
   {
     n: "03",
     title: "Non-custodial by design",
-    body: "Funds move from the customer straight to your wallet on-chain. We never hold balances — escrow only during the refund window.",
+    body: "Funds move from the customer straight to your wallet on-chain. We never hold balances, and no contract of ours stands between you and your revenue.",
   },
   {
     n: "04",
@@ -44,15 +44,15 @@ const FEATURES = [
 
 const STEPS = [
   { n: "01", title: "Create a plan", body: "Set price, interval, trial and tiers. You get a hosted checkout link in seconds." },
-  { n: "02", title: "Share your link", body: "Customers connect an external wallet and pay in USDC from Arc, Base, Arbitrum or Optimism." },
+  { n: "02", title: "Share your link", body: "Customers connect an external wallet and pay in USDC from Base, Arbitrum or Optimism." },
   { n: "03", title: "Get paid on Arc", body: "Funds settle to your wallet instantly. We auto-renew every cycle, gas-free." },
 ];
 
 /**
- * Pricing reflects the fee the contract actually enforces: PLATFORM_FEE_BPS is
- * 200, i.e. a flat 2% of every settled charge, with a hard 10% ceiling in
- * SubscriptionManager. Do not quote a rate here that the contract does not
- * charge — this page is a commitment to customers.
+ * Pricing must match PLATFORM_FEE_BPS in the API environment: 300, i.e. a flat
+ * 3% of every settled charge. Nothing on-chain enforces that rate any more — the
+ * split is computed off-chain when a charge settles — so this page is the only
+ * place the promise lives. Do not quote a rate the platform does not charge.
  */
 const PRICING = [
   {
@@ -68,7 +68,7 @@ const PRICING = [
   },
   {
     name: "Standard",
-    price: "2%",
+    price: "3%",
     unit: " per renewal",
     blurb: "Pay only when a charge settles. Gas is on us.",
     filled: true,
@@ -91,7 +91,7 @@ const PRICING = [
     badge: false,
     cta: "Talk to us",
     to: "/signup",
-    feats: ["Volume pricing", "Dedicated settlement lane", "Custom refund windows", "Account manager"],
+    feats: ["Volume pricing", "Dedicated settlement lane", "Account manager"],
   },
 ];
 

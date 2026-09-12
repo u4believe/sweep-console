@@ -55,15 +55,25 @@ const FINALITY_STANDARD = 2000;
 /// depositForBurn fee/finality for a speed tier. Fast caps Circle's Fast-Transfer
 /// fee via maxFee — it MUST cover the quoted fee (else the transfer silently
 /// degrades to Standard) AND be strictly LESS than `amount` (CCTP reverts
-/// otherwise). We cap it at a small share of the amount (default 1% — well above
-/// Circle's few-bps quote), clamped below `amount`. Standard pays nothing and
-/// waits for hard finality. Override the share via CCTP_FAST_MAX_FEE_BPS.
+/// otherwise). Standard pays nothing and waits for hard finality.
+///
+/// maxFee is a CEILING, and the burn is `amount + maxFee` — so whatever Circle
+/// does not charge is still minted, to the RECIPIENT, not returned to the relayer.
+/// The default was 1%, which on a measured 1.3bps quote meant the relayer spent
+/// ~0.98% of every merchant share to deliver it: on a 5 USDC charge the platform
+/// retained 0.10 and gave back 0.048, netting 1.03% against the 2% fee charged at
+/// the time. Half the revenue, invisible, scaling with the amount.
+///
+/// 10 bps clears the observed quote roughly eightfold while cutting that waste by
+/// 90%. It is still a guess at a number Circle publishes — sizing maxFee from the
+/// live quote plus a margin is the real fix, and this default is the stopgap.
+/// Override via CCTP_FAST_MAX_FEE_BPS.
 export function burnParams(
   speed: BurnSpeed,
   amount: bigint
 ): { maxFee: bigint; minFinalityThreshold: number } {
   if (speed === "fast") {
-    const bps = BigInt(process.env.CCTP_FAST_MAX_FEE_BPS ?? "100"); // 1%
+    const bps = BigInt(process.env.CCTP_FAST_MAX_FEE_BPS ?? "10"); // 0.1%
     let maxFee = (amount * bps) / 10_000n;
     if (maxFee < 1n) maxFee = 1n;
     if (maxFee >= amount) maxFee = amount > 1n ? amount - 1n : 0n; // CCTP requires maxFee < amount

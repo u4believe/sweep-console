@@ -186,8 +186,8 @@ export function GatewaySweepPanel({
     try {
       if (!enabled && connectorClient) {
         // One ERC-7715 delegation per supported source chain, saved server-side.
-        // No fee — the platform covers gas + bridge from the 2% fee on each
-        // charge. Shared loop — switches the wallet to each target chain before
+        // No fee — the platform covers gas + bridge from the platform fee on
+        // each charge. Shared loop — switches the wallet to each target chain before
         // requesting its grant, and keeps going even if one chain fails; the
         // actual payment below just needs ONE granted chain with funds.
         await grantRenewalMandates(walletAddress, targets, (input) =>

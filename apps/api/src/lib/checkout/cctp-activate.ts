@@ -1,13 +1,11 @@
 // Cross-chain checkout via CCTP V2 (delegation-funded).
 //
-// Arc is the primary chain — a subscriber with enough Arc USDC activates with the
-// gasless permit path (no CCTP). When Arc is short, cross-chain is enabled ONCE:
-//   1. an ERC-7715 delegation per funded source chain (cap = plan amount),
-//   2. an Arc EIP-2612 permit.
-// The platform then funds the activation by redeeming the delegation on a source
-// chain and CCTP-bridging the merchant's share straight into their Arc payout
-// wallet. The relayer covers gas and the bridge fee out of the 2% platform fee, so
-// the subscriber pays nothing extra.
+// Arc is settlement-only: nothing is ever pulled from it. The subscriber grants
+// ONCE — an ERC-7715 delegation per funded source chain (cap = plan amount) — and
+// the platform funds the activation by redeeming that delegation on a source chain
+// and CCTP-bridging the merchant's share straight into their Arc payout wallet.
+// The relayer covers gas and the bridge fee out of the platform fee
+// (PLATFORM_FEE_BPS), so the subscriber pays nothing extra.
 //
 // NO CONTRACT IS CALLED. This used to mint to the subscriber and then activate
 // through SubscriptionManager.subscribeWithPermit, which escrowed the first period

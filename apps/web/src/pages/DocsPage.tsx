@@ -81,7 +81,7 @@ const toc = [
       { id: "email-verification", label: "Email verification" },
       { id: "wallets", label: "Connecting & switching wallets" },
       { id: "upgrading", label: "Upgrading a plan" },
-      { id: "revenue-escrow", label: "Revenue & escrow" },
+      { id: "revenue-split", label: "Revenue & settlement" },
       { id: "challenges", label: "Common challenges" },
     ],
   },
@@ -141,7 +141,7 @@ export function DocsPage() {
           <p className="text-sm font-semibold uppercase tracking-wide text-brand-600">Documentation</p>
           <h1 className="mt-2 text-4xl font-bold tracking-tight text-gray-900">How Sweep Console works</h1>
           <p className="mt-3 text-lg text-gray-500">
-            A guide to creating an account, accepting and paying for subscriptions, how fees and escrow work —
+            A guide to creating an account, accepting and paying for subscriptions, how fees and settlement work —
             and how to run the project locally with Circle's developer tools.
           </p>
 
@@ -185,12 +185,12 @@ export function DocsPage() {
                   they used before).
                 </Step>
                 <Step n={4}>
-                  Pays with <strong>USDC on Arc</strong> (gasless — one signature, the platform submits the transaction and pays
-                  gas) or chooses <strong>Pay from another chain</strong> (Base / Arbitrum / Optimism, bridged via CCTP).
+                  Pays with <strong>USDC on Base, Arbitrum or Optimism</strong> — gasless. One signature authorizes the
+                  recurring charge; the platform submits the transaction, pays the gas and bridges to Arc via CCTP.
                 </Step>
                 <Step n={5}>
-                  The first payment is held in escrow for the refund window (trials start free). After that, <strong>renewals are
-                  automatic and gasless</strong> — no further signatures.
+                  The first charge settles to the creator immediately (trials start free and take nothing). After that,
+                  <strong>renewals are automatic and gasless</strong> — no further signatures.
                 </Step>
               </ol>
             </Section>
@@ -212,7 +212,7 @@ export function DocsPage() {
                 <li><strong>New subscriber</strong> → a <strong>Connect Wallet</strong> button appears after email verification.</li>
                 <li><strong>Returning subscriber</strong> → the wallet you used here before is recognized after you verify your email.</li>
                 <li><strong>Use a different wallet</strong> → disconnect and pick another. Connecting a <em>new</em> wallet to a merchant you already subscribe to <strong>auto-revokes the old wallet's renewal delegation</strong>, so only one wallet ever bills you.</li>
-                <li><strong>Cross-chain renewals</strong> need an ERC-7715-capable wallet (e.g. MetaMask). Other wallets can still subscribe and pay on Arc.</li>
+                <li><strong>Recurring charges</strong> need an ERC-7715-capable wallet (e.g. MetaMask) — the grant is what authorizes every renewal after the first.</li>
               </ul>
             </Section>
 
@@ -229,37 +229,37 @@ export function DocsPage() {
               </p>
             </Section>
 
-            <Section id="revenue-escrow" title="Creator revenue & the escrow window">
+            <Section id="revenue-split" title="Creator revenue & settlement">
               <p>
-                <strong>Revenue allocation.</strong> The platform fee is <strong>2%</strong>{" "}
-                (<Code>PLATFORM_FEE_BPS=200</Code>, configurable) — so <strong>creators keep 98%</strong> of every charge. The split
+                <strong>Revenue allocation.</strong> The platform fee is <strong>3%</strong>{" "}
+                (<Code>PLATFORM_FEE_BPS=300</Code>) — so <strong>creators keep 97%</strong> of every charge. The split
                 is <Code>fee = amount × platformFeeBps / 10000</Code>: the creator receives <Code>amount − fee</Code> to their payout
-                wallet on Arc, and the fee goes to the platform treasury. The contract enforces a <strong>hard ceiling of 10%</strong>{" "}
-                (it rejects any fee above that), and the owner can adjust the fee on-chain anytime below that cap. Cross-chain
-                payments net the creator the <em>same</em> amount — the platform absorbs gas + bridge costs.
+                wallet on Arc, and the fee goes to the platform treasury. The split is computed off-chain when the charge settles
+                and paid out in the same bridge, so the creator's share never sits in a contract. The platform absorbs gas and
+                bridge costs out of its share, which is why a cross-chain charge nets the creator the <em>same</em> amount.
               </p>
               <p>
-                <strong>First-payment escrow.</strong> The first payment — and a trial's first conversion — is held in the
-                contract's per-subscription <strong>escrow</strong> until the settlement window closes
-                (<Code>SETTLEMENT_WINDOW_HOURS</Code>, default 24h). This window is the <strong>only refund path</strong>: cancel
-                during it and the escrow is returned to the subscriber in the same transaction. After it closes,
-                <Code>settlePeriod</Code> pushes the split to the creator + treasury (the billing engine sweeps hourly).
+                <strong>No escrow, no refund window.</strong> Every charge — the first one included — is pushed to the creator's
+                payout wallet as it settles. Nothing is held back, so there is <strong>no automatic refund path</strong>: once a
+                charge has settled, refunding it is a transfer the creator makes from their own wallet. Cancelling stops future
+                charges; it does not reverse past ones.
               </p>
               <p>
-                <strong>Renewals.</strong> Every charge after the first is split and <strong>pushed to the creator immediately</strong>,
-                no escrow hold. A failed renewal is retried daily for ~7 days before the subscription is cancelled.
+                <strong>Renewals.</strong> Each cycle the relayer redeems one period of the subscriber's grant on the source
+                chain, splits it and bridges the creator's share to Arc. A failed renewal is retried daily for ~7 days before the
+                subscription is cancelled.
               </p>
             </Section>
 
             <Section id="challenges" title="Common challenges (and fixes)">
               <ul className="list-disc space-y-2 pl-5">
-                <li><strong>Not enough USDC on Arc.</strong> The Arc option is shown but disabled with a clear message — use <strong>Pay from another chain</strong> instead (needs USDC on Base / Arbitrum / Optimism).</li>
-                <li><strong>Wallet can't enable cross-chain.</strong> Enabling cross-chain renewals needs an ERC-7715-capable wallet (MetaMask). If yours can't, you can still subscribe Arc-only.</li>
+                <li><strong>Not enough USDC.</strong> Checkout checks the balance on the chain you picked before asking for a signature — top up, or switch to another of Base / Arbitrum / Optimism.</li>
+                <li><strong>Wallet can't authorize renewals.</strong> Recurring charges need an ERC-7715-capable wallet (MetaMask). Wallets without it cannot subscribe yet.</li>
                 <li><strong>MetaMask "couldn't reach permission storage".</strong> Turn on MetaMask → Settings → <strong>Backup and sync</strong>, make sure you're signed in and online, then retry.</li>
                 <li><strong>Email not verified.</strong> Payment is blocked until you enter the 6-digit code sent to your email.</li>
-                <li><strong>Chain switching.</strong> To sign, your wallet must be on Arc — the app switches it for you; just approve the prompt.</li>
+                <li><strong>Chain switching.</strong> To sign, your wallet must be on the chain you are paying from — the app switches it for you; just approve the prompt.</li>
                 <li><strong>Cross-chain takes a moment.</strong> CCTP Fast usually settles in under a minute — keep the page open.</li>
-                <li><strong>Gas.</strong> Paying is gasless on every chain — the platform submits each transaction and covers gas and the bridge fee. The one exception is a wallet&apos;s <strong>one-time smart-account setup</strong> on a source chain (Base / Arbitrum / Optimism), which the wallet submits itself and costs the subscriber a few cents. Arc never needs it, and it is never charged again.</li>
+                <li><strong>Gas.</strong> Paying is gasless on every chain — the platform submits each transaction and covers gas and the bridge fee. The one exception is a wallet&apos;s <strong>one-time smart-account setup</strong> on each chain you pay from, which the wallet submits itself and costs the subscriber a few cents. It is never charged again for that chain.</li>
               </ul>
             </Section>
           </div>
@@ -311,10 +311,10 @@ export function DocsPage() {
                 <Row k="subscription.created" v="A new subscription was activated (first charge taken, or trial started)." />
                 <Row k="subscription.renewed" v="A recurring cycle was charged successfully." />
                 <Row k="subscription.past_due" v="A renewal failed; the subscription entered the retry window." />
-                <Row k="subscription.cancelled" v={<>The subscription ended. Carries <Code>refunded_escrow</Code> when escrow was returned on cancel.</>} />
+                <Row k="subscription.cancelled" v="The subscription ended; no further charges will be attempted." />
                 <Row k="payment.succeeded" v="A charge settled (first payment or a renewal)." />
                 <Row k="payment.failed" v="A charge attempt failed." />
-                <Row k="payment.refunded" v="A refund was issued to the subscriber (pro-rated from escrow)." />
+                <Row k="payment.refunded" v="Reserved — the platform issues no automatic refunds, so this is not currently emitted." />
               </div>
             </Section>
 

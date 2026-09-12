@@ -1,10 +1,10 @@
 // Client for the cross-chain checkout (CCTP V2, delegation-gated).
 //
-// Arc is primary. When Arc is short, the subscriber enables cross-chain ONCE:
-// an ERC-7715 delegation per funded source chain + an Arc permit (no fee). The
-// platform then funds + activates the subscription from a source chain, covering
-// gas + bridge from the 2% fee on each charge. This client exposes the grant plan,
-// per-chain delegation save, the activation kickoff, and status polling.
+// Every payment is cross-chain: Arc is settlement-only, so the subscriber grants
+// ONCE — an ERC-7715 delegation per funded source chain, no fee. The platform then
+// funds + activates the subscription from a granted chain, covering gas + bridge
+// from the platform fee on each charge (PLATFORM_FEE_BPS). This client exposes the
+// grant plan, per-chain delegation save, the activation kickoff, and status polling.
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -240,8 +240,8 @@ export function revokeGrant(
 }
 
 /// Fund + activate the subscription cross-chain. No subscriber fee — the platform
-/// covers gas + bridge from the 2% fee on each charge — and no Arc permit, because
-/// this path settles by minting to the merchant rather than through the contract.
+/// covers gas + bridge from the platform fee on each charge — and no permit or
+/// contract call, because this path settles by minting to the merchant directly.
 export function activateCrossChain(
   sessionId: string,
   body: {

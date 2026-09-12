@@ -250,7 +250,7 @@ delegationRouter.post("/internal/checkout/:session_id/delegation", async (req, r
 // delegation(s) via POST /delegation above. We fund
 // + activate the subscription from a granted source chain (detached; the UI polls
 // the sweep status). Idempotent per session — one non-failed sweep. The subscriber
-// pays no fee; the platform covers gas + bridge from the 2% fee on each charge.
+// pays no fee; the platform covers gas + bridge from the platform fee on each charge.
 const activateSchema = z.object({
   session_token: z.string().min(1),
   wallet_address: z.string().regex(ADDRESS_RE),
