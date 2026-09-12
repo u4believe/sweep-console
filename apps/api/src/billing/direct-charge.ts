@@ -18,6 +18,11 @@
 // ORDER MATTERS HERE. Funds move at redeemPeriodicTransfer, and from that instant
 // the BridgeTransfer owns the period: failures resume, they never re-pull. The row
 // is therefore written BEFORE the burn, exactly as the renewal path does it.
+//
+// Settling notifies BOTH sides: charge.succeeded to the developer, and a receipt
+// to the payer. A rail charge is a standing debit the payer never sees coming, so
+// silence towards them is not a missing nicety — it is the difference between a
+// receipt and an unexplained withdrawal.
 
 import type { Address, Hex } from "viem";
 import { prisma } from "../lib/prisma";
@@ -28,6 +33,7 @@ import { getRelayerAddress } from "../lib/chain/signers";
 import { mandateGrantsWhere, periodConsumed, mandatePeriodStart, periodCommitted } from "../lib/rail";
 import { advanceBridge } from "./bridge";
 import { fireWebhook } from "../lib/webhooks/delivery";
+import { sendRailChargeReceipt } from "../lib/email/rail-receipt";
 
 function platformFeeBps(): bigint {
   return BigInt(process.env.PLATFORM_FEE_BPS ?? "0");
@@ -197,6 +203,14 @@ async function recordChargeSettled(c: ChargeContext, chainKey: string, mintTxHas
     tx_hash: mintTxHash,
     description: c.description,
   }).catch((e) => console.error(`[charge] ${c.chargeId} webhook failed:`, e));
+
+  // The payer gets told too. The webhook goes to the DEVELOPER; without this the
+  // person whose wallet was debited on a standing authorization hears from
+  // nobody, which is indistinguishable from an unexplained withdrawal. Awaited
+  // rather than floated: executeCharge is the end of this charge's life, so a
+  // floating promise here would live only as long as the process and be dropped
+  // by a reload or a deploy. It never throws.
+  await sendRailChargeReceipt(c.id);
 }
 
 async function failCharge(c: ChargeContext, reason: string, detail: string) {

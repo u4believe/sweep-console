@@ -71,6 +71,15 @@ export interface ShellOptions {
   title: string;
   /// Already-built HTML rows, from the helpers below.
   body: string;
+  /**
+   * Replaces the footer's "where to find this" line.
+   *
+   * The default for a "notice" points at /manage, which lists SUBSCRIPTIONS. A
+   * payer on the external rail has none — their authorization is a mandate the
+   * developer's own app owns — so the default line would send them to an empty
+   * page and imply Sweep can manage something it cannot.
+   */
+  footerContact?: string;
 }
 
 /**
@@ -82,7 +91,9 @@ export function shell(o: ShellOptions): string {
   const lead = isNotice ? esc(o.merchantName ?? "") : "Sweep&nbsp;Console";
   const rightRail = isNotice ? "Notice<br>via Sweep&nbsp;Console" : "Account";
 
-  const footerContact = isNotice
+  const footerContact = o.footerContact
+    ? o.footerContact
+    : isNotice
     ? `Questions about your subscription? Contact ${esc(o.merchantName ?? "the merchant")} directly.
        Every subscription tied to this email address — across all merchants — is at
        <a href="${manageUrl()}" style="color:${ACCENT_DARK};text-decoration:underline;">${esc(manageUrl().replace(/^https?:\/\//, ""))}</a>.`

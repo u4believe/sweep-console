@@ -446,16 +446,23 @@ export function DocsPage() {
 
             <Section id="rail-notifications" title="What the payer is told">
               <p>
-                <strong>Nothing, today.</strong> The authorization page confirms the permission at signing time, and
-                after that Sweep sends the payer no email when a charge is collected — the events go to{" "}
-                <strong>you</strong>, over webhooks. Hosted subscriptions get a receipt email from Sweep; rail charges do
-                not.
+                <strong>Sweep emails them a receipt</strong> whenever a charge settles, to the <Code>email</Code> you
+                set on the mandate. It states what was taken, by whom, which chain it came from, the Arc transaction,
+                and the ceiling it was collected under — a standing debit the payer never sees coming reads as an
+                unexplained withdrawal otherwise.
               </p>
               <p>
-                So the receipt is yours to send. <Code>charge.succeeded</Code> carries everything one needs —{" "}
-                <Code>amount</Code>, <Code>source_chain</Code>, the Arc <Code>tx_hash</Code> and your{" "}
-                <Code>external_ref</Code> — and a payer who is debited on a standing authorization with no notice from
-                anyone will treat it as an unexplained withdrawal. Send something.
+                Two things it deliberately does <em>not</em> say, because Sweep cannot know them: a next-charge date
+                (your app owns the schedule) and a plan name. The only description the payer sees is the{" "}
+                <Code>description</Code> you send with the charge — so write it for them, not for your logs. And{" "}
+                <Code>email</Code> is optional on a mandate: omit it and no receipt can be sent.
+              </p>
+              <p>
+                The receipt tells them their one real control is revoking the permission in their own wallet, and that
+                a settled charge is not reversible by Sweep — refunds come from you. Product mail beyond the receipt
+                (dunning, renewal reminders, anything tied to your plans) is still yours to send;{" "}
+                <Code>charge.succeeded</Code> carries <Code>amount</Code>, <Code>source_chain</Code>, the Arc{" "}
+                <Code>tx_hash</Code> and your <Code>external_ref</Code>.
               </p>
               <p>
                 <strong>Trials are yours too.</strong> A mandate has no trial: it is an authorization, not a plan. A free

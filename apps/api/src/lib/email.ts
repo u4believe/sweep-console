@@ -427,3 +427,106 @@ export function receiptEmailHtml(d: ReceiptEmailData): string {
       ),
   });
 }
+
+/// "daily" is what the API takes and what the mandate stores; "day" is what a
+/// sentence needs. Same mapping the authorization page shows the payer, so the
+/// receipt reads back in the words they agreed in.
+const INTERVAL_NOUN: Record<string, string> = {
+  daily: "day",
+  weekly: "week",
+  monthly: "month",
+  yearly: "year",
+};
+
+export interface RailChargeReceiptData {
+  merchantName: string;
+  /// The developer's own line for what this charge was — the ONLY thing that
+  /// tells the payer what they bought. Sweep has no plan to name here.
+  description?: string | null;
+  /// Human-readable, e.g. "2.00".
+  amount: string;
+  currency: string;
+  chargedAt: Date;
+  /// Where the money came FROM — "Base", "Optimism".
+  paidFromChain: string;
+  walletAddress?: string | null;
+  txHash?: string | null;
+  explorerUrl?: string | null;
+  /// The standing authorization this was collected under, restated so the payer
+  /// can check the charge against what they agreed to.
+  ceiling: string;
+  interval: string;
+  authorizationExpiresAt: Date;
+}
+
+/**
+ * The receipt for one charge on the external rail.
+ *
+ * Deliberately NOT receiptEmailHtml with fields blanked out. That email is built
+ * around a subscription Sweep runs: a plan name, a billing period, the next
+ * renewal date, and a button to /manage. A mandate has none of those — the
+ * developer owns the schedule, so we genuinely do not know when the next charge
+ * lands, and /manage lists subscriptions this payer does not have. Every one of
+ * those fields would have to be a guess or a lie.
+ *
+ * What this one can say honestly: what was taken, by whom, from where, the proof
+ * on chain, the ceiling it was taken under, and the one control the payer
+ * actually holds — revoking the permission in their own wallet.
+ */
+export function railChargeReceiptEmailHtml(d: RailChargeReceiptData): string {
+  // "per daily" is not English. The interval is stored as an adjective because
+  // that is the word the API takes; every sentence here needs the noun, the same
+  // way the authorization page does it.
+  const noun = INTERVAL_NOUN[d.interval] ?? d.interval;
+  const paidFrom = d.walletAddress
+    ? `${esc(d.currency)} on ${esc(d.paidFromChain)} · ${esc(shortAddress(d.walletAddress))}`
+    : `${esc(d.currency)} on ${esc(d.paidFromChain)}`;
+
+  return shell({
+    preheader: `${d.merchantName} charged ${d.amount} ${d.currency} from your wallet.`,
+    sender: "notice",
+    merchantName: d.merchantName,
+    kicker: "Payment taken",
+    title: `${d.merchantName} charged ${d.amount} ${d.currency}`,
+    // /manage is keyed on subscriptions, which a mandate payer has none of.
+    footerContact:
+      `Questions about this charge? Contact ${esc(d.merchantName)} directly — they set the amount and ` +
+      `decide when to charge. Sweep Console moved the funds and never held them.`,
+    body:
+      heroAmount(
+        d.amount,
+        d.currency,
+        `Charged ${esc(DATE.format(d.chargedAt))} by <strong style="color:#201e1d;">${esc(d.merchantName)}</strong>` +
+          (d.description ? ` for ${esc(d.description)}` : "") +
+          `, under the permission you authorized from your wallet.`
+      ) +
+      detailRows([
+        ...(d.description ? [{ k: "For", v: esc(d.description) }] : []),
+        { k: "Paid from", v: paidFrom },
+        { k: "Settled on", v: "Arc" },
+        { k: "Network fee", v: "Covered", accent: true },
+        ...(d.txHash
+          ? [{
+              k: "Transaction",
+              v: d.explorerUrl
+                ? emailLink(`${shortHash(d.txHash)} · View on explorer`, d.explorerUrl)
+                : mono(d.txHash),
+            }]
+          : []),
+      ]) +
+      // The ceiling, not a next-charge date. Stating a date we do not know would
+      // be the one line in this email most likely to be wrong.
+      panel(
+        "Your authorization",
+        `Up to ${d.ceiling} ${d.currency} per ${esc(noun)}`,
+        `${esc(d.merchantName)} can charge up to this much in total per ${esc(noun)} — in one charge or ` +
+          `several — until ${esc(DATE.format(d.authorizationExpiresAt))}. They set their own schedule, so there ` +
+          `is no fixed next-charge date.`
+      ) +
+      fineprint(
+        `Didn't expect this? The permission lives in your wallet, not with us: revoke it there and no ` +
+        `further charge can be collected. Past charges settle directly to ${esc(d.merchantName)} and are not ` +
+        `reversible by Sweep Console — ask them for a refund.`
+      ),
+  });
+}
