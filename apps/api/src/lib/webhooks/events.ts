@@ -8,8 +8,11 @@
 // a subscribable event that never arrives is a silent failure, which is worse
 // than a loud one. Deliberately absent for that reason:
 // subscription.trial_started and subscription.trial_ending, which the public
-// API used to offer even though no call site has ever fired them. Add them here
-// when something does.
+// API used to offer even though no call site has ever fired them, and
+// payment.refunded, which the retired contract's escrow return was the only
+// thing that ever produced — a charge now settles straight to the merchant's
+// wallet, so the platform never holds funds it could give back. Add them here
+// when something does fire them.
 
 export const WEBHOOK_EVENTS = [
   "checkout.session.completed",
@@ -19,7 +22,6 @@ export const WEBHOOK_EVENTS = [
   "subscription.cancelled",
   "payment.succeeded",
   "payment.failed",
-  "payment.refunded",
   "mandate.authorized",
   "mandate.revoked",
   "charge.succeeded",
@@ -37,7 +39,6 @@ export const WEBHOOK_EVENT_DESCRIPTIONS: Record<WebhookEventType, string> = {
   "subscription.cancelled": "Billing stopped — by the subscriber, by you, or by a closed plan.",
   "payment.succeeded": "USDC settled on Arc for a charge.",
   "payment.failed": "A charge could not be collected.",
-  "payment.refunded": "Escrowed funds were returned on-chain.",
   "mandate.authorized":
     "A subscriber authorized recurring payments from their wallet on the external rail.",
   "mandate.revoked":

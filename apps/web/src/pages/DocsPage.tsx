@@ -292,7 +292,7 @@ export function DocsPage() {
   -H "Content-Type: application/json" \\
   -d '{
     "url": "https://yourapp.com/webhooks/sweep",
-    "events": ["subscription.created", "payment.succeeded", "payment.refunded"]
+    "events": ["subscription.created", "payment.succeeded", "subscription.cancelled"]
   }'`}</Pre>
               <p>
                 The response includes a <Code>secret</Code> — store it securely; it's how you confirm an incoming
@@ -314,7 +314,6 @@ export function DocsPage() {
                 <Row k="subscription.cancelled" v="The subscription ended; no further charges will be attempted." />
                 <Row k="payment.succeeded" v="A charge settled (first payment or a renewal)." />
                 <Row k="payment.failed" v="A charge attempt failed." />
-                <Row k="payment.refunded" v="Reserved — the platform issues no automatic refunds, so this is not currently emitted." />
               </div>
             </Section>
 
@@ -381,7 +380,6 @@ app.post("/webhooks/sweep", express.raw({ type: "application/json" }), (req, res
   const event = JSON.parse(req.body.toString("utf8"));
   switch (event.event_type) {
     case "payment.succeeded":      /* grant access for event.external_ref */ break;
-    case "payment.refunded":       /* reverse access / record the refund */  break;
     case "subscription.cancelled": /* revoke access */                       break;
   }
 
