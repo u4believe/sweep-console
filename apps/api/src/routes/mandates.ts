@@ -19,6 +19,7 @@ import { addHours } from "date-fns";
 import { prisma } from "../lib/prisma";
 import { ids } from "../lib/ids";
 import { verifyApiKey, type AuthedRequest } from "../middleware/auth";
+import { fireWebhook } from "../lib/webhooks/delivery";
 import { requireExternalRail } from "../middleware/externalRail";
 import { created, ok, err, validationError } from "../lib/response";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
@@ -211,7 +212,7 @@ mandatesRouter.delete("/:id", verifyApiKey, requireExternalRail, async (req, res
   const { merchant } = req as AuthedRequest;
   const mandate = await prisma.mandate.findFirst({
     where: { mandateId: req.params.id as string, merchantId: merchant.id },
-    select: { id: true, status: true },
+    select: { id: true, status: true, mandateId: true, externalRef: true },
   });
   if (!mandate) return err(res, "Mandate not found", 404, "not_found");
   if (mandate.status === "revoked") {
@@ -226,5 +227,20 @@ mandatesRouter.delete("/:id", verifyApiKey, requireExternalRail, async (req, res
     data: { status: "revoked", revokedAt: new Date() },
     select: SELECT,
   });
+
+  // mandate.revoked is offered in the portal's event picker, so something has to
+  // fire it. Nothing did until now: a merchant could subscribe and wait forever,
+  // which is the silent failure WEBHOOK_EVENTS exists to prevent. Not awaited —
+  // the revoke is already committed and a slow endpoint must not hold the reply.
+  void fireWebhook(merchant.id, mandate.externalRef, merchant.merchantId, "mandate.revoked", {
+    mandate_id: updated.mandateId,
+    external_ref: mandate.externalRef,
+    wallet_address: updated.walletAddress,
+    revoked_at: updated.revokedAt?.toISOString() ?? new Date().toISOString(),
+    // Says plainly what this did and did not do: the grants stay signed on-chain
+    // and only the subscriber's own wallet can disable them. We refuse to redeem.
+    on_chain: false,
+  }).catch((e) => console.error("[mandates/revoke] webhook failed:", e));
+
   return ok(res, serialize(updated));
 });

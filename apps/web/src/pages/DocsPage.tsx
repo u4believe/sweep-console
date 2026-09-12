@@ -86,6 +86,18 @@ const toc = [
     ],
   },
   {
+    group: "Payment rail (API)",
+    items: [
+      { id: "rail-overview", label: "What the rail is" },
+      { id: "rail-mandates", label: "Create a mandate" },
+      { id: "rail-authorize", label: "The authorization page" },
+      { id: "rail-charges", label: "Collect a charge" },
+      { id: "rail-limits", label: "Limits & refusals" },
+      { id: "rail-idempotency", label: "Idempotency" },
+      { id: "rail-notifications", label: "What the payer is told" },
+    ],
+  },
+  {
     group: "Webhooks",
     items: [
       { id: "webhooks", label: "Set up an endpoint" },
@@ -264,6 +276,195 @@ export function DocsPage() {
             </Section>
           </div>
 
+          {/* ── Payment rail ───────────────────────────────────────────── */}
+          <div className="mt-16">
+            <p className="text-sm font-semibold uppercase tracking-wide text-brand-600">Payment rail (API)</p>
+            <h2 className="mt-1 text-3xl font-bold tracking-tight text-gray-900">Charge a wallet from your own app</h2>
+          </div>
+
+          <div className="mt-8 space-y-10">
+            <Section id="rail-overview" title="What the rail is">
+              <p>
+                Everything above describes Sweep&apos;s <strong>hosted</strong> product: you create a plan, we run the
+                checkout, and we own the billing clock. The <strong>rail</strong> is the other half — your app keeps its
+                own plans, prices and schedule, and uses Sweep only to move USDC out of a subscriber&apos;s wallet on a
+                standing authorization.
+              </p>
+              <p>
+                Two objects. A <strong>mandate</strong> is one payer&apos;s signed, capped permission for one merchant.
+                A <strong>charge</strong> is one pull against it. You decide when to charge; nothing here has a
+                schedule of its own, and the renewal cron never touches a mandate.
+              </p>
+              <p>
+                The rail is an entitlement rather than a setting: <Code>/v1/mandates</Code> and <Code>/v1/charges</Code>{" "}
+                answer <Code>403 rail_not_enabled</Code> until your account is granted access. It is also the first
+                place where a leaked API key moves money to whoever holds it — treat the key accordingly.
+              </p>
+              <div className="rounded-xl border border-gray-200 px-5 py-1">
+                <Row k="1 · POST /v1/mandates" v="You create a pending mandate and get back an authorization URL." />
+                <Row k="2 · you send the payer there" v="They connect a wallet and sign one permission per chain." />
+                <Row k="3 · mandate.authorized" v="The mandate flips to active. Now it can be charged." />
+                <Row k="4 · POST /v1/charges" v={<>One pull, whenever your billing logic says so. Answers <Code>202</Code>.</>} />
+                <Row k="5 · charge.succeeded" v="Settled on Arc, in the merchant's payout wallet." />
+              </div>
+            </Section>
+
+            <Section id="rail-mandates" title="Create a mandate">
+              <p>
+                A mandate cannot be created server-to-server, because the permission is a wallet signature. Creating one
+                mints a <Code>pending</Code> row and returns a hosted URL for the payer to open — the same redirect
+                shape as a hosted checkout.
+              </p>
+              <Pre>{`curl -X POST https://api.sweepconsole.com/v1/mandates \
+  -H "Authorization: Bearer $SWEEP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "external_ref": "user_8412",
+    "email": "ada@example.com",
+    "max_amount": 5000000,
+    "interval": "daily",
+    "chains": ["base", "arbitrum", "optimism"],
+    "expires_at": "2027-09-12T00:00:00.000Z",
+    "metadata": { "plan": "pro" }
+  }'`}</Pre>
+              <div className="rounded-xl border border-gray-200 px-5 py-1">
+                <Row k="external_ref" v="Your own id for the payer. Echoed on every event, so you never have to store ours." />
+                <Row k="max_amount" v={<>USDC in micro-units — <Code>5000000</Code> is 5 USDC. An integer, because a float here is a rounding bug that ends in someone being charged the wrong amount.</>} />
+                <Row k="interval" v={<><Code>daily</Code>, <Code>weekly</Code>, <Code>monthly</Code> or <Code>yearly</Code> — the period the ceiling applies to.</>} />
+                <Row k="chains" v={<>Where the payer may authorize. <Code>arc</Code> is rejected: recurring authority there is a permit to a contract, not the wallet permission this rail redeems.</>} />
+                <Row k="expires_at" v="When the authorization stops being redeemable. Distinct from the link's own lifetime." />
+              </div>
+              <p>
+                The response carries <Code>authorization_url</Code> and, separately,{" "}
+                <Code>authorization_url_expires_at</Code> — the <em>link</em> lasts 24 hours, the <em>mandate</em> lasts
+                until <Code>expires_at</Code>. Conflating them ships a broken email. Once the mandate is authorized,{" "}
+                <Code>authorization_url</Code> comes back <Code>null</Code>.
+              </p>
+            </Section>
+
+            <Section id="rail-authorize" title="The authorization page">
+              <p>
+                Send the payer to <Code>authorization_url</Code>. They connect a wallet and sign one{" "}
+                <strong>ERC-7715 permission per chain</strong>. They may sign fewer chains than you asked for — the
+                grants are the truth about what is redeemable, and a skipped chain can be added later by reopening the
+                link while it is valid.
+              </p>
+              <p>
+                Signing needs an ERC-7715-capable wallet (MetaMask today). The first grant on a chain also performs that
+                wallet&apos;s one-time smart-account setup, which the wallet submits itself and costs the payer a few
+                cents of gas on that chain. Every charge after that is gasless for them.
+              </p>
+              <p>
+                When at least one chain is signed the mandate becomes <Code>active</Code> and{" "}
+                <Code>mandate.authorized</Code> fires with the <Code>chain_ids</Code> that were actually granted. That
+                event is your signal to start charging — not the redirect, which the payer can close.
+              </p>
+            </Section>
+
+            <Section id="rail-charges" title="Collect a charge">
+              <p>
+                One pull, when your billing logic says it is time. An <Code>Idempotency-Key</Code> header is{" "}
+                <strong>required</strong>, not advisory.
+              </p>
+              <Pre>{`curl -X POST https://api.sweepconsole.com/v1/charges \
+  -H "Authorization: Bearer $SWEEP_API_KEY" \
+  -H "Idempotency-Key: invoice_2026_09_user_8412" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "mandate": "mdt_44d0a31d527ab8cda253",
+    "amount": 2000000,
+    "description": "Pro plan — September"
+  }'
+
+# 202 Accepted
+{ "id": "chg_7ed2374c97ea164c4e27", "status": "pending", "amount": 2000000, ... }`}</Pre>
+              <p>
+                It answers <Code>202</Code>, never <Code>200</Code>. Every charge is cross-chain — Arc cannot back a
+                mandate — so collecting is a pull, a burn, an attestation and a mint: <strong>seconds to minutes</strong>.
+                The charge row exists the moment we answer; the money arrives later. Learn the outcome from{" "}
+                <Code>charge.succeeded</Code> / <Code>charge.failed</Code>, or by polling{" "}
+                <Code>GET /v1/charges/:id</Code>.
+              </p>
+              <p>
+                <strong>Which chain pays.</strong> You do not choose. Sweep takes the mandate&apos;s active grants, drops
+                any whose signed cap cannot cover the amount, drops any already redeemed this period, scans live
+                balances, and takes the <strong>first chain that covers the amount on its own</strong>. There is no
+                aggregation: 3 USDC on Base and 3 on Optimism will not fund a 5 USDC charge. The chain that paid comes
+                back as <Code>source_chain</Code>; <Code>tx_hash</Code> is always the <strong>Arc</strong> settlement, so
+                do not go looking for it on Base.
+              </p>
+            </Section>
+
+            <Section id="rail-limits" title="Limits & refusals">
+              <p>
+                The ceiling belongs to the <strong>mandate</strong>, not to a chain. A payer who signs on two chains has
+                two independent on-chain caps; Sweep sums charges across them so <Code>max_amount</Code> per{" "}
+                <Code>interval</Code> means what it says. The period is a fixed window anchored at the moment the payer
+                authorized — not a rolling one.
+              </p>
+              <p>
+                A <Code>pending</Code> charge holds its share of the ceiling while it settles. A charge that fails
+                releases it.
+              </p>
+              <div className="rounded-xl border border-gray-200 px-5 py-1">
+                <Row k="403 rail_not_enabled" v="Your account has not been granted the rail." />
+                <Row k="409 mandate_revoked / mandate_not_active" v="The payer withdrew it, or it was never authorized." />
+                <Row k="422 amount_over_cap" v="This single charge is larger than max_amount." />
+                <Row k="422 period_cap_exceeded" v={<>It fits under <Code>max_amount</Code> but not under what is left this period. The message names what is committed, what remains, and when the period resets.</>} />
+                <Row k="409 charge_conflict" v="Two charges against one mandate committed at the same instant. Retry with the same Idempotency-Key." />
+                <Row k="charge.failed · insufficient_funds" v="No granted chain holds the full amount on its own. Asynchronous — the charge was accepted, then could not be collected." />
+                <Row k="charge.failed · mandate_period_consumed" v="Every granted chain has already been redeemed this period, even if the mandate's own ceiling has room." />
+              </div>
+              <p>
+                A failed charge leaves the mandate <Code>active</Code>. Nothing about the rail cancels an authorization
+                on your behalf — only the payer, from their wallet, or you, via{" "}
+                <Code>DELETE /v1/mandates/:id</Code>, which is idempotent and fires <Code>mandate.revoked</Code>. That
+                revoke is a decision Sweep records and honours, not a cryptographic one: the grants stay signed on
+                chain, because only the payer&apos;s own wallet can disable them. We stop redeeming them.
+              </p>
+            </Section>
+
+            <Section id="rail-idempotency" title="Idempotency">
+              <p>
+                Send a unique <Code>Idempotency-Key</Code> per charge — a natural one, like your invoice id, beats a
+                random one. The key is claimed <em>before</em> the mandate is read, so two identical requests racing
+                each other cannot both reach it.
+              </p>
+              <div className="rounded-xl border border-gray-200 px-5 py-1">
+                <Row k="same key, same body" v={<>Replays the original response. <Code>202</Code>, same charge id, no second pull.</>} />
+                <Row k="same key, different body" v={<><Code>422 idempotency_key_reused</Code>. A new charge needs a new key.</>} />
+                <Row k="key still in flight" v={<><Code>409 idempotency_key_in_flight</Code>. Retry shortly.</>} />
+                <Row k="no key" v={<><Code>400 idempotency_key_required</Code>.</>} />
+              </div>
+              <p>
+                <strong>A replay returns the response as it was when the charge was created</strong> — typically{" "}
+                <Code>status: &quot;pending&quot;</Code> with a null <Code>tx_hash</Code>, even if the charge has since
+                settled. That is deliberate: a replay is a copy of the original answer, not a status check. For current
+                state use <Code>GET /v1/charges/:id</Code>.
+              </p>
+            </Section>
+
+            <Section id="rail-notifications" title="What the payer is told">
+              <p>
+                <strong>Nothing, today.</strong> The authorization page confirms the permission at signing time, and
+                after that Sweep sends the payer no email when a charge is collected — the events go to{" "}
+                <strong>you</strong>, over webhooks. Hosted subscriptions get a receipt email from Sweep; rail charges do
+                not.
+              </p>
+              <p>
+                So the receipt is yours to send. <Code>charge.succeeded</Code> carries everything one needs —{" "}
+                <Code>amount</Code>, <Code>source_chain</Code>, the Arc <Code>tx_hash</Code> and your{" "}
+                <Code>external_ref</Code> — and a payer who is debited on a standing authorization with no notice from
+                anyone will treat it as an unexplained withdrawal. Send something.
+              </p>
+              <p>
+                <strong>Trials are yours too.</strong> A mandate has no trial: it is an authorization, not a plan. A free
+                period on the rail is simply you not calling <Code>POST /v1/charges</Code> until it ends. Authorize on
+                day one, charge on day fifteen — the mandate sits active and costs the payer nothing in between.
+              </p>
+            </Section>
+          </div>
+
           {/* ── Webhooks ────────────────────────────────────────────────── */}
           <div className="mt-16">
             <p className="text-sm font-semibold uppercase tracking-wide text-brand-600">Webhooks</p>
@@ -314,6 +515,16 @@ export function DocsPage() {
                 <Row k="subscription.cancelled" v="The subscription ended; no further charges will be attempted." />
                 <Row k="payment.succeeded" v="A charge settled (first payment or a renewal)." />
                 <Row k="payment.failed" v="A charge attempt failed." />
+              </div>
+              <p className="mt-6">
+                These four belong to the <a href="#rail-overview" className="text-brand-700 underline">payment rail</a>{" "}
+                and only fire for accounts it is enabled on.
+              </p>
+              <div className="rounded-xl border border-gray-200 px-5 py-1">
+                <Row k="mandate.authorized" v={<>A payer signed. Carries the <Code>chain_ids</Code> actually granted — start charging on this, not on the redirect.</>} />
+                <Row k="mandate.revoked" v="The authorization was closed and will not be redeemed again." />
+                <Row k="charge.succeeded" v={<>A pull settled on Arc. Carries <Code>source_chain</Code> and the Arc <Code>tx_hash</Code>.</>} />
+                <Row k="charge.failed" v={<>A pull could not be collected. Carries <Code>failure_code</Code> — <Code>insufficient_funds</Code>, <Code>mandate_period_consumed</Code> and so on.</>} />
               </div>
             </Section>
 
