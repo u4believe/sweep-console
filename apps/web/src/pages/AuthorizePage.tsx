@@ -210,8 +210,9 @@ export function AuthorizePage() {
           <span className="ml-1 text-base font-medium text-gray-500">per {noun} maximum</span>
         </p>
         <p className="mt-2 text-sm text-gray-600">
-          {view.merchant_name} can charge you up to this much once per {noun}. They cannot take more, and they cannot
-          charge twice in the same {noun} — that limit is enforced by your wallet, not by us.
+          {view.merchant_name} can charge you up to this much in total per {noun} — in one charge or several. They
+          cannot take more. Each chain you authorize enforces its own share in your wallet; Sweep enforces the total
+          across them.
         </p>
       </div>
 

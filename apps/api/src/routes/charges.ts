@@ -10,6 +10,13 @@
 // mandate — so collection is a pull, a burn, an attestation and a mint: seconds
 // to minutes. The charge row exists the moment we answer; the money arrives later
 // and the developer learns by webhook or by polling GET /v1/charges/:id.
+//
+// The per-period ceiling is enforced HERE, against the mandate, because on-chain
+// it is not: each grant carries its own enforcer cap, so a subscriber who signs
+// on two chains has two independent ceilings and "up to 5 USDC per day" silently
+// means 5 per day per chain. The signed caps still bound every individual redeem
+// — nothing here can exceed them — but only this sum makes the number the
+// subscriber was shown the number they actually agreed to.
 
 import { Router } from "express";
 import { z } from "zod";
@@ -21,6 +28,7 @@ import { requireExternalRail } from "../middleware/externalRail";
 import { ok, err, validationError } from "../lib/response";
 import { claimKey, completeKey, releaseKey, hashRequest } from "../lib/idempotency";
 import { executeCharge } from "../billing/direct-charge";
+import { mandatePeriodStart, periodCommitted } from "../lib/rail";
 
 export const chargesRouter = Router();
 
@@ -126,48 +134,110 @@ chargesRouter.post("/", verifyApiKey, requireExternalRail, async (req, res) => {
         );
   }
 
-  const mandate = await prisma.mandate.findFirst({
-    where: { mandateId: d.mandate, merchantId: merchant.id },
-    select: { id: true, mandateId: true, status: true, externalRef: true, maxAmount: true },
-  });
-  if (!mandate) {
-    await releaseKey(claim.id);
-    return err(res, "Mandate not found", 404, "not_found");
-  }
+  // Reading the mandate, checking the ceiling and reserving against it happen in
+  // ONE serializable transaction. The ceiling is a sum over existing charges, so
+  // checking it outside the write is a read-then-write race: two requests with
+  // different idempotency keys both see an empty period and both collect the full
+  // amount. Serializable is what makes the sum below a fact at commit time rather
+  // than a guess from a moment ago.
+  let outcome:
+    | { kind: "ok"; charge: ChargeRow & { id: string } }
+    | { kind: "refused"; status: number; message: string; code: string };
+  try {
+    outcome = await prisma.$transaction(
+      async (tx) => {
+        const mandate = await tx.mandate.findFirst({
+          where: { mandateId: d.mandate, merchantId: merchant.id },
+          select: {
+            id: true, mandateId: true, status: true, externalRef: true,
+            maxAmount: true, periodDuration: true, authorizedAt: true, createdAt: true,
+          },
+        });
+        if (!mandate) {
+          return { kind: "refused" as const, status: 404, message: "Mandate not found", code: "not_found" };
+        }
 
-  // Refusals that need no on-chain lookup are answered synchronously, because a
-  // developer would rather be told "revoked" now than poll for it.
-  if (mandate.status !== "active") {
-    await releaseKey(claim.id);
-    const code = mandate.status === "revoked" ? "mandate_revoked" : "mandate_not_active";
-    return err(res, `This mandate is ${mandate.status}, so it cannot be charged.`, 409, code);
-  }
-  if (BigInt(d.amount) > mandate.maxAmount) {
-    await releaseKey(claim.id);
-    return err(
-      res,
-      `${d.amount} exceeds the ${mandate.maxAmount} per-period ceiling the subscriber authorized.`,
-      422,
-      "amount_over_cap"
+        // Refusals that need no on-chain lookup are answered synchronously,
+        // because a developer would rather be told "revoked" now than poll for it.
+        if (mandate.status !== "active") {
+          return {
+            kind: "refused" as const,
+            status: 409,
+            message: `This mandate is ${mandate.status}, so it cannot be charged.`,
+            code: mandate.status === "revoked" ? "mandate_revoked" : "mandate_not_active",
+          };
+        }
+        if (BigInt(d.amount) > mandate.maxAmount) {
+          return {
+            kind: "refused" as const,
+            status: 422,
+            message: `${d.amount} exceeds the ${mandate.maxAmount} per-period ceiling the subscriber authorized.`,
+            code: "amount_over_cap",
+          };
+        }
+
+        // The ceiling belongs to the MANDATE, not to a chain. Each grant carries
+        // its own enforcer cap, so a subscriber who signed on two chains has two
+        // independent on-chain ceilings — and without this, "up to 5 USDC per day"
+        // meant 5 per day per chain. The signed caps still bound each redeem; this
+        // is what makes the number the subscriber was shown the real one.
+        const since = mandatePeriodStart(mandate);
+        const committed = await periodCommitted(tx, mandate.id, since);
+        const remaining = mandate.maxAmount - committed;
+        if (BigInt(d.amount) > remaining) {
+          return {
+            kind: "refused" as const,
+            status: 422,
+            message:
+              `${d.amount} exceeds what is left of this mandate's ${mandate.maxAmount} ceiling for the ` +
+              `current period: ${committed} is already committed, leaving ${remaining < 0n ? 0n : remaining}. ` +
+              `The period resets at ${new Date(since.getTime() + mandate.periodDuration * 1000).toISOString()}.`,
+            code: "period_cap_exceeded",
+          };
+        }
+
+        const created = await tx.charge.create({
+          data: {
+            chargeId: ids.charge(),
+            merchantId: merchant.id,
+            mandateId: mandate.id,
+            amount: BigInt(d.amount),
+            status: "pending",
+            description: d.description ?? null,
+            // Copied at charge time rather than read through the relation, so the
+            // event reflects what the mandate said when the charge was made.
+            externalRef: mandate.externalRef,
+            metadata: (d.metadata ?? {}) as Prisma.InputJsonValue,
+            isTestMode,
+          },
+          select: { ...SELECT, id: true },
+        });
+        return { kind: "ok" as const, charge: created };
+      },
+      { isolationLevel: "Serializable" }
     );
+  } catch (e) {
+    // Two charges against one mandate can genuinely collide here. That is the
+    // transaction doing its job, not an error the developer caused — tell them to
+    // retry rather than leaving the key claimed and the outcome unknown.
+    await releaseKey(claim.id);
+    const code = (e as { code?: string }).code;
+    if (code === "P2034") {
+      return err(
+        res,
+        "Another charge against this mandate committed at the same moment. Retry with the same Idempotency-Key.",
+        409,
+        "charge_conflict"
+      );
+    }
+    throw e;
   }
 
-  const charge = await prisma.charge.create({
-    data: {
-      chargeId: ids.charge(),
-      merchantId: merchant.id,
-      mandateId: mandate.id,
-      amount: BigInt(d.amount),
-      status: "pending",
-      description: d.description ?? null,
-      // Copied at charge time rather than read through the relation, so the event
-      // reflects what the mandate said when the charge was made.
-      externalRef: mandate.externalRef,
-      metadata: (d.metadata ?? {}) as Prisma.InputJsonValue,
-      isTestMode,
-    },
-    select: { ...SELECT, id: true },
-  });
+  if (outcome.kind === "refused") {
+    await releaseKey(claim.id);
+    return err(res, outcome.message, outcome.status, outcome.code);
+  }
+  const charge = outcome.charge;
 
   const body = serialize(charge);
   await completeKey(claim.id, 202, body);

@@ -25,7 +25,7 @@ import { selectPaymentChain } from "../lib/gateway/selector";
 import { chainKeyForId, getSourceChain } from "../lib/gateway/chains";
 import { redeemPeriodicTransfer, decodePeriodTransferTerms } from "../lib/chain/delegation";
 import { getRelayerAddress } from "../lib/chain/signers";
-import { mandateGrantsWhere, periodConsumed } from "../lib/rail";
+import { mandateGrantsWhere, periodConsumed, mandatePeriodStart, periodCommitted } from "../lib/rail";
 import { advanceBridge } from "./bridge";
 import { fireWebhook } from "../lib/webhooks/delivery";
 
@@ -39,6 +39,7 @@ export type ChargeRefusal =
   | "mandate_not_active"
   | "mandate_expired"
   | "amount_over_cap"
+  | "period_cap_exceeded"
   | "mandate_period_consumed"
   | "insufficient_funds"
   | "no_payout_wallet"
@@ -63,6 +64,7 @@ async function loadCharge(chargeDbId: string) {
         select: {
           id: true, mandateId: true, status: true, expiresAt: true,
           maxAmount: true, periodDuration: true, walletAddress: true,
+          authorizedAt: true, createdAt: true,
         },
       },
     },
@@ -84,6 +86,21 @@ export async function planCharge(c: ChargeContext) {
     throw new ChargeError(
       "amount_over_cap",
       `Charge ${c.amount} exceeds the mandate's authorized ceiling ${m.maxAmount}`
+    );
+  }
+
+  // Re-checked here, not only at the route. The route reserves against the period
+  // inside a serializable transaction, but this runs later — seconds to minutes,
+  // and after a resume it can be much later — by which time the period may have
+  // rolled or other charges may have settled. Excluding this charge's own row
+  // matters: it was counted at reservation time and would otherwise refuse itself.
+  const since = mandatePeriodStart(m);
+  const committed = await periodCommitted(prisma, m.id, since, c.id);
+  if (committed + c.amount > m.maxAmount) {
+    throw new ChargeError(
+      "period_cap_exceeded",
+      `Charge ${c.amount} would take this mandate to ${committed + c.amount} against a ` +
+        `${m.maxAmount} ceiling for the period beginning ${since.toISOString()}`
     );
   }
   if (!c.merchant.walletAddress) {
