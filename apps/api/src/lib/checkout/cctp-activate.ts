@@ -117,6 +117,42 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
     });
     if (mandates.length === 0) throw new Error("no granted delegation for this session");
 
+    // A TRIAL TAKES NO MONEY. Nothing below this point may run for one: the
+    // redeem, the burn and the mint are all a charge, and the subscriber was told
+    // the first period is free.
+    //
+    // This used to be the contract's job. subscribeWithPermit received
+    // trialDuration and escrowed nothing, and the mint went to the SUBSCRIBER'S
+    // own Arc address — so the pull was a transfer between the subscriber's own
+    // chains and cost them nothing. Re-pointing that mint at the merchant turned
+    // the same pull into a payment, and the trial check went out with the
+    // contract. One free trial was charged 5 USDC before this was caught.
+    //
+    // The grant is already signed and bound to the session, so the first real
+    // collection happens when the trial ends: transitionTrials flips the status
+    // and leaves the period due, and the renewal pass collects it.
+    if (tier.trialDays > 0) {
+      await setSweepStatus(sweepDbId, "complete");
+      await completeCheckoutSession({
+        session,
+        walletAddress: subscriber,
+        activationMethod: "cctp",
+        email: sweep.subscriberEmail,
+        customerDbId: sweep.customerId,
+        // No transaction, because nothing moved. A tx hash here would point at
+        // something that never happened.
+        platformSettled: true,
+      });
+      await withRetry(() =>
+        prisma.sweep.update({
+          where: { id: sweepDbId },
+          data: { status: "complete", error: null },
+        })
+      );
+      console.log(`[checkout/cctp] ${sweep.sweepId} activated on a ${tier.trialDays}-day trial — no funds moved`);
+      return;
+    }
+
     const grantedKeys = mandates
       .map((m) => chainKeyForId(m.chainId))
       .filter((k): k is string => !!k && k !== "arc");
