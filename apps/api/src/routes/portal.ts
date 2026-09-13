@@ -12,8 +12,14 @@ import { verifyPortalSession } from "../middleware/portalAuth";
 import type { PortalRequest } from "../middleware/portalAuth";
 import { closePlanSubscriptions, findSubsToClose } from "../lib/plan-lifecycle";
 import { requireStepUp } from "../lib/portal/stepup";
-import { WEBHOOK_EVENTS, WEBHOOK_EVENT_DESCRIPTIONS } from "../lib/webhooks/events";
-import { assertDeliverableUrl, WebhookUrlError } from "../lib/webhooks/url-guard";
+import {
+  WEBHOOK_EVENTS,
+  WEBHOOK_EVENT_DESCRIPTIONS,
+} from "../lib/webhooks/events";
+import {
+  assertDeliverableUrl,
+  WebhookUrlError,
+} from "../lib/webhooks/url-guard";
 import { securityRouter } from "./portal-security";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
 
@@ -50,19 +56,38 @@ portalRouter.get("/dashboard", async (req, res) => {
   try {
     // Sequential queries (not Promise.all) so only one connection is used at a time.
     // This avoids P1001/P2024 errors when the connection pool is cold or constrained.
-    const activeSubs = await withRetry(() => prisma.subscription.count({
-      where: { merchantId: dbId, status: { in: ["active", "trialing"] } },
-    }));
-    const revenue = await withRetry(() => prisma.payment.aggregate({
-      where: { merchantId: dbId, status: "succeeded", type: { in: ["initial", "renewal"] } },
-      _sum: { amount: true },
-    }));
-    const plans = await withRetry(() => prisma.plan.count({ where: { merchantId: dbId, archived: false } }));
-    const failedPayments = await withRetry(() => prisma.payment.count({ where: { merchantId: dbId, status: "failed" } }));
-    const merchant = await withRetry(() => prisma.merchant.findUniqueOrThrow({
-      where: { id: dbId },
-      select: { walletAddress: true, walletType: true, addressVerifiedAt: true, externalRailEnabled: true },
-    }));
+    const activeSubs = await withRetry(() =>
+      prisma.subscription.count({
+        where: { merchantId: dbId, status: { in: ["active", "trialing"] } },
+      }),
+    );
+    const revenue = await withRetry(() =>
+      prisma.payment.aggregate({
+        where: {
+          merchantId: dbId,
+          status: "succeeded",
+          type: { in: ["initial", "renewal"] },
+        },
+        _sum: { amount: true },
+      }),
+    );
+    const plans = await withRetry(() =>
+      prisma.plan.count({ where: { merchantId: dbId, archived: false } }),
+    );
+    const failedPayments = await withRetry(() =>
+      prisma.payment.count({ where: { merchantId: dbId, status: "failed" } }),
+    );
+    const merchant = await withRetry(() =>
+      prisma.merchant.findUniqueOrThrow({
+        where: { id: dbId },
+        select: {
+          walletAddress: true,
+          walletType: true,
+          addressVerifiedAt: true,
+          externalRailEnabled: true,
+        },
+      }),
+    );
 
     // Rail figures are reported SEPARATELY and never folded into the totals above.
     // The two are different products with different clocks — subscriptions Sweep
@@ -78,15 +103,19 @@ portalRouter.get("/dashboard", async (req, res) => {
                 prisma.charge.aggregate({
                   where: { merchantId: dbId, status: "succeeded" },
                   _sum: { amount: true },
-                })
+                }),
               )
-            )._sum.amount ?? 0n
+            )._sum.amount ?? 0n,
           ),
           activeMandates: await withRetry(() =>
-            prisma.mandate.count({ where: { merchantId: dbId, status: "active" } })
+            prisma.mandate.count({
+              where: { merchantId: dbId, status: "active" },
+            }),
           ),
           failedCharges: await withRetry(() =>
-            prisma.charge.count({ where: { merchantId: dbId, status: "failed" } })
+            prisma.charge.count({
+              where: { merchantId: dbId, status: "failed" },
+            }),
           ),
         }
       : { enabled: false, collected: 0, activeMandates: 0, failedCharges: 0 };
@@ -146,8 +175,15 @@ portalRouter.get("/me", async (req, res) => {
 
 /// The loosely-typed bag on Plan.metadata that carries the default tier's
 /// presentation. Mirrors the reader in routes/public.ts.
-function planMeta(metadata: unknown): { defaultTierName?: string; defaultFeatures?: string[] } | null {
-  return (metadata as { defaultTierName?: string; defaultFeatures?: string[] } | null) ?? null;
+function planMeta(
+  metadata: unknown,
+): { defaultTierName?: string; defaultFeatures?: string[] } | null {
+  return (
+    (metadata as {
+      defaultTierName?: string;
+      defaultFeatures?: string[];
+    } | null) ?? null
+  );
 }
 
 /// Seconds in each billing interval, for normalising to a monthly run-rate.
@@ -155,7 +191,10 @@ const MONTH_SECONDS = INTERVAL_SECONDS.monthly;
 
 /// One period's amount as a monthly run-rate, in USDC micro-units.
 function monthlyMicro(amountMicro: bigint, interval: string): number {
-  return Number(amountMicro) * (MONTH_SECONDS / (INTERVAL_SECONDS[interval] ?? MONTH_SECONDS));
+  return (
+    Number(amountMicro) *
+    (MONTH_SECONDS / (INTERVAL_SECONDS[interval] ?? MONTH_SECONDS))
+  );
 }
 
 portalRouter.get("/plans", async (req, res) => {
@@ -192,8 +231,9 @@ portalRouter.get("/plans", async (req, res) => {
         // subscription's own amount and interval, which is what a plan with
         // tiers is actually earning.
         mrr: p.subscriptions.reduce(
-          (sum, s) => sum + monthlyMicro(s.amount ?? p.amount, s.interval ?? p.interval),
-          0
+          (sum, s) =>
+            sum + monthlyMicro(s.amount ?? p.amount, s.interval ?? p.interval),
+          0,
         ),
         default_tier_name: planMeta(p.metadata)?.defaultTierName ?? null,
         // The default tier's feature list, so the portal's plan preview can show
@@ -234,9 +274,15 @@ portalRouter.post("/plans", async (req, res) => {
 
   const parsed = createPlanSchema.safeParse(req.body);
   if (!parsed.success) {
-    return validationError(res, Object.fromEntries(
-      Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [k, v?.[0] ?? "Invalid"])
-    ));
+    return validationError(
+      res,
+      Object.fromEntries(
+        Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [
+          k,
+          v?.[0] ?? "Invalid",
+        ]),
+      ),
+    );
   }
 
   try {
@@ -246,11 +292,28 @@ portalRouter.post("/plans", async (req, res) => {
       select: { id: true },
     });
     if (activePlan) {
-      return err(res, "You already have an active plan. Delete it before creating a new one.", 409, "plan_exists");
+      return err(
+        res,
+        "You already have an active plan. Delete it before creating a new one.",
+        409,
+        "plan_exists",
+      );
     }
 
-    const { name, description, amount, currency, interval, trial_days, settlement_window_hours, metadata } = parsed.data;
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 20);
+    const {
+      name,
+      description,
+      amount,
+      currency,
+      interval,
+      trial_days,
+      settlement_window_hours,
+      metadata,
+    } = parsed.data;
+    const slug = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .slice(0, 20);
 
     const plan = await prisma.plan.create({
       data: {
@@ -283,33 +346,47 @@ portalRouter.post("/plans", async (req, res) => {
 
 // Delete (close) a plan: soft-delete + self-enforced cancel/refund/notify of every
 // subscriber. Responds immediately with how many subs are being closed.
-portalRouter.delete("/plans/:id", requireStepUp("plan.delete"), async (req, res) => {
-  const dbId = (req as unknown as PortalRequest).merchantDbId;
-  try {
-    const plan = await prisma.plan.findFirst({
-      where: { planId: req.params.id as string, merchantId: dbId },
-    });
-    if (!plan) return err(res, "Plan not found", 404);
-    if (plan.archived) return ok(res, { archived: true, cancelling: 0 });
+portalRouter.delete(
+  "/plans/:id",
+  requireStepUp("plan.delete"),
+  async (req, res) => {
+    const dbId = (req as unknown as PortalRequest).merchantDbId;
+    try {
+      const plan = await prisma.plan.findFirst({
+        where: { planId: req.params.id as string, merchantId: dbId },
+      });
+      if (!plan) return err(res, "Plan not found", 404);
+      if (plan.archived) return ok(res, { archived: true, cancelling: 0 });
 
-    await prisma.plan.update({ where: { id: plan.id }, data: { archived: true } });
+      await prisma.plan.update({
+        where: { id: plan.id },
+        data: { archived: true },
+      });
 
-    const merchant = await prisma.merchant.findUniqueOrThrow({
-      where: { id: dbId },
-      select: { name: true, merchantId: true },
-    });
-    const subs = await findSubsToClose(plan.id);
-    void closePlanSubscriptions(
-      { name: plan.name, currency: plan.currency, merchantName: merchant.name, merchantPublicId: merchant.merchantId },
-      subs
-    ).catch((e) => console.error("[portal/plans DELETE] closing subscriptions failed:", e));
+      const merchant = await prisma.merchant.findUniqueOrThrow({
+        where: { id: dbId },
+        select: { name: true, merchantId: true },
+      });
+      const subs = await findSubsToClose(plan.id);
+      void closePlanSubscriptions(
+        {
+          name: plan.name,
+          currency: plan.currency,
+          merchantName: merchant.name,
+          merchantPublicId: merchant.merchantId,
+        },
+        subs,
+      ).catch((e) =>
+        console.error("[portal/plans DELETE] closing subscriptions failed:", e),
+      );
 
-    return ok(res, { archived: true, cancelling: subs.length });
-  } catch (e) {
-    console.error("[portal/plans DELETE]", e);
-    return err(res, "Failed to delete plan", 500);
-  }
-});
+      return ok(res, { archived: true, cancelling: subs.length });
+    } catch (e) {
+      console.error("[portal/plans DELETE]", e);
+      return err(res, "Failed to delete plan", 500);
+    }
+  },
+);
 
 // ─── Recommended tier ─────────────────────────────────────────────────────────
 // Which tier checkout badges. Presentational only: it changes no price, no
@@ -323,11 +400,20 @@ const recommendedSchema = z.object({
 portalRouter.patch("/plans/:id/recommended", async (req, res) => {
   const dbId = (req as unknown as PortalRequest).merchantDbId;
   const parsed = recommendedSchema.safeParse(req.body);
-  if (!parsed.success) return err(res, "recommended_tier_id must be a tier id, \"default\", or null", 422);
+  if (!parsed.success)
+    return err(
+      res,
+      'recommended_tier_id must be a tier id, "default", or null',
+      422,
+    );
 
   try {
     const plan = await prisma.plan.findFirst({
-      where: { planId: req.params.id as string, merchantId: dbId, archived: false },
+      where: {
+        planId: req.params.id as string,
+        merchantId: dbId,
+        archived: false,
+      },
       include: { tiers: { where: { archived: false }, select: { id: true } } },
     });
     if (!plan) return err(res, "Plan not found", 404);
@@ -335,11 +421,18 @@ portalRouter.patch("/plans/:id/recommended", async (req, res) => {
     const wanted = parsed.data.recommended_tier_id;
     // Only a live tier on THIS plan can be recommended — otherwise checkout
     // would badge nothing and the setting would look silently broken.
-    if (wanted !== null && wanted !== "default" && !plan.tiers.some((t) => t.id === wanted)) {
+    if (
+      wanted !== null &&
+      wanted !== "default" &&
+      !plan.tiers.some((t) => t.id === wanted)
+    ) {
       return err(res, "That tier does not belong to this plan", 404);
     }
 
-    await prisma.plan.update({ where: { id: plan.id }, data: { recommendedTierId: wanted } });
+    await prisma.plan.update({
+      where: { id: plan.id },
+      data: { recommendedTierId: wanted },
+    });
     return ok(res, { recommended_tier_id: wanted });
   } catch (e) {
     console.error("[portal/plans recommended PATCH]", e);
@@ -360,13 +453,23 @@ portalRouter.post("/plans/:id/tiers", async (req, res) => {
   const dbId = (req as unknown as PortalRequest).merchantDbId;
   const parsed = createTierSchema.safeParse(req.body);
   if (!parsed.success) {
-    return validationError(res, Object.fromEntries(
-      Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [k, v?.[0] ?? "Invalid"])
-    ));
+    return validationError(
+      res,
+      Object.fromEntries(
+        Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [
+          k,
+          v?.[0] ?? "Invalid",
+        ]),
+      ),
+    );
   }
   try {
     const plan = await prisma.plan.findFirst({
-      where: { planId: req.params.id as string, merchantId: dbId, archived: false },
+      where: {
+        planId: req.params.id as string,
+        merchantId: dbId,
+        archived: false,
+      },
     });
     if (!plan) return err(res, "Plan not found", 404);
     const d = parsed.data;
@@ -377,7 +480,8 @@ portalRouter.post("/plans/:id/tiers", async (req, res) => {
         amount: BigInt(d.amount),
         interval: d.interval,
         trialDays: d.trial_days,
-        features: (d.features ?? undefined) as Prisma.InputJsonValue | undefined,
+        features: (d.features ?? undefined) as
+          Prisma.InputJsonValue | undefined,
       },
     });
     return created(res, {
@@ -407,7 +511,9 @@ const updateTierSchema = z
     features: z.array(z.string().max(200)).max(20).optional(),
   })
   .strict() // surfaces an attempt to edit a locked term instead of ignoring it
-  .refine((d) => Object.keys(d).length > 0, { message: "No editable fields provided" });
+  .refine((d) => Object.keys(d).length > 0, {
+    message: "No editable fields provided",
+  });
 
 /// The billing terms, named in the refusal so the caller knows which field was
 /// rejected rather than getting a bare "unrecognized key".
@@ -415,7 +521,10 @@ const LOCKED_TIER_TERMS = ["amount", "interval", "trial_days"];
 
 function lockedTermIn(body: unknown): string | null {
   if (!body || typeof body !== "object") return null;
-  return LOCKED_TIER_TERMS.find((k) => k in (body as Record<string, unknown>)) ?? null;
+  return (
+    LOCKED_TIER_TERMS.find((k) => k in (body as Record<string, unknown>)) ??
+    null
+  );
 }
 
 portalRouter.patch("/plans/:id/tiers/:tierId", async (req, res) => {
@@ -426,20 +535,30 @@ portalRouter.patch("/plans/:id/tiers/:tierId", async (req, res) => {
     return err(
       res,
       `A tier's price, interval and trial are fixed once it exists (${locked}). Add a new tier to sell different terms.`,
-      422
+      422,
     );
   }
 
   const parsed = updateTierSchema.safeParse(req.body);
   if (!parsed.success) {
-    return validationError(res, Object.fromEntries(
-      Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [k, v?.[0] ?? "Invalid"])
-    ));
+    return validationError(
+      res,
+      Object.fromEntries(
+        Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [
+          k,
+          v?.[0] ?? "Invalid",
+        ]),
+      ),
+    );
   }
 
   try {
     const plan = await prisma.plan.findFirst({
-      where: { planId: req.params.id as string, merchantId: dbId, archived: false },
+      where: {
+        planId: req.params.id as string,
+        merchantId: dbId,
+        archived: false,
+      },
       select: { id: true },
     });
     if (!plan) return err(res, "Plan not found", 404);
@@ -448,15 +567,23 @@ portalRouter.patch("/plans/:id/tiers/:tierId", async (req, res) => {
     // Scope the update by planId too, so a tierId from another merchant's plan
     // can't be written through this route.
     const result = await prisma.planTier.updateMany({
-      where: { id: req.params.tierId as string, planId: plan.id, archived: false },
+      where: {
+        id: req.params.tierId as string,
+        planId: plan.id,
+        archived: false,
+      },
       data: {
         ...(d.name !== undefined ? { name: d.name } : {}),
-        ...(d.features !== undefined ? { features: d.features as Prisma.InputJsonValue } : {}),
+        ...(d.features !== undefined
+          ? { features: d.features as Prisma.InputJsonValue }
+          : {}),
       },
     });
     if (result.count === 0) return err(res, "Tier not found", 404);
 
-    const tier = await prisma.planTier.findUnique({ where: { id: req.params.tierId as string } });
+    const tier = await prisma.planTier.findUnique({
+      where: { id: req.params.tierId as string },
+    });
     return ok(res, {
       id: tier!.id,
       name: tier!.name,
@@ -486,20 +613,30 @@ portalRouter.patch("/plans/:id/default-tier", async (req, res) => {
     return err(
       res,
       `The default tier's price, interval and trial are the plan's own terms and are fixed (${locked}). Add a tier to sell different terms.`,
-      422
+      422,
     );
   }
 
   const parsed = updateTierSchema.safeParse(req.body);
   if (!parsed.success) {
-    return validationError(res, Object.fromEntries(
-      Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [k, v?.[0] ?? "Invalid"])
-    ));
+    return validationError(
+      res,
+      Object.fromEntries(
+        Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [
+          k,
+          v?.[0] ?? "Invalid",
+        ]),
+      ),
+    );
   }
 
   try {
     const plan = await prisma.plan.findFirst({
-      where: { planId: req.params.id as string, merchantId: dbId, archived: false },
+      where: {
+        planId: req.params.id as string,
+        merchantId: dbId,
+        archived: false,
+      },
       select: { id: true, metadata: true },
     });
     if (!plan) return err(res, "Plan not found", 404);
@@ -534,30 +671,40 @@ portalRouter.patch("/plans/:id/default-tier", async (req, res) => {
 
 // Archive a tier (append-only model: tiers aren't edited, only retired). Existing
 // subscriptions snapshot their terms, so archiving never changes a live sub.
-portalRouter.delete("/plans/:id/tiers/:tierId", requireStepUp("tier.delete"), async (req, res) => {
-  const dbId = (req as unknown as PortalRequest).merchantDbId;
-  try {
-    const plan = await prisma.plan.findFirst({
-      where: { planId: req.params.id as string, merchantId: dbId },
-      select: { id: true, recommendedTierId: true },
-    });
-    if (!plan) return err(res, "Plan not found", 404);
-    const tierId = req.params.tierId as string;
-    await prisma.planTier.updateMany({
-      where: { id: tierId, planId: plan.id },
-      data: { archived: true },
-    });
-    // Retiring the recommended tier must clear the badge too — otherwise the
-    // plan points at an archived tier and checkout silently badges nothing.
-    if (plan.recommendedTierId === tierId) {
-      await prisma.plan.update({ where: { id: plan.id }, data: { recommendedTierId: null } });
+portalRouter.delete(
+  "/plans/:id/tiers/:tierId",
+  requireStepUp("tier.delete"),
+  async (req, res) => {
+    const dbId = (req as unknown as PortalRequest).merchantDbId;
+    try {
+      const plan = await prisma.plan.findFirst({
+        where: { planId: req.params.id as string, merchantId: dbId },
+        select: { id: true, recommendedTierId: true },
+      });
+      if (!plan) return err(res, "Plan not found", 404);
+      const tierId = req.params.tierId as string;
+      await prisma.planTier.updateMany({
+        where: { id: tierId, planId: plan.id },
+        data: { archived: true },
+      });
+      // Retiring the recommended tier must clear the badge too — otherwise the
+      // plan points at an archived tier and checkout silently badges nothing.
+      if (plan.recommendedTierId === tierId) {
+        await prisma.plan.update({
+          where: { id: plan.id },
+          data: { recommendedTierId: null },
+        });
+      }
+      return ok(res, {
+        archived: true,
+        recommended_cleared: plan.recommendedTierId === tierId,
+      });
+    } catch (e) {
+      console.error("[portal/plans tiers DELETE]", e);
+      return err(res, "Failed to archive tier", 500);
     }
-    return ok(res, { archived: true, recommended_cleared: plan.recommendedTierId === tierId });
-  } catch (e) {
-    console.error("[portal/plans tiers DELETE]", e);
-    return err(res, "Failed to archive tier", 500);
-  }
-});
+  },
+);
 
 // ─── Payment Links ────────────────────────────────────────────────────────────
 // Reusable, shareable checkout URLs (Stripe Payment Link model). Each visit
@@ -573,7 +720,17 @@ portalRouter.get("/payment-links", async (req, res) => {
   try {
     const links = await prisma.paymentLink.findMany({
       where: { merchantId: dbId, active: true },
-      include: { plan: { select: { name: true, planId: true, amount: true, currency: true, interval: true } } },
+      include: {
+        plan: {
+          select: {
+            name: true,
+            planId: true,
+            amount: true,
+            currency: true,
+            interval: true,
+          },
+        },
+      },
       orderBy: { createdAt: "desc" },
     });
     return ok(res, {
@@ -605,9 +762,15 @@ portalRouter.post("/payment-links", async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
   const parsed = createPaymentLinkSchema.safeParse(req.body);
   if (!parsed.success) {
-    return validationError(res, Object.fromEntries(
-      Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [k, v?.[0] ?? "Invalid"])
-    ));
+    return validationError(
+      res,
+      Object.fromEntries(
+        Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [
+          k,
+          v?.[0] ?? "Invalid",
+        ]),
+      ),
+    );
   }
   const { plan_id, success_url, cancel_url } = parsed.data;
 
@@ -622,7 +785,11 @@ portalRouter.post("/payment-links", async (req, res) => {
       where: { merchantId: dbId, planId: plan.id, active: true },
     });
     if (existing) {
-      return ok(res, { id: existing.linkId, url: paymentLinkUrl(existing.linkId), reused: true });
+      return ok(res, {
+        id: existing.linkId,
+        url: paymentLinkUrl(existing.linkId),
+        reused: true,
+      });
     }
 
     const link = await prisma.paymentLink.create({
@@ -647,7 +814,11 @@ portalRouter.delete("/payment-links/:id", async (req, res) => {
   const dbId = (req as unknown as PortalRequest).merchantDbId;
   try {
     const count = await prisma.paymentLink.updateMany({
-      where: { linkId: req.params.id as string, merchantId: dbId, active: true },
+      where: {
+        linkId: req.params.id as string,
+        merchantId: dbId,
+        active: true,
+      },
       data: { active: false },
     });
     if (count.count === 0) return err(res, "Payment link not found", 404);
@@ -677,7 +848,7 @@ portalRouter.get("/rail", async (req, res) => {
       prisma.merchant.findUnique({
         where: { id: dbId },
         select: { externalRailEnabled: true, walletAddress: true },
-      })
+      }),
     );
     if (!merchant) return err(res, "Merchant not found", 404, "not_found");
 
@@ -686,23 +857,46 @@ portalRouter.get("/rail", async (req, res) => {
     // like "you have no activity".
     if (!merchant.externalRailEnabled) {
       return ok(res, {
-        enabled: false,
-        payoutWallet: merchant.walletAddress,
-        mandates: [],
-        charges: [],
-        totals: { collected: 0, pendingCount: 0, failedCount: 0, activeMandates: 0 },
+        data: {
+          enabled: false,
+          payoutWallet: merchant.walletAddress,
+          mandates: [],
+          charges: [],
+          totals: {
+            collected: 0,
+            pendingCount: 0,
+            failedCount: 0,
+            activeMandates: 0,
+          },
+        },
       });
     }
 
-    const [mandates, charges, collected, pendingCount, failedCount, activeMandates] = await Promise.all([
+    const [
+      mandates,
+      charges,
+      collected,
+      pendingCount,
+      failedCount,
+      activeMandates,
+    ] = await Promise.all([
       prisma.mandate.findMany({
         where: { merchantId: dbId },
         orderBy: { createdAt: "desc" },
         take: 50,
         select: {
-          mandateId: true, externalRef: true, email: true, walletAddress: true,
-          maxAmount: true, interval: true, status: true, isTestMode: true,
-          expiresAt: true, authorizedAt: true, revokedAt: true, createdAt: true,
+          mandateId: true,
+          externalRef: true,
+          email: true,
+          walletAddress: true,
+          maxAmount: true,
+          interval: true,
+          status: true,
+          isTestMode: true,
+          expiresAt: true,
+          authorizedAt: true,
+          revokedAt: true,
+          createdAt: true,
           _count: { select: { charges: true } },
         },
       }),
@@ -711,61 +905,75 @@ portalRouter.get("/rail", async (req, res) => {
         orderBy: { createdAt: "desc" },
         take: 50,
         select: {
-          chargeId: true, amount: true, currency: true, status: true, description: true,
-          chain: true, txHash: true, createdAt: true, settledAt: true, failureReason: true,
-          isTestMode: true, mandate: { select: { mandateId: true, externalRef: true } },
+          chargeId: true,
+          amount: true,
+          currency: true,
+          status: true,
+          description: true,
+          chain: true,
+          txHash: true,
+          createdAt: true,
+          settledAt: true,
+          failureReason: true,
+          isTestMode: true,
+          mandate: { select: { mandateId: true, externalRef: true } },
         },
       }),
       // Gross collected. The creator's share is this less the platform fee, which
       // is taken on the source chain before the bridge — so this is what the payers
       // were charged, not what landed on Arc.
-      prisma.charge.aggregate({ where: { merchantId: dbId, status: "succeeded" }, _sum: { amount: true } }),
+      prisma.charge.aggregate({
+        where: { merchantId: dbId, status: "succeeded" },
+        _sum: { amount: true },
+      }),
       prisma.charge.count({ where: { merchantId: dbId, status: "pending" } }),
       prisma.charge.count({ where: { merchantId: dbId, status: "failed" } }),
       prisma.mandate.count({ where: { merchantId: dbId, status: "active" } }),
     ]);
 
     return ok(res, {
-      enabled: true,
-      payoutWallet: merchant.walletAddress,
-      totals: {
-        collected: Number(collected._sum.amount ?? 0n),
-        pendingCount,
-        failedCount,
-        activeMandates,
+      data: {
+        enabled: true,
+        payoutWallet: merchant.walletAddress,
+        totals: {
+          collected: Number(collected._sum.amount ?? 0n),
+          pendingCount,
+          failedCount,
+          activeMandates,
+        },
+        mandates: mandates.map((m) => ({
+          id: m.mandateId,
+          externalRef: m.externalRef,
+          email: m.email,
+          walletAddress: m.walletAddress,
+          maxAmount: Number(m.maxAmount),
+          interval: m.interval,
+          status: m.status,
+          isTestMode: m.isTestMode,
+          chargeCount: m._count.charges,
+          expiresAt: m.expiresAt.toISOString(),
+          authorizedAt: m.authorizedAt?.toISOString() ?? null,
+          revokedAt: m.revokedAt?.toISOString() ?? null,
+          createdAt: m.createdAt.toISOString(),
+        })),
+        charges: charges.map((c) => ({
+          id: c.chargeId,
+          mandateId: c.mandate.mandateId,
+          externalRef: c.mandate.externalRef,
+          amount: Number(c.amount),
+          currency: c.currency,
+          status: c.status,
+          description: c.description,
+          // Where the money came FROM. It always settles on Arc, which is why the
+          // hash and the chain name disagree — see the note on the page.
+          sourceChain: c.chain,
+          txHash: c.txHash,
+          failureReason: c.failureReason,
+          isTestMode: c.isTestMode,
+          createdAt: c.createdAt.toISOString(),
+          settledAt: c.settledAt?.toISOString() ?? null,
+        })),
       },
-      mandates: mandates.map((m) => ({
-        id: m.mandateId,
-        externalRef: m.externalRef,
-        email: m.email,
-        walletAddress: m.walletAddress,
-        maxAmount: Number(m.maxAmount),
-        interval: m.interval,
-        status: m.status,
-        isTestMode: m.isTestMode,
-        chargeCount: m._count.charges,
-        expiresAt: m.expiresAt.toISOString(),
-        authorizedAt: m.authorizedAt?.toISOString() ?? null,
-        revokedAt: m.revokedAt?.toISOString() ?? null,
-        createdAt: m.createdAt.toISOString(),
-      })),
-      charges: charges.map((c) => ({
-        id: c.chargeId,
-        mandateId: c.mandate.mandateId,
-        externalRef: c.mandate.externalRef,
-        amount: Number(c.amount),
-        currency: c.currency,
-        status: c.status,
-        description: c.description,
-        // Where the money came FROM. It always settles on Arc, which is why the
-        // hash and the chain name disagree — see the note on the page.
-        sourceChain: c.chain,
-        txHash: c.txHash,
-        failureReason: c.failureReason,
-        isTestMode: c.isTestMode,
-        createdAt: c.createdAt.toISOString(),
-        settledAt: c.settledAt?.toISOString() ?? null,
-      })),
     });
   } catch (e) {
     console.error("[portal/rail]", e);
@@ -816,20 +1024,30 @@ portalRouter.get("/payments", async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
 
   const days = Number(req.query.days);
-  const scopedDays = Number.isFinite(days) ? Math.min(Math.max(Math.trunc(days), 1), 90) : null;
+  const scopedDays = Number.isFinite(days)
+    ? Math.min(Math.max(Math.trunc(days), 1), 90)
+    : null;
 
   const limit = Number(req.query.limit);
-  const take = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 2000) : 100;
+  const take = Number.isFinite(limit)
+    ? Math.min(Math.max(Math.trunc(limit), 1), 2000)
+    : 100;
 
   try {
     const payments = await prisma.payment.findMany({
       where: {
         merchantId: dbId,
         ...(scopedDays
-          ? { createdAt: { gte: new Date(Date.now() - scopedDays * 86_400_000) } }
+          ? {
+              createdAt: {
+                gte: new Date(Date.now() - scopedDays * 86_400_000),
+              },
+            }
           : {}),
       },
-      include: { subscription: { include: { plan: { select: { name: true } } } } },
+      include: {
+        subscription: { include: { plan: { select: { name: true } } } },
+      },
       orderBy: { createdAt: "desc" },
       take,
     });
@@ -865,7 +1083,10 @@ portalRouter.get("/webhooks", async (req, res) => {
       orderBy: { createdAt: "desc" },
     });
     return ok(res, {
-      available_events: WEBHOOK_EVENTS.map((e) => ({ id: e, description: WEBHOOK_EVENT_DESCRIPTIONS[e] })),
+      available_events: WEBHOOK_EVENTS.map((e) => ({
+        id: e,
+        description: WEBHOOK_EVENT_DESCRIPTIONS[e],
+      })),
       data: endpoints.map((ep) => ({
         id: ep.endpointId,
         url: ep.url,
@@ -928,7 +1149,11 @@ portalRouter.post(
     const address = (req.body.walletAddress as string | undefined)?.trim();
 
     if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
-      return err(res, "Invalid wallet address. Must be a 0x-prefixed 20-byte hex string.", 400);
+      return err(
+        res,
+        "Invalid wallet address. Must be a 0x-prefixed 20-byte hex string.",
+        400,
+      );
     }
 
     // Ownership of the account is proven by requireStepUp above, not by a
@@ -956,7 +1181,7 @@ portalRouter.post(
       console.error("[portal/wallet/external]", e);
       return err(res, "Failed to start wallet verification", 500);
     }
-  }
+  },
 );
 
 // Step 2 — verify the personal_sign signature and activate the payout address.
@@ -979,24 +1204,42 @@ portalRouter.post("/wallet/external/verify", async (req, res) => {
           walletNonce: true,
           walletNonceExpiresAt: true,
         },
-      })
+      }),
     );
 
     if (!merchant.pendingWalletAddress || !merchant.walletNonce) {
-      return err(res, "No wallet verification in progress. Submit the address first.", 409);
+      return err(
+        res,
+        "No wallet verification in progress. Submit the address first.",
+        409,
+      );
     }
-    if (!merchant.walletNonceExpiresAt || merchant.walletNonceExpiresAt < new Date()) {
-      return err(res, "Verification nonce expired. Submit the address again.", 410);
+    if (
+      !merchant.walletNonceExpiresAt ||
+      merchant.walletNonceExpiresAt < new Date()
+    ) {
+      return err(
+        res,
+        "Verification nonce expired. Submit the address again.",
+        410,
+      );
     }
 
     const valid = await verifyMessage({
       address: merchant.pendingWalletAddress as `0x${string}`,
-      message: walletVerificationMessage(merchant.pendingWalletAddress, merchant.walletNonce),
+      message: walletVerificationMessage(
+        merchant.pendingWalletAddress,
+        merchant.walletNonce,
+      ),
       signature: signature as `0x${string}`,
     });
 
     if (!valid) {
-      return err(res, "Signature was not produced by the pending wallet address.", 401);
+      return err(
+        res,
+        "Signature was not produced by the pending wallet address.",
+        401,
+      );
     }
 
     const verifiedAt = new Date();
@@ -1019,7 +1262,12 @@ portalRouter.post("/wallet/external/verify", async (req, res) => {
       subject: "Your Sweep Console payout wallet was updated",
       html: payoutWalletEmailHtml(merchant.name, merchant.pendingWalletAddress),
       text: `Your Sweep Console payout wallet was verified and set to ${merchant.pendingWalletAddress}. If you did not make this change, reset your password immediately and turn on an authenticator app.`,
-    }).catch((e) => console.warn("[portal/wallet/external/verify] notification email failed:", e));
+    }).catch((e) =>
+      console.warn(
+        "[portal/wallet/external/verify] notification email failed:",
+        e,
+      ),
+    );
 
     return ok(res, {
       walletAddress: merchant.pendingWalletAddress,
@@ -1031,25 +1279,29 @@ portalRouter.post("/wallet/external/verify", async (req, res) => {
   }
 });
 
-portalRouter.post("/wallet/unlink", requireStepUp("wallet.unlink"), async (req, res) => {
-  const dbId = (req as PortalRequest).merchantDbId;
-  try {
-    await prisma.merchant.update({
-      where: { id: dbId },
-      data: {
-        walletAddress: null,
-        addressVerifiedAt: null,
-        pendingWalletAddress: null,
-        walletNonce: null,
-        walletNonceExpiresAt: null,
-      },
-    });
-    return ok(res, { success: true });
-  } catch (e) {
-    console.error("[portal/wallet/unlink]", e);
-    return err(res, "Failed to unlink wallet", 500);
-  }
-});
+portalRouter.post(
+  "/wallet/unlink",
+  requireStepUp("wallet.unlink"),
+  async (req, res) => {
+    const dbId = (req as PortalRequest).merchantDbId;
+    try {
+      await prisma.merchant.update({
+        where: { id: dbId },
+        data: {
+          walletAddress: null,
+          addressVerifiedAt: null,
+          pendingWalletAddress: null,
+          walletNonce: null,
+          walletNonceExpiresAt: null,
+        },
+      });
+      return ok(res, { success: true });
+    } catch (e) {
+      console.error("[portal/wallet/unlink]", e);
+      return err(res, "Failed to unlink wallet", 500);
+    }
+  },
+);
 
 portalRouter.post("/wallet/circle", async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
@@ -1059,14 +1311,22 @@ portalRouter.post("/wallet/circle", async (req, res) => {
       prisma.merchant.findUniqueOrThrow({
         where: { id: dbId },
         select: { walletType: true },
-      })
+      }),
     );
 
     if (merchant.walletType === "circle") {
-      return err(res, "A Circle wallet was already created for this account.", 409);
+      return err(
+        res,
+        "A Circle wallet was already created for this account.",
+        409,
+      );
     }
 
-    try { await createCircleUser(dbId); } catch { /* may already exist */ }
+    try {
+      await createCircleUser(dbId);
+    } catch {
+      /* may already exist */
+    }
 
     const { userToken, encryptionKey } = await getCircleUserToken(dbId);
 
@@ -1074,18 +1334,29 @@ portalRouter.post("/wallet/circle", async (req, res) => {
     // a wallet — return it directly without needing a new challenge.
     try {
       const existingWallets = await getCircleWallets(userToken);
-      const existing = existingWallets.find((w) => w.state === "LIVE") ?? existingWallets[0];
+      const existing =
+        existingWallets.find((w) => w.state === "LIVE") ?? existingWallets[0];
       if (existing) {
         await withRetry(() =>
           prisma.merchant.update({
             where: { id: dbId },
             // Circle user-controlled wallets (path A) are ownership-implicit
-            data: { walletAddress: existing.address.toLowerCase(), walletType: "circle", circleWalletId: existing.id, addressVerifiedAt: new Date() },
-          })
+            data: {
+              walletAddress: existing.address.toLowerCase(),
+              walletType: "circle",
+              circleWalletId: existing.id,
+              addressVerifiedAt: new Date(),
+            },
+          }),
         );
-        return ok(res, { walletAddress: existing.address.toLowerCase(), alreadySetup: true });
+        return ok(res, {
+          walletAddress: existing.address.toLowerCase(),
+          alreadySetup: true,
+        });
       }
-    } catch { /* no wallets yet — fall through to initialize */ }
+    } catch {
+      /* no wallets yet — fall through to initialize */
+    }
 
     let challengeId: string;
     try {
@@ -1107,7 +1378,8 @@ portalRouter.post("/wallet/circle", async (req, res) => {
     });
   } catch (e) {
     console.error("[portal/wallet/circle]", e);
-    const message = e instanceof Error ? e.message : "Failed to start wallet creation";
+    const message =
+      e instanceof Error ? e.message : "Failed to start wallet creation";
     return err(res, message, 502);
   }
 });
@@ -1127,17 +1399,26 @@ portalRouter.post("/wallet/circle/confirm", async (req, res) => {
       try {
         const cs = await getCircleChallengeStatus(userToken, challengeId);
         const { status, correlationIds } = cs.challenge;
-        console.log(`[portal/wallet/confirm] challenge ${challengeId}: ${status}, correlationIds:`, correlationIds);
+        console.log(
+          `[portal/wallet/confirm] challenge ${challengeId}: ${status}, correlationIds:`,
+          correlationIds,
+        );
 
         if (status === "COMPLETE" && correlationIds?.length) {
           for (const walletId of correlationIds) {
             const w = await getCircleWalletById(walletId);
             console.log(`[portal/wallet/confirm] wallet ${walletId}:`, w);
-            if (w?.address) { wallet = w; break; }
+            if (w?.address) {
+              wallet = w;
+              break;
+            }
           }
         }
       } catch (e) {
-        console.warn("[portal/wallet/confirm] challenge status fetch failed:", (e as Error).message);
+        console.warn(
+          "[portal/wallet/confirm] challenge status fetch failed:",
+          (e as Error).message,
+        );
       }
     }
 
@@ -1157,13 +1438,22 @@ portalRouter.post("/wallet/circle/confirm", async (req, res) => {
     }
 
     if (!wallet) {
-      return err(res, "Wallet not found — the Circle challenge may not have completed. Please try again.", 404);
+      return err(
+        res,
+        "Wallet not found — the Circle challenge may not have completed. Please try again.",
+        404,
+      );
     }
 
     await prisma.merchant.update({
       where: { id: dbId },
       // Circle user-controlled wallets (path A) are ownership-implicit
-      data: { walletAddress: wallet.address.toLowerCase(), walletType: "circle", circleWalletId: wallet.id, addressVerifiedAt: new Date() },
+      data: {
+        walletAddress: wallet.address.toLowerCase(),
+        walletType: "circle",
+        circleWalletId: wallet.id,
+        addressVerifiedAt: new Date(),
+      },
     });
 
     return ok(res, { walletAddress: wallet.address.toLowerCase() });
@@ -1174,36 +1464,45 @@ portalRouter.post("/wallet/circle/confirm", async (req, res) => {
   }
 });
 
-portalRouter.post("/wallet/relink-circle", requireStepUp("wallet.change"), async (req, res) => {
-  const dbId = (req as PortalRequest).merchantDbId;
-  try {
-    const merchant = await prisma.merchant.findUniqueOrThrow({
-      where: { id: dbId },
-      select: { walletType: true },
-    });
+portalRouter.post(
+  "/wallet/relink-circle",
+  requireStepUp("wallet.change"),
+  async (req, res) => {
+    const dbId = (req as PortalRequest).merchantDbId;
+    try {
+      const merchant = await prisma.merchant.findUniqueOrThrow({
+        where: { id: dbId },
+        select: { walletType: true },
+      });
 
-    if (merchant.walletType !== "circle") {
-      return err(res, "No Circle wallet is associated with this account.", 400);
+      if (merchant.walletType !== "circle") {
+        return err(
+          res,
+          "No Circle wallet is associated with this account.",
+          400,
+        );
+      }
+
+      const { userToken } = await getCircleUserToken(dbId);
+      const wallets = await getCircleWallets(userToken);
+      const wallet = wallets.find((w) => w.state === "LIVE") ?? wallets[0];
+
+      if (!wallet) return err(res, "Could not find your Circle wallet.", 404);
+
+      await prisma.merchant.update({
+        where: { id: dbId },
+        data: { walletAddress: wallet.address.toLowerCase() },
+      });
+
+      return ok(res, { walletAddress: wallet.address.toLowerCase() });
+    } catch (e) {
+      console.error("[portal/wallet/relink-circle]", e);
+      const message =
+        e instanceof Error ? e.message : "Failed to re-link wallet";
+      return err(res, message, 502);
     }
-
-    const { userToken } = await getCircleUserToken(dbId);
-    const wallets = await getCircleWallets(userToken);
-    const wallet = wallets.find((w) => w.state === "LIVE") ?? wallets[0];
-
-    if (!wallet) return err(res, "Could not find your Circle wallet.", 404);
-
-    await prisma.merchant.update({
-      where: { id: dbId },
-      data: { walletAddress: wallet.address.toLowerCase() },
-    });
-
-    return ok(res, { walletAddress: wallet.address.toLowerCase() });
-  } catch (e) {
-    console.error("[portal/wallet/relink-circle]", e);
-    const message = e instanceof Error ? e.message : "Failed to re-link wallet";
-    return err(res, message, 502);
-  }
-});
+  },
+);
 
 // ─── GET /portal/api-keys ─────────────────────────────────────────────────────
 
@@ -1242,14 +1541,21 @@ portalRouter.get("/wallet/circle/balance", async (req, res) => {
     const merchant = await withRetry(() =>
       prisma.merchant.findUniqueOrThrow({
         where: { id: dbId },
-        select: { walletType: true, circleWalletId: true, usdcBalance: true, balanceUpdatedAt: true },
-      })
+        select: {
+          walletType: true,
+          circleWalletId: true,
+          usdcBalance: true,
+          balanceUpdatedAt: true,
+        },
+      }),
     );
     if (merchant.walletType !== "circle" || !merchant.circleWalletId) {
       return err(res, "No Circle wallet found", 404);
     }
 
-    const cacheAge = merchant.balanceUpdatedAt ? Date.now() - merchant.balanceUpdatedAt.getTime() : Infinity;
+    const cacheAge = merchant.balanceUpdatedAt
+      ? Date.now() - merchant.balanceUpdatedAt.getTime()
+      : Infinity;
     const isFresh = !forceRefresh && cacheAge < BALANCE_STALE_MS;
 
     if (isFresh) {
@@ -1273,7 +1579,7 @@ portalRouter.get("/wallet/circle/balance", async (req, res) => {
       prisma.merchant.update({
         where: { id: dbId },
         data: { usdcBalance: liveBalance, balanceUpdatedAt: new Date() },
-      })
+      }),
     );
 
     return ok(res, {
@@ -1301,12 +1607,18 @@ const subscribeWebhookSchema = z.object({
 
 portalRouter.post("/circle/subscribe-webhook", async (req, res) => {
   const parsed = subscribeWebhookSchema.safeParse(
-    req.body.url ? req.body : { url: process.env.CIRCLE_WEBHOOK_URL }
+    req.body.url ? req.body : { url: process.env.CIRCLE_WEBHOOK_URL },
   );
   if (!parsed.success) {
-    return validationError(res, Object.fromEntries(
-      Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [k, v?.[0] ?? "Invalid"])
-    ));
+    return validationError(
+      res,
+      Object.fromEntries(
+        Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [
+          k,
+          v?.[0] ?? "Invalid",
+        ]),
+      ),
+    );
   }
   try {
     const result = await registerWebhookSubscription(parsed.data.url);
@@ -1314,7 +1626,8 @@ portalRouter.post("/circle/subscribe-webhook", async (req, res) => {
     return ok(res, { subscriptionId: result.id, endpoint: result.endpoint });
   } catch (e) {
     console.error("[portal/circle/subscribe-webhook]", e);
-    const message = e instanceof Error ? e.message : "Failed to register webhook";
+    const message =
+      e instanceof Error ? e.message : "Failed to register webhook";
     return err(res, message, 502);
   }
 });
@@ -1322,50 +1635,75 @@ portalRouter.post("/circle/subscribe-webhook", async (req, res) => {
 // ─── POST /portal/wallet/circle/withdraw ──────────────────────────────────────
 
 const withdrawSchema = z.object({
-  destinationAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/, "Invalid EVM address"),
-  amount: z.string().regex(/^\d+(\.\d+)?$/, "Invalid amount").refine((v) => parseFloat(v) > 0, "Amount must be positive"),
+  destinationAddress: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/, "Invalid EVM address"),
+  amount: z
+    .string()
+    .regex(/^\d+(\.\d+)?$/, "Invalid amount")
+    .refine((v) => parseFloat(v) > 0, "Amount must be positive"),
 });
 
-portalRouter.post("/wallet/circle/withdraw", requireStepUp("payout.withdraw"), async (req, res) => {
-  const dbId = (req as PortalRequest).merchantDbId;
-  const parsed = withdrawSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return validationError(res, Object.fromEntries(
-      Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [k, v?.[0] ?? "Invalid"])
-    ));
-  }
-  const { destinationAddress, amount } = parsed.data;
-  try {
-    const merchant = await withRetry(() =>
-      prisma.merchant.findUniqueOrThrow({
-        where: { id: dbId },
-        select: { walletType: true, circleWalletId: true },
-      })
-    );
-    if (merchant.walletType !== "circle" || !merchant.circleWalletId) {
-      return err(res, "No Circle wallet found", 404);
+portalRouter.post(
+  "/wallet/circle/withdraw",
+  requireStepUp("payout.withdraw"),
+  async (req, res) => {
+    const dbId = (req as PortalRequest).merchantDbId;
+    const parsed = withdrawSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return validationError(
+        res,
+        Object.fromEntries(
+          Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [
+            k,
+            v?.[0] ?? "Invalid",
+          ]),
+        ),
+      );
     }
-    const balances = await getCircleWalletBalances(merchant.circleWalletId);
-    const usdc = balances.find((b) => b.token.symbol === "USDC");
-    if (!usdc) return err(res, "No USDC balance found in your wallet", 404);
-    if (parseFloat(usdc.amount) < parseFloat(amount)) {
-      return err(res, `Insufficient balance. Available: ${usdc.amount} USDC`, 400);
+    const { destinationAddress, amount } = parsed.data;
+    try {
+      const merchant = await withRetry(() =>
+        prisma.merchant.findUniqueOrThrow({
+          where: { id: dbId },
+          select: { walletType: true, circleWalletId: true },
+        }),
+      );
+      if (merchant.walletType !== "circle" || !merchant.circleWalletId) {
+        return err(res, "No Circle wallet found", 404);
+      }
+      const balances = await getCircleWalletBalances(merchant.circleWalletId);
+      const usdc = balances.find((b) => b.token.symbol === "USDC");
+      if (!usdc) return err(res, "No USDC balance found in your wallet", 404);
+      if (parseFloat(usdc.amount) < parseFloat(amount)) {
+        return err(
+          res,
+          `Insufficient balance. Available: ${usdc.amount} USDC`,
+          400,
+        );
+      }
+      const { userToken, encryptionKey } = await getCircleUserToken(dbId);
+      const { challengeId } = await createCircleTransferChallenge(
+        userToken,
+        merchant.circleWalletId,
+        usdc.token.id,
+        destinationAddress,
+        amount,
+      );
+      return ok(res, {
+        userToken,
+        encryptionKey,
+        challengeId,
+        appId: process.env.NEXT_PUBLIC_CIRCLE_APP_ID,
+      });
+    } catch (e) {
+      console.error("[portal/wallet/circle/withdraw]", e);
+      const message =
+        e instanceof Error ? e.message : "Failed to initiate withdrawal";
+      return err(res, message, 502);
     }
-    const { userToken, encryptionKey } = await getCircleUserToken(dbId);
-    const { challengeId } = await createCircleTransferChallenge(
-      userToken,
-      merchant.circleWalletId,
-      usdc.token.id,
-      destinationAddress,
-      amount
-    );
-    return ok(res, { userToken, encryptionKey, challengeId, appId: process.env.NEXT_PUBLIC_CIRCLE_APP_ID });
-  } catch (e) {
-    console.error("[portal/wallet/circle/withdraw]", e);
-    const message = e instanceof Error ? e.message : "Failed to initiate withdrawal";
-    return err(res, message, 502);
-  }
-});
+  },
+);
 
 // ─── POST /portal/webhooks ────────────────────────────────────────────────────
 
@@ -1380,9 +1718,15 @@ portalRouter.post("/webhooks", async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
   const parsed = createWebhookSchema.safeParse(req.body);
   if (!parsed.success) {
-    return validationError(res, Object.fromEntries(
-      Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [k, v?.[0] ?? "Invalid"])
-    ));
+    return validationError(
+      res,
+      Object.fromEntries(
+        Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [
+          k,
+          v?.[0] ?? "Invalid",
+        ]),
+      ),
+    );
   }
   const { url, events } = parsed.data;
 
@@ -1391,7 +1735,8 @@ portalRouter.post("/webhooks", async (req, res) => {
   try {
     await assertDeliverableUrl(url);
   } catch (e) {
-    if (e instanceof WebhookUrlError) return validationError(res, { url: e.message });
+    if (e instanceof WebhookUrlError)
+      return validationError(res, { url: e.message });
     throw e;
   }
 
@@ -1445,62 +1790,90 @@ portalRouter.delete("/webhooks/:id", async (req, res) => {
 // endpoint listing — it is fetched deliberately, one endpoint at a time, behind
 // a confirmation.
 
-portalRouter.post("/webhooks/:id/secret", requireStepUp("webhook.reveal"), async (req, res) => {
-  const dbId = (req as unknown as PortalRequest).merchantDbId;
-  try {
-    const endpoint = await prisma.webhookEndpoint.findFirst({
-      where: { endpointId: req.params.id as string, merchantId: dbId, isActive: true },
-      select: { secret: true },
-    });
-    if (!endpoint) return err(res, "Endpoint not found", 404);
-    return ok(res, { secret: endpoint.secret });
-  } catch (e) {
-    console.error("[portal/webhooks secret]", e);
-    return err(res, "Failed to read signing secret", 500);
-  }
-});
+portalRouter.post(
+  "/webhooks/:id/secret",
+  requireStepUp("webhook.reveal"),
+  async (req, res) => {
+    const dbId = (req as unknown as PortalRequest).merchantDbId;
+    try {
+      const endpoint = await prisma.webhookEndpoint.findFirst({
+        where: {
+          endpointId: req.params.id as string,
+          merchantId: dbId,
+          isActive: true,
+        },
+        select: { secret: true },
+      });
+      if (!endpoint) return err(res, "Endpoint not found", 404);
+      return ok(res, { secret: endpoint.secret });
+    } catch (e) {
+      console.error("[portal/webhooks secret]", e);
+      return err(res, "Failed to read signing secret", 500);
+    }
+  },
+);
 
 /// Replaces the secret. Deliveries signed with the old one stop verifying the
 /// moment this returns, so the client asks first and hands back the new value
 /// once — there is no undo and no second copy.
-portalRouter.post("/webhooks/:id/roll", requireStepUp("webhook.roll"), async (req, res) => {
-  const dbId = (req as unknown as PortalRequest).merchantDbId;
-  try {
-    const endpoint = await prisma.webhookEndpoint.findFirst({
-      where: { endpointId: req.params.id as string, merchantId: dbId, isActive: true },
-      select: { id: true },
-    });
-    if (!endpoint) return err(res, "Endpoint not found", 404);
+portalRouter.post(
+  "/webhooks/:id/roll",
+  requireStepUp("webhook.roll"),
+  async (req, res) => {
+    const dbId = (req as unknown as PortalRequest).merchantDbId;
+    try {
+      const endpoint = await prisma.webhookEndpoint.findFirst({
+        where: {
+          endpointId: req.params.id as string,
+          merchantId: dbId,
+          isActive: true,
+        },
+        select: { id: true },
+      });
+      if (!endpoint) return err(res, "Endpoint not found", 404);
 
-    const secret = `whsec_${randomBytes(24).toString("hex")}`;
-    await prisma.webhookEndpoint.update({ where: { id: endpoint.id }, data: { secret } });
-    return ok(res, { secret });
-  } catch (e) {
-    console.error("[portal/webhooks roll]", e);
-    return err(res, "Failed to roll signing secret", 500);
-  }
-});
+      const secret = `whsec_${randomBytes(24).toString("hex")}`;
+      await prisma.webhookEndpoint.update({
+        where: { id: endpoint.id },
+        data: { secret },
+      });
+      return ok(res, { secret });
+    } catch (e) {
+      console.error("[portal/webhooks roll]", e);
+      return err(res, "Failed to roll signing secret", 500);
+    }
+  },
+);
 
 // ─── POST /portal/api-keys/regenerate ────────────────────────────────────────
 
-portalRouter.post("/api-keys/regenerate", requireStepUp("apikey.regenerate"), async (req, res) => {
-  const dbId = (req as PortalRequest).merchantDbId;
-  try {
-    const parsed = apiKeyRegenerateSchema.safeParse(req.body);
-    const name = (parsed.success && parsed.data.name) ? parsed.data.name : "Default";
+portalRouter.post(
+  "/api-keys/regenerate",
+  requireStepUp("apikey.regenerate"),
+  async (req, res) => {
+    const dbId = (req as PortalRequest).merchantDbId;
+    try {
+      const parsed = apiKeyRegenerateSchema.safeParse(req.body);
+      const name =
+        parsed.success && parsed.data.name ? parsed.data.name : "Default";
 
-    const key = ids.apiKey(false); // test keys only in beta
-    const keyHash = hmacKey(key);
-    const keyPrefix = key.slice(0, 16); // e.g. "test_a1b2c3d4e5f6"
+      const key = ids.apiKey(false); // test keys only in beta
+      const keyHash = hmacKey(key);
+      const keyPrefix = key.slice(0, 16); // e.g. "test_a1b2c3d4e5f6"
 
-    await prisma.merchant.update({
-      where: { id: dbId },
-      data: { testKeyHash: keyHash, testKeyName: name, testKeyPrefix: keyPrefix },
-    });
+      await prisma.merchant.update({
+        where: { id: dbId },
+        data: {
+          testKeyHash: keyHash,
+          testKeyName: name,
+          testKeyPrefix: keyPrefix,
+        },
+      });
 
-    return ok(res, { key, name, prefix: keyPrefix });
-  } catch (e) {
-    console.error("[portal/api-keys/regenerate]", e);
-    return err(res, "Failed to generate API key", 500);
-  }
-});
+      return ok(res, { key, name, prefix: keyPrefix });
+    } catch (e) {
+      console.error("[portal/api-keys/regenerate]", e);
+      return err(res, "Failed to generate API key", 500);
+    }
+  },
+);
