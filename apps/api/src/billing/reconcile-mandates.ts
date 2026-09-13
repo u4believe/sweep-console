@@ -128,7 +128,13 @@ export async function reconcileMandatesOnce(): Promise<ReconcileOutcome[]> {
     });
 
     for (const c of checked) {
-      const id = c.m.mandateId ?? c.m.id;
+      // WHICH id the merchant knows this by depends on how it was granted. On a
+      // RenewalDelegation `mandateId` is that ROW's own legacy public id; for a
+      // rail grant the Mandate the developer actually created is in `sessionId`.
+      // Reporting the row id to a rail merchant hands them an identifier they
+      // have never seen and cannot look up — GET /v1/mandates/<it> is a 404.
+      const id =
+        c.m.mode === "external" ? c.m.sessionId ?? c.m.mandateId : c.m.mandateId ?? c.m.id;
       if ("error" in c && c.error) {
         outcomes.push({ mandateId: id, chainId, result: "unreadable", detail: c.error });
         continue;
@@ -153,7 +159,11 @@ export async function reconcileMandatesOnce(): Promise<ReconcileOutcome[]> {
           "mandate.revoked",
           {
             mandate_id: id,
+            // Which chain's grant went. A mandate signed on several chains stays
+            // chargeable on the others, so this is not "the mandate is dead" —
+            // it is one chain leaving the set.
             chain_id: chainId,
+            grant_id: c.m.grantId,
             subscription_id: c.m.subscription?.subscriptionId ?? null,
             reason: "disabled_on_chain",
           }
