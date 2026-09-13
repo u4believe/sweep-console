@@ -20,7 +20,7 @@ import {
 
 // Standalone, cross-merchant customer portal. Email + OTP proves ownership; the
 // customer then sees and manages every SweepConsole subscription tied to that
-// email across all merchants — cancel (gasless, returns escrow) and enable/revoke
+// email across all merchants — cancel (no escrow to return) and enable/revoke
 // the cross-chain renewal grant. No checkout session, no merchant context needed.
 
 const TIER2_ENABLED = import.meta.env.VITE_TIER2_DELEGATION === "true";
@@ -176,23 +176,38 @@ export function ManageSubscriptionsPage() {
     }
   };
 
-  const onRevokeGrant = async (s: PortalSubscription, chainId?: number) => {
+  const onRevokeGrant = async (s: PortalSubscription, chainId?: number, isLast = false) => {
+    // Turning off the last chain ends the subscription — every payment is
+    // cross-chain, so there is nothing left to bill. Ask before, not after.
+    if (isLast && !confirm(
+      `${chainLabel(chainId!, s)} is the only chain authorized for this subscription. ` +
+      "Turning it off leaves nothing to charge, so the subscription will go past due and be cancelled " +
+      "if you don't re-authorize. Continue?"
+    )) return;
+
     // Busy is keyed per chain so turning off Base does not grey out Optimism's
     // button next to it.
     setBusyId(chainId === undefined ? s.id : `${s.id}:${chainId}`);
     setError("");
     setNotice("");
     try {
-      await portalRevokeGrant(email.trim(), emailToken, s.id, chainId);
+      const r = await portalRevokeGrant(email.trim(), emailToken, s.id, chainId);
       // Says what this actually did. Revoking here stops US redeeming the mandate;
       // it cannot remove the permission from the subscriber's wallet, because
       // disableDelegation is onlyDeleGator. Claiming otherwise left people
       // believing an authorization was gone while it was still signed and live.
+      //
+      // And it no longer claims billing continues on Arc. Arc is settlement-only:
+      // with no chains authorized there is nothing to charge at all.
       const where = chainId === undefined ? "Cross-chain renewals" : `${chainLabel(chainId, s)} renewals`;
       setNotice(
-        `${where} turned off — we won't charge ${chainId === undefined ? "those chains" : "that chain"} again. ` +
-          "Your subscription stays active and bills on Arc. The permission you signed stays in your wallet " +
-          "until you revoke it there."
+        r.remaining_chains === 0
+          ? `${where} turned off. That was the only chain authorized, so there is nothing left to charge — ` +
+            "the subscription is now past due and will be cancelled unless you authorize a chain again. " +
+            "The permission you signed stays in your wallet until you revoke it there."
+          : `${where} turned off — we won't charge that chain again. Renewals continue on your ` +
+            `${r.remaining_chains} remaining authorized ${r.remaining_chains === 1 ? "chain" : "chains"}. ` +
+            "The permission you signed stays in your wallet until you revoke it there."
       );
       await reload();
     } catch (e) {
@@ -355,15 +370,6 @@ export function ManageSubscriptionsPage() {
                                       <span className="text-xs text-gray-500">
                                         Renewals can fall back to these chains:
                                       </span>
-                                      {s.grants.length > 1 && (
-                                        <button
-                                          onClick={() => onRevokeGrant(s)}
-                                          disabled={busyId === s.id}
-                                          className="shrink-0 text-[11px] font-semibold text-gray-500 underline underline-offset-2 hover:text-gray-700 disabled:opacity-50"
-                                        >
-                                          {busyId === s.id ? "Working…" : "Turn off all"}
-                                        </button>
-                                      )}
                                     </div>
                                     <ul className="mt-2 space-y-1.5">
                                       {s.grants.map((g) => {
@@ -381,11 +387,11 @@ export function ManageSubscriptionsPage() {
                                               </span>
                                             </span>
                                             <button
-                                              onClick={() => onRevokeGrant(s, g.chain_id)}
+                                              onClick={() => onRevokeGrant(s, g.chain_id, s.grants.length === 1)}
                                               disabled={gBusy || busyId === s.id}
                                               className="shrink-0 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                                             >
-                                              {gBusy ? "Working…" : "Turn off"}
+                                              {gBusy ? "Working…" : s.grants.length === 1 ? "Turn off (last one)" : "Turn off"}
                                             </button>
                                           </li>
                                         );

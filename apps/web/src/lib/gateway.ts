@@ -361,12 +361,16 @@ export function portalSaveGrant(
 }
 
 /// Omit `chainId` to turn off every chain at once.
+///
+/// `remaining_chains` is what the caller must react to: reaching zero means the
+/// subscription has nothing left to bill, and the server puts it past_due so the
+/// existing dunning owns it from there.
 export function portalRevokeGrant(
   email: string,
   emailToken: string,
   subscriptionId: string,
   chainId?: number
-): Promise<{ revoked: number }> {
+): Promise<{ revoked: number; remaining_chains: number; status: string }> {
   return request(`/customer/portal/subscriptions/${subscriptionId}/grant-revoke`, {
     method: "POST",
     body: JSON.stringify({ email, email_token: emailToken, chain_id: chainId }),

@@ -392,7 +392,30 @@ customerPortalRouter.post("/subscriptions/:id/grant-revoke", async (req, res) =>
       },
       data: { status: "revoked" },
     });
-    return ok(res, { revoked: result.count });
+
+    // Revoking the LAST chain ends the subscription's ability to bill, and that
+    // has to be recorded. runDelegatedRenewalsOnce starts its query from active
+    // grants, so a subscription with none is not "failing" — it is invisible: it
+    // would sit "active" forever, never charged, never retried, never past_due,
+    // with the creator serving someone for free and neither party told. Marking
+    // it past_due puts it back in front of the dunning that already exists, which
+    // retries, emails, and finally cancels.
+    const remaining = await prisma.renewalDelegation.count({
+      where: { subscriptionId: sub.id, status: "active" },
+    });
+    let status = sub.status;
+    if (remaining === 0 && (sub.status === "active" || sub.status === "trialing")) {
+      await prisma.subscription.update({
+        where: { id: sub.id },
+        data: { status: "past_due" },
+      });
+      status = "past_due";
+      console.log(
+        `[portal/grant-revoke] ${sub.subscriptionId} has no chains left — past_due so dunning can pick it up`
+      );
+    }
+
+    return ok(res, { revoked: result.count, remaining_chains: remaining, status });
   } catch (e) {
     console.error("[portal/grant-revoke]", e);
     return err(res, "Failed to revoke cross-chain grant", 500);

@@ -191,6 +191,10 @@ export type RenewalOutcome = {
     // amount ≤ cap, but the mandate's current period was already redeemed (an
     // earlier pass or a sibling sub sharing the delegation) — retries next period
     | "period_consumed"
+    // due, but every chain's authorization has been revoked — by the subscriber
+    // in the portal, or in their own wallet. Nothing left to redeem, so it goes
+    // to dunning rather than staying invisible to this pass.
+    | "no_grants"
     | "error";
   chain?: string;
   txHash?: string;
@@ -218,6 +222,37 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
     },
     include: { subscription: { include: { merchant: true, plan: true } } },
   });
+
+  // Due subscriptions with NO redeemable grant left.
+  //
+  // The sweep below is grant-driven, so a subscription whose every grant was
+  // revoked produces no group and is simply never seen — not failing, invisible.
+  // It would sit at its status forever, never charged and never retried, while
+  // the creator kept serving someone for free. That happens two ordinary ways:
+  // the subscriber turns off their last chain in the portal, and reconciliation
+  // finds they disabled the delegation in their own wallet.
+  //
+  // Funnel them into the dunning that already exists rather than inventing a
+  // second lifecycle: markRenewalFailed retries, fires subscription.past_due, and
+  // cancels after MAX_RENEWAL_RETRIES — which is the right end for a subscription
+  // whose authorization is gone and which only the subscriber can restore.
+  const grantless = await prisma.subscription.findMany({
+    where: {
+      status: { in: ["active", "past_due"] },
+      currentPeriodEnd: { lte: now },
+      plan: { archived: false },
+      renewalDelegations: { none: { status: "active" } },
+    },
+    include: { merchant: true, plan: true },
+  });
+  for (const sub of grantless) {
+    await markRenewalFailed(sub, sub.amount ?? sub.plan.amount, "no active grant on any chain");
+    outcomes.push({
+      subscriptionId: sub.subscriptionId,
+      result: "no_grants",
+      detail: "every chain's authorization was revoked — nothing left to redeem",
+    });
+  }
 
   // A subscription's granted mandates: each cycle pays from ONE chain.
   const bySub = new Map<string, RenewalMandate[]>();
