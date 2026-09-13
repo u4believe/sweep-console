@@ -632,6 +632,119 @@ portalRouter.delete("/payment-links/:id", async (req, res) => {
 
 // ─── GET /portal/subscriptions ────────────────────────────────────────────────
 
+// ─── GET /portal/rail ─────────────────────────────────────────────────────────
+//
+// The rail's own screen. Everything else in this portal is built on hosted
+// subscriptions — the dashboard's revenue reads Payment rows, which a rail charge
+// never creates — so a creator on the rail saw an empty account while their money
+// settled. This is the one place that reads Mandate and Charge.
+//
+// It also answers "do I even have the rail?", which nothing surfaced before: the
+// entitlement is granted by an operator, and a developer had no way to see it
+// except by calling the API and reading a 403.
+portalRouter.get("/rail", async (req, res) => {
+  const dbId = (req as PortalRequest).merchantDbId;
+  try {
+    const merchant = await withRetry(() =>
+      prisma.merchant.findUnique({
+        where: { id: dbId },
+        select: { externalRailEnabled: true, walletAddress: true },
+      })
+    );
+    if (!merchant) return err(res, "Merchant not found", 404, "not_found");
+
+    // Not enabled is a normal answer, not an error — the page explains how to get
+    // it. Skip the queries entirely rather than returning empty lists that read
+    // like "you have no activity".
+    if (!merchant.externalRailEnabled) {
+      return ok(res, {
+        enabled: false,
+        payoutWallet: merchant.walletAddress,
+        mandates: [],
+        charges: [],
+        totals: { collected: 0, pendingCount: 0, failedCount: 0, activeMandates: 0 },
+      });
+    }
+
+    const [mandates, charges, collected, pendingCount, failedCount, activeMandates] = await Promise.all([
+      prisma.mandate.findMany({
+        where: { merchantId: dbId },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: {
+          mandateId: true, externalRef: true, email: true, walletAddress: true,
+          maxAmount: true, interval: true, status: true, isTestMode: true,
+          expiresAt: true, authorizedAt: true, revokedAt: true, createdAt: true,
+          _count: { select: { charges: true } },
+        },
+      }),
+      prisma.charge.findMany({
+        where: { merchantId: dbId },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: {
+          chargeId: true, amount: true, currency: true, status: true, description: true,
+          chain: true, txHash: true, createdAt: true, settledAt: true, failureReason: true,
+          isTestMode: true, mandate: { select: { mandateId: true, externalRef: true } },
+        },
+      }),
+      // Gross collected. The creator's share is this less the platform fee, which
+      // is taken on the source chain before the bridge — so this is what the payers
+      // were charged, not what landed on Arc.
+      prisma.charge.aggregate({ where: { merchantId: dbId, status: "succeeded" }, _sum: { amount: true } }),
+      prisma.charge.count({ where: { merchantId: dbId, status: "pending" } }),
+      prisma.charge.count({ where: { merchantId: dbId, status: "failed" } }),
+      prisma.mandate.count({ where: { merchantId: dbId, status: "active" } }),
+    ]);
+
+    return ok(res, {
+      enabled: true,
+      payoutWallet: merchant.walletAddress,
+      totals: {
+        collected: Number(collected._sum.amount ?? 0n),
+        pendingCount,
+        failedCount,
+        activeMandates,
+      },
+      mandates: mandates.map((m) => ({
+        id: m.mandateId,
+        externalRef: m.externalRef,
+        email: m.email,
+        walletAddress: m.walletAddress,
+        maxAmount: Number(m.maxAmount),
+        interval: m.interval,
+        status: m.status,
+        isTestMode: m.isTestMode,
+        chargeCount: m._count.charges,
+        expiresAt: m.expiresAt.toISOString(),
+        authorizedAt: m.authorizedAt?.toISOString() ?? null,
+        revokedAt: m.revokedAt?.toISOString() ?? null,
+        createdAt: m.createdAt.toISOString(),
+      })),
+      charges: charges.map((c) => ({
+        id: c.chargeId,
+        mandateId: c.mandate.mandateId,
+        externalRef: c.mandate.externalRef,
+        amount: Number(c.amount),
+        currency: c.currency,
+        status: c.status,
+        description: c.description,
+        // Where the money came FROM. It always settles on Arc, which is why the
+        // hash and the chain name disagree — see the note on the page.
+        sourceChain: c.chain,
+        txHash: c.txHash,
+        failureReason: c.failureReason,
+        isTestMode: c.isTestMode,
+        createdAt: c.createdAt.toISOString(),
+        settledAt: c.settledAt?.toISOString() ?? null,
+      })),
+    });
+  } catch (e) {
+    console.error("[portal/rail]", e);
+    return err(res, "Failed to load rail activity", 500);
+  }
+});
+
 portalRouter.get("/subscriptions", async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
   try {

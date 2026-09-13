@@ -8,6 +8,7 @@ const NAV = [
   { href: "/plans", label: "Plans" },
   { href: "/subscriptions", label: "Subscriptions" },
   { href: "/payments", label: "Payments" },
+  { href: "/rail", label: "Payment rail" },
   { href: "/webhooks", label: "Webhooks" },
   { href: "/api-keys", label: "API Keys" },
   { href: "/settings", label: "Settings" },
