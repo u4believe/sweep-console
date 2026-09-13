@@ -7,7 +7,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma, withRetry } from "../lib/prisma";
 import { ids } from "../lib/ids";
 import { ok, created, err, validationError } from "../lib/response";
-import { sendEmail, payoutWalletEmailHtml } from "../lib/email";
+import { sendEmail, payoutWalletEmailHtml, railAccessRequestEmailHtml } from "../lib/email";
 import { verifyPortalSession } from "../middleware/portalAuth";
 import type { PortalRequest } from "../middleware/portalAuth";
 import { closePlanSubscriptions, findSubsToClose } from "../lib/plan-lifecycle";
@@ -817,7 +817,11 @@ portalRouter.get("/rail", async (req, res) => {
     const merchant = await withRetry(() =>
       prisma.merchant.findUnique({
         where: { id: dbId },
-        select: { externalRailEnabled: true, walletAddress: true },
+        select: {
+          externalRailEnabled: true,
+          walletAddress: true,
+          railRequestedAt: true,
+        },
       }),
     );
     if (!merchant) return err(res, "Merchant not found", 404, "not_found");
@@ -829,6 +833,7 @@ portalRouter.get("/rail", async (req, res) => {
       return ok(res, {
         data: {
           enabled: false,
+          requestedAt: merchant.railRequestedAt?.toISOString() ?? null,
           payoutWallet: merchant.walletAddress,
           mandates: [],
           charges: [],
@@ -948,6 +953,76 @@ portalRouter.get("/rail", async (req, res) => {
   } catch (e) {
     console.error("[portal/rail]", e);
     return err(res, "Failed to load rail activity", 500);
+  }
+});
+
+// ─── POST /portal/rail/request ────────────────────────────────────────────────
+//
+// A creator asking for the rail. It grants nothing — the entitlement stays an
+// operator decision, because a switch anyone can flip makes the gate decorative
+// and this is the one surface where an API key alone moves money. What it fixes
+// is that there was no way to ASK: the screen said "get in touch" and left the
+// creator to find a human, and left us with no queue.
+//
+// Idempotent. A second click is a person wondering whether the first worked, not
+// a new request, and re-sending mail for it would train us to ignore the mail.
+portalRouter.post("/rail/request", async (req, res) => {
+  const dbId = (req as PortalRequest).merchantDbId;
+  try {
+    const merchant = await withRetry(() =>
+      prisma.merchant.findUnique({
+        where: { id: dbId },
+        select: {
+          merchantId: true, name: true, email: true, walletAddress: true,
+          externalRailEnabled: true, railRequestedAt: true,
+          _count: { select: { plans: true, subscriptions: true } },
+        },
+      })
+    );
+    if (!merchant) return err(res, "Merchant not found", 404, "not_found");
+    if (merchant.externalRailEnabled) {
+      return ok(res, { data: { enabled: true, requestedAt: merchant.railRequestedAt?.toISOString() ?? null } });
+    }
+    if (merchant.railRequestedAt) {
+      return ok(res, { data: { enabled: false, requestedAt: merchant.railRequestedAt.toISOString() } });
+    }
+
+    const requestedAt = new Date();
+    await withRetry(() =>
+      prisma.merchant.update({ where: { id: dbId }, data: { railRequestedAt: requestedAt } })
+    );
+
+    // The timestamp is the record; the email is the notification. Send it after
+    // the write and never let it fail the request — a creator who clicked and saw
+    // an error would click again, and the mail is the least durable half.
+    const to = process.env.SUPPORT_EMAIL;
+    if (!to) {
+      console.warn(`[portal/rail/request] ${merchant.merchantId} requested the rail but SUPPORT_EMAIL is unset — no mail sent`);
+    } else {
+      await sendEmail({
+        to,
+        subject: `Rail access requested — ${merchant.name}`,
+        html: railAccessRequestEmailHtml({
+          merchantName: merchant.name,
+          merchantEmail: merchant.email,
+          merchantPublicId: merchant.merchantId,
+          payoutWallet: merchant.walletAddress,
+          planCount: merchant._count.plans,
+          subscriptionCount: merchant._count.subscriptions,
+          requestedAt,
+        }),
+        text:
+          `${merchant.name} <${merchant.email}> (${merchant.merchantId}) requested the external payment rail. ` +
+          `Payout wallet: ${merchant.walletAddress ?? "NOT LINKED"}. ` +
+          `Grant with: pnpm tsx scripts/external-rail.ts ${merchant.email} --on --write`,
+      }).catch((e) => console.error("[portal/rail/request] notification failed:", e));
+    }
+
+    console.log(`[portal/rail/request] ${merchant.merchantId} (${merchant.email}) requested the rail`);
+    return ok(res, { data: { enabled: false, requestedAt: requestedAt.toISOString() } });
+  } catch (e) {
+    console.error("[portal/rail/request]", e);
+    return err(res, "Failed to send the request", 500);
   }
 });
 

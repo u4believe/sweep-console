@@ -49,6 +49,7 @@ interface Charge {
 
 interface RailData {
   enabled: boolean;
+  requestedAt: string | null;
   payoutWallet: string | null;
   totals: { collected: number; pendingCount: number; failedCount: number; activeMandates: number };
   mandates: Mandate[];
@@ -79,6 +80,27 @@ export function RailPage() {
   const [data, setData] = useState<RailData | null>(null);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<Tab>("charges");
+  const [requesting, setRequesting] = useState(false);
+  const [requestError, setRequestError] = useState("");
+
+  const requestAccess = async () => {
+    setRequesting(true);
+    setRequestError("");
+    try {
+      const res = await fetch(`${API_URL}/portal/rail/request`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const json: { data?: { enabled: boolean; requestedAt: string | null }; error?: { message?: string } } =
+        await res.json();
+      if (json.data) setData((d) => (d ? { ...d, ...json.data! } : d));
+      else setRequestError(json.error?.message ?? "Could not send the request");
+    } catch {
+      setRequestError("Could not reach the API server");
+    } finally {
+      setRequesting(false);
+    }
+  };
 
   useEffect(() => {
     fetch(`${API_URL}/portal/rail`, { credentials: "include" })
@@ -121,14 +143,48 @@ export function RailPage() {
         <PageHeader kicker="Developers" title="Payment rail" />
         <Section bordered={false}>
           <EmptyNote
-            title="The payment rail is not enabled on this account."
+            title={
+              data.requestedAt
+                ? "Your request for the payment rail has been received."
+                : "The payment rail is not enabled on this account."
+            }
             hint={
-              "The rail lets your own app charge a wallet directly — you create a mandate, the payer signs it " +
-              "once, and your code calls POST /v1/charges on your own schedule. It is granted per account rather " +
-              "than switched on, because an API key alone moves money on it. Get in touch to have it enabled, " +
-              "and see the Payment rail section of the docs for what to build."
+              data.requestedAt
+                ? `Requested ${new Date(data.requestedAt).toLocaleDateString()}. We review these by hand — the rail ` +
+                  "is the one place an API key alone moves money, so it is granted per account rather than switched " +
+                  "on. We'll email you when it is live. Meanwhile the Payment rail section of the docs covers " +
+                  "everything you would build."
+                : "The rail lets your own app charge a wallet directly — you create a mandate, the payer signs it " +
+                  "once, and your code calls POST /v1/charges on your own schedule. See the Payment rail section of " +
+                  "the docs for what that involves."
             }
           />
+          {!data.requestedAt && (
+            <div style={{ padding: "0 32px 26px" }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={requestAccess}
+                disabled={requesting}
+              >
+                {requesting ? "Sending…" : "Request access"}
+              </button>
+              {/* Said before they click, not after: a charge dies on
+                  no_payout_wallet, and finding that out post-approval wastes a
+                  round trip through a human. */}
+              {!data.payoutWallet && (
+                <p className="m-0 mt-2" style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>
+                  You have no payout wallet linked yet. The rail cannot pay you without one — link it in Settings
+                  before your first charge.
+                </p>
+              )}
+              {requestError && (
+                <p className="m-0 mt-2" style={{ fontSize: 12, color: "var(--color-accent)" }}>
+                  {requestError}
+                </p>
+              )}
+            </div>
+          )}
         </Section>
       </>
     );

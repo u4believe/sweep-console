@@ -530,3 +530,57 @@ export function railChargeReceiptEmailHtml(d: RailChargeReceiptData): string {
       ),
   });
 }
+
+export interface RailAccessRequestData {
+  merchantName: string;
+  merchantEmail: string;
+  merchantPublicId: string;
+  /// Whether they can actually be paid yet. A rail charge dies on
+  /// no_payout_wallet without one, so this decides whether granting the rail is
+  /// enough or whether they need a nudge first.
+  payoutWallet: string | null;
+  planCount: number;
+  subscriptionCount: number;
+  requestedAt: Date;
+}
+
+/**
+ * Sent to the operator when a creator asks for the external rail.
+ *
+ * An account-facing "notice" would be wrong: nobody is being notified about
+ * their own subscription, this is internal mail about someone else's account.
+ * It carries the few facts the decision actually turns on — can they be paid,
+ * have they used the platform at all — so granting does not begin with looking
+ * all of that up.
+ */
+export function railAccessRequestEmailHtml(d: RailAccessRequestData): string {
+  return shell({
+    preheader: `${d.merchantName} requested the external payment rail.`,
+    sender: "account",
+    kicker: "Access request",
+    title: "A creator asked for the payment rail",
+    body:
+      lede(
+        `<strong style="color:#201e1d;">${esc(d.merchantName)}</strong> requested access to the external ` +
+        `payment rail. Nothing has been granted — the switch is still ` +
+        `<code>scripts/external-rail.ts</code>.`
+      ) +
+      detailRows([
+        { k: "Account", v: esc(d.merchantName) },
+        { k: "Email", v: esc(d.merchantEmail) },
+        { k: "Merchant ID", v: mono(d.merchantPublicId) },
+        {
+          k: "Payout wallet",
+          v: d.payoutWallet ? mono(d.payoutWallet) : "NOT LINKED — charges would fail",
+          accent: !d.payoutWallet,
+        },
+        { k: "Plans", v: String(d.planCount) },
+        { k: "Subscriptions", v: String(d.subscriptionCount) },
+        { k: "Requested", v: esc(d.requestedAt.toISOString()) },
+      ]) +
+      fineprint(
+        `To grant it: <code>pnpm tsx scripts/external-rail.ts ${esc(d.merchantEmail)} --on --write</code>. ` +
+        `It dry-runs without <code>--write</code>.`
+      ),
+  });
+}
