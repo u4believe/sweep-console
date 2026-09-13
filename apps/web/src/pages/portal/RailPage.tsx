@@ -294,7 +294,8 @@ export function RailPage() {
               in <Mono size={11}>{shortAddress(data.payoutWallet)}</Mono>
             </>
           ) : null}
-          . Rail activity is separate from subscriptions: it does not appear on the dashboard or the payments screen.
+          . Rail activity is counted separately from subscriptions throughout the portal: the dashboard reports it in
+          its own band, and the subscription payments ledger does not include it.
         </p>
       </Section>
     </>

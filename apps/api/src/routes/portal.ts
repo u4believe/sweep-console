@@ -61,8 +61,35 @@ portalRouter.get("/dashboard", async (req, res) => {
     const failedPayments = await withRetry(() => prisma.payment.count({ where: { merchantId: dbId, status: "failed" } }));
     const merchant = await withRetry(() => prisma.merchant.findUniqueOrThrow({
       where: { id: dbId },
-      select: { walletAddress: true, walletType: true, addressVerifiedAt: true },
+      select: { walletAddress: true, walletType: true, addressVerifiedAt: true, externalRailEnabled: true },
     }));
+
+    // Rail figures are reported SEPARATELY and never folded into the totals above.
+    // The two are different products with different clocks — subscriptions Sweep
+    // bills on a schedule, charges the developer's own app requests — and summing
+    // them would produce a revenue number that answers no question anyone has. It
+    // would also silently restate a figure creators already read.
+    const rail = merchant.externalRailEnabled
+      ? {
+          enabled: true,
+          collected: Number(
+            (
+              await withRetry(() =>
+                prisma.charge.aggregate({
+                  where: { merchantId: dbId, status: "succeeded" },
+                  _sum: { amount: true },
+                })
+              )
+            )._sum.amount ?? 0n
+          ),
+          activeMandates: await withRetry(() =>
+            prisma.mandate.count({ where: { merchantId: dbId, status: "active" } })
+          ),
+          failedCharges: await withRetry(() =>
+            prisma.charge.count({ where: { merchantId: dbId, status: "failed" } })
+          ),
+        }
+      : { enabled: false, collected: 0, activeMandates: 0, failedCharges: 0 };
 
     return ok(res, {
       data: {
@@ -70,6 +97,7 @@ portalRouter.get("/dashboard", async (req, res) => {
         totalRevenue: Number(revenue._sum.amount ?? 0n),
         plans,
         failedPayments,
+        rail,
         walletAddress: merchant.walletAddress,
         walletType: merchant.walletType,
         addressVerifiedAt: merchant.addressVerifiedAt?.toISOString() ?? null,

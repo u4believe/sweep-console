@@ -395,11 +395,12 @@ export function DocsPage() {
                 for each charge.
               </p>
               <p>
-                <strong>Where to watch it.</strong> Today the portal does not show mandates or charges — its dashboard
-                and payments screens are built on hosted subscriptions, so rail activity will not appear there and your
-                revenue figure will read zero even while charges are settling to your wallet. Until that lands, the
-                API and your webhook endpoint are the source of truth: <Code>GET /v1/mandates</Code> and{" "}
-                <Code>GET /v1/charges</Code> both list and filter.
+                <strong>Where to watch it.</strong> The portal has a <strong>Payment rail</strong> screen listing your
+                mandates and charges, and the dashboard reports rail figures in a band of their own. Rail money is
+                counted <em>separately</em> from subscriptions everywhere — the subscription payments ledger does not
+                include charges, and no screen sums the two. They are different products with different clocks, and one
+                combined number would answer neither question. For programmatic access,{" "}
+                <Code>GET /v1/mandates</Code> and <Code>GET /v1/charges</Code> both list and filter.
               </p>
             </Section>
 

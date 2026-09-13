@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { PageHeader } from "@/components/portal/PageHeader";
 import {
   EmptyNote,
@@ -79,7 +80,7 @@ export function PaymentsPage() {
 
   return (
     <>
-      <PageHeader kicker="Revenue" title="Payments" />
+      <PageHeader kicker="Revenue" title="Subscription payments" />
 
       {error ? (
         <ErrorNote>{error}</ErrorNote>
@@ -87,13 +88,24 @@ export function PaymentsPage() {
         <>
           <KpiBand items={kpis} loading={payments === null} size={34} />
 
+          {/* This ledger is Payment rows: subscriptions Sweep bills on a schedule.
+              A rail charge is a Charge and is deliberately not merged in — see the
+              dashboard note. Without this line the absence reads as missing money. */}
+          <div style={{ padding: "14px 32px 0" }}>
+            <p className="m-0" style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
+              Payments Sweep collected on a subscription schedule. Charges your own app made through the{" "}
+              <Link to="/rail" style={{ color: "var(--color-accent)" }}>payment rail</Link> are listed separately and
+              are not included here.
+            </p>
+          </div>
+
           <Section bordered={false}>
             {payments === null ? (
               <TableSkeleton cols={6} />
             ) : payments.length === 0 ? (
               <EmptyNote
                 title="No payments yet."
-                hint="Payments appear here after subscribers complete checkout."
+                hint="Payments appear here after subscribers complete checkout. Rail charges are listed under Payment rail."
               />
             ) : (
               <div className="overflow-x-auto">

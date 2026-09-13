@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { WalletSetupBanner } from "@/components/portal/WalletSetupBanner";
 import { PageHeader } from "@/components/portal/PageHeader";
 import {
@@ -18,6 +18,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 interface DashboardData {
   activeSubs: number;
   totalRevenue: number;
+  rail: { enabled: boolean; collected: number; activeMandates: number; failedCharges: number };
   plans: number;
   failedPayments: number;
   walletAddress: string | null;
@@ -271,12 +272,25 @@ export function DashboardPage() {
   const settled = useMemo(() => bars.reduce((n, b) => n + b.total, 0), [bars]);
   const batch = useMemo(() => nextRenewalBatch(subs), [subs]);
 
+  // Subscriptions and the rail are reported as two bands, never one total. They
+  // are different products — one Sweep bills on a schedule, one the developer's
+  // app charges on its own — and a combined figure answers no question either
+  // audience is asking. "Subscription revenue" rather than "Total revenue"
+  // because the word total stopped being true the moment the rail shipped.
   const kpis: Kpi[] = data
     ? [
         { label: "Active subscriptions", value: String(data.activeSubs) },
-        { label: "Total revenue", value: (data.totalRevenue / 1_000_000).toFixed(2), unit: "USDC" },
+        { label: "Subscription revenue", value: (data.totalRevenue / 1_000_000).toFixed(2), unit: "USDC" },
         { label: "Active plans", value: String(data.plans) },
         { label: "Failed payments", value: String(data.failedPayments), accent: data.failedPayments > 0 },
+      ]
+    : [];
+
+  const railKpis: Kpi[] = data
+    ? [
+        { label: "Collected on the rail", value: (data.rail.collected / 1_000_000).toFixed(2), unit: "USDC" },
+        { label: "Active mandates", value: String(data.rail.activeMandates) },
+        { label: "Failed charges", value: String(data.rail.failedCharges), accent: data.rail.failedCharges > 0 },
       ]
     : [];
 
@@ -300,6 +314,21 @@ export function DashboardPage() {
       )}
 
       <KpiBand items={kpis} loading={data === null} />
+
+      {/* The rail's own band, only for accounts that have it. Its own heading so
+          nobody reads these figures as part of the subscription totals above. */}
+      {data?.rail.enabled && (
+        <>
+          <div style={{ padding: "18px 32px 0" }}>
+            <Kicker>Payment rail</Kicker>
+            <p className="m-0" style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
+              Charged by your own app against a mandate. Counted separately from subscriptions —{" "}
+              <Link to="/rail" style={{ color: "var(--color-accent)" }}>see all rail activity</Link>.
+            </p>
+          </div>
+          <KpiBand items={railKpis} loading={data === null} />
+        </>
+      )}
 
       {/* Settled chart beside the payout wallet and the next renewal batch. */}
       <div className="grid lg:grid-cols-[1.5fr_1fr]" style={{ borderBottom: "2px solid var(--color-divider)" }}>
