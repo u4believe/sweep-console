@@ -24,6 +24,8 @@ export const WEBHOOK_EVENTS = [
   "payment.failed",
   "mandate.authorized",
   "mandate.revoked",
+  "mandate.expiring",
+  "mandate.expired",
   "charge.succeeded",
   "charge.failed",
 ] as const;
@@ -43,6 +45,10 @@ export const WEBHOOK_EVENT_DESCRIPTIONS: Record<WebhookEventType, string> = {
     "A subscriber authorized recurring payments from their wallet on the external rail.",
   "mandate.revoked":
     "A subscriber withdrew a renewal authorization in their wallet — future charges on that chain will fail.",
+  "mandate.expiring":
+    "A mandate reaches its expiry date soon. Ask the payer to re-authorize before charges start failing.",
+  "mandate.expired":
+    "A mandate passed its expiry date and can no longer be charged. Only a new authorization revives it.",
   "charge.succeeded": "USDC settled on Arc for a charge you requested.",
   "charge.failed": "A charge could not be collected.",
 };
@@ -55,6 +61,10 @@ export const WEBHOOK_EVENT_DESCRIPTIONS: Record<WebhookEventType, string> = {
 export const RAIL_EVENTS = [
   "mandate.authorized",
   "mandate.revoked",
+  "mandate.expiring",
+  "mandate.expired",
+  "mandate.expiring",
+  "mandate.expired",
   "charge.succeeded",
   "charge.failed",
 ] as const satisfies readonly WebhookEventType[];

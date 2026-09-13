@@ -764,10 +764,18 @@ model Mandate {
   sessionToken  String   @unique
   linkExpiresAt DateTime
 
-  authorizedAt DateTime?
-  revokedAt    DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  authorizedAt       DateTime?
+  revokedAt          DateTime?
+  // When we warned the developer this mandate was about to expire. One warning
+  // per mandate, not one per day of the window — a daily reminder for a week is
+  // how a useful signal becomes one people filter out.
+  expiringNotifiedAt DateTime?
+  // When it actually lapsed. Distinct from expiresAt, which is the deadline: this
+  // is the moment we noticed and told them, and it is what makes the transition
+  // fire exactly once.
+  expiredAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   charges Charge[]
   // The grants this authorization produced (RenewalDelegation, one per chain) are

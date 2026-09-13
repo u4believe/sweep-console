@@ -2,6 +2,7 @@ import cron from "node-cron";
 import { transitionTrials, retryWebhooks } from "./engine";
 import { runDelegatedRenewalsOnce } from "./delegated-renewal";
 import { reconcileMandatesOnce } from "./reconcile-mandates";
+import { runMandateExpiryOnce } from "./mandate-expiry";
 import { resumeChargeBridges } from "./direct-charge";
 
 // Registers every billing cron job. Pure side-effect-on-call (no auto-start on
@@ -25,6 +26,15 @@ export function startBillingEngine(): void {
   cron.schedule("30 1 * * *", async () => {
     console.log("[cron] reconcileMandates triggered");
     await reconcileMandatesOnce().catch((e) => console.error("[cron] reconcileMandates error:", e));
+  });
+
+  // Mandate expiry, just after reconciliation and before renewals for the same
+  // reason: a lapsed mandate should be known to be lapsed before anything tries
+  // to charge it. Daily is the right cadence — the warning is measured in days,
+  // and both events are one-shot, so running more often would find nothing.
+  cron.schedule("45 1 * * *", async () => {
+    console.log("[cron] mandateExpiry triggered");
+    await runMandateExpiryOnce().catch((e) => console.error("[cron] mandateExpiry error:", e));
   });
 
   // The renewal run. One pass now, not two: every due subscription is collected

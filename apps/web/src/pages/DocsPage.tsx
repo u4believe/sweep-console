@@ -575,9 +575,15 @@ export function DocsPage() {
                 Two things can end a mandate without you doing anything. The payer disabling the grant in their wallet
                 reaches you as <Code>mandate.revoked</Code> with <Code>reason: disabled_on_chain</Code>, found by a
                 daily reconciliation rather than at the moment it happens. The other is the mandate reaching its{" "}
-                <Code>expires_at</Code> — watch that date yourself, because an expired mandate refuses charges with{" "}
-                <Code>mandate_expired</Code> and getting it back needs the payer to sign a new one. Discovering it
-                from a failed charge means discovering it a payment late.
+                <Code>expires_at</Code>, which announces itself twice: <Code>mandate.expiring</Code> a week ahead
+                (with <Code>days_remaining</Code>), then <Code>mandate.expired</Code> when it lapses. Both are sent
+                once rather than daily.
+              </p>
+              <p>
+                Act on the warning, not the lapse. An expired mandate refuses charges with{" "}
+                <Code>mandate_expired</Code>, and you cannot extend one — recovery is a <em>new</em> mandate and
+                another wallet signature from the payer. The week exists so you can ask them before a payment is
+                missed rather than after.
               </p>
             </Section>
           </div>
@@ -640,6 +646,8 @@ export function DocsPage() {
               <div className="rounded-xl border border-gray-200 px-5 py-1">
                 <Row k="mandate.authorized" v={<>A payer signed. Carries the <Code>chain_ids</Code> actually granted — start charging on this, not on the redirect.</>} />
                 <Row k="mandate.revoked" v={<>An authorization stopped being redeemable. <Code>reason</Code> says which: you called <Code>DELETE /v1/mandates/:id</Code>, or the payer disabled the grant in their own wallet (<Code>disabled_on_chain</Code>, found by a daily reconciliation — we cannot be told at the time). The latter names a <Code>chain_id</Code>: a mandate signed on several chains stays chargeable on the others.</>} />
+                <Row k="mandate.expiring" v={<>A mandate reaches its <Code>expires_at</Code> within the warning window (7 days by default). Carries <Code>days_remaining</Code>. Sent once, not daily.</>} />
+                <Row k="mandate.expired" v="A mandate passed its expiry and can no longer be charged. Sent once, when it lapses." />
                 <Row k="charge.succeeded" v={<>A pull settled on Arc. Carries <Code>source_chain</Code> and the Arc <Code>tx_hash</Code>.</>} />
                 <Row k="charge.failed" v={<>A pull could not be collected. Carries <Code>failure_code</Code> — <Code>insufficient_funds</Code>, <Code>mandate_period_consumed</Code> and so on.</>} />
               </div>
