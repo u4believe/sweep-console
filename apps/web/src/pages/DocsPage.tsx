@@ -76,6 +76,7 @@ const toc = [
   {
     group: "Using Sweep Console",
     items: [
+      { id: "two-ways", label: "Which one do I want?" },
       { id: "creator-account", label: "Create a creator account" },
       { id: "subscribing", label: "Subscribe to a plan" },
       { id: "email-verification", label: "Email verification" },
@@ -89,6 +90,7 @@ const toc = [
     group: "Payment rail (API)",
     items: [
       { id: "rail-overview", label: "What the rail is" },
+      { id: "rail-getting-started", label: "Getting started" },
       { id: "rail-mandates", label: "Create a mandate" },
       { id: "rail-authorize", label: "The authorization page" },
       { id: "rail-charges", label: "Collect a charge" },
@@ -159,6 +161,45 @@ export function DocsPage() {
 
           {/* ── Using Sweep Console ─────────────────────────────────────── */}
           <div className="mt-12 space-y-10">
+            <Section id="two-ways" title="Which one do I want?">
+              <p>
+                There are two ways to take money with Sweep, and the rest of these docs make more sense once you know
+                which one you are reading about. The difference is <strong>who owns the billing clock</strong>.
+              </p>
+              <p>
+                <strong>Hosted checkout.</strong> You create a plan, share a link, and Sweep runs everything after
+                that — the checkout page, the schedule, renewals, trials, retries when a payment fails, and a portal
+                where subscribers manage what they are paying for. You write no billing code. Start here unless you
+                already have a billing system.
+              </p>
+              <p>
+                <strong>The rail.</strong> Your app already knows what to charge and when — Sweep is only the thing
+                that moves USDC out of a wallet. You create a mandate, the payer signs it once, and from then on your
+                code calls <Code>POST /v1/charges</Code> whenever your own logic says it is time. No plans, no
+                schedule, no renewal engine. Choose this when you have your own pricing, usage-based billing, or a
+                billing system you are not replacing.
+              </p>
+              <div className="rounded-xl border border-gray-200 px-5 py-1">
+                <Row k="Who sets the price" v="Hosted: a Sweep plan · Rail: your app" />
+                <Row k="Who decides when to charge" v="Hosted: Sweep's schedule · Rail: your code, per charge" />
+                <Row k="Trials" v={<>Hosted: <Code>trial_days</Code> on the plan · Rail: don&apos;t charge yet</>} />
+                <Row k="A payment fails" v="Hosted: retried daily ~7 days, then cancelled · Rail: charge.failed, your policy" />
+                <Row k="What the subscriber sees" v="Hosted: Sweep checkout + /manage · Rail: one authorization page, then your app" />
+                <Row k="Objects" v="Hosted: Plan → Subscription → Payment · Rail: Mandate → Charge" />
+                <Row k="Getting access" v="Hosted: sign up and go · Rail: Sweep enables it for your account" />
+              </div>
+              <p>
+                Everything else is the same: the same payout wallet on Arc, the same <strong>3%</strong>, gasless for
+                the payer, funded from Base / Arbitrum / Optimism, and an ERC-7715 wallet (MetaMask today) either way.
+                One account can run both — mandates are invisible to the renewal engine, so the two never collide.
+              </p>
+              <p>
+                Two things to know before you build on either: <strong>live API keys are not issued yet</strong>, so
+                both are test-mode today, and <strong>neither has refunds</strong> — every charge settles straight to
+                your payout wallet, so refunding is a transfer you make yourself.
+              </p>
+            </Section>
+
             <Section id="creator-account" title="Create a creator account">
               <ol className="space-y-3">
                 <Step n={1}>
@@ -307,6 +348,59 @@ export function DocsPage() {
                 <Row k="4 · POST /v1/charges" v={<>One pull, whenever your billing logic says so. Answers <Code>202</Code>.</>} />
                 <Row k="5 · charge.succeeded" v="Settled on Arc, in the merchant's payout wallet." />
               </div>
+            </Section>
+
+            <Section id="rail-getting-started" title="Getting started">
+              <p>
+                Five steps before you write any code, then four things to wire into your app. Everything below is
+                test mode — live keys are not issued yet.
+              </p>
+              <ol className="space-y-3">
+                <Step n={1}>
+                  <strong>Create an account</strong> and verify your email — the same signup as any creator.
+                </Step>
+                <Step n={2}>
+                  <strong>Link a payout wallet.</strong> An Arc address, verified by signing a nonce in Settings. Do
+                  this before anything else: a mandate will be created and authorized perfectly happily without one,
+                  and then the first charge fails with <Code>no_payout_wallet</Code>. It fails late, after the payer
+                  has already signed.
+                </Step>
+                <Step n={3}>
+                  <strong>Ask us to enable the rail.</strong> This is the one step that is not self-serve — until your
+                  account is granted it, <Code>/v1/mandates</Code> and <Code>/v1/charges</Code> answer{" "}
+                  <Code>403 rail_not_enabled</Code>. The rail is the first place where an API key alone moves money to
+                  whoever holds it, so access is granted rather than switched on.
+                </Step>
+                <Step n={4}>
+                  <strong>Create a test API key</strong> in the portal under API keys. It is shown once. Treat it like
+                  a payment credential, because on this rail that is exactly what it is.
+                </Step>
+                <Step n={5}>
+                  <strong>Register a webhook endpoint</strong> subscribed to <Code>mandate.authorized</Code>,{" "}
+                  <Code>mandate.revoked</Code>, <Code>charge.succeeded</Code> and <Code>charge.failed</Code>. It must
+                  be a public <Code>https://</Code> URL — localhost is refused, and the address is re-checked before
+                  every delivery. Use a tunnel while developing.
+                </Step>
+              </ol>
+              <p className="font-semibold text-gray-800">Then, in your own app</p>
+              <div className="rounded-xl border border-gray-200 px-5 py-1">
+                <Row k="when a user subscribes" v={<>Call <Code>POST /v1/mandates</Code> and store the returned <Code>mdt_…</Code> against that user.</>} />
+                <Row k="send them to sign" v={<>Redirect to the <Code>authorization_url</Code> from that response.</>} />
+                <Row k="on mandate.authorized" v={<>Mark them active and start your own billing clock. Do this on the <strong>webhook</strong>, not on the redirect — a payer can close the tab before it returns.</>} />
+                <Row k="when your billing says so" v={<>Call <Code>POST /v1/charges</Code> with an <Code>Idempotency-Key</Code>, then act on <Code>charge.succeeded</Code> / <Code>charge.failed</Code>.</>} />
+              </div>
+              <p>
+                That is the whole integration. You keep your plans, prices, schedule, trials, dunning policy and
+                product emails. Sweep moves the money, enforces the ceiling the payer signed, and sends them a receipt
+                for each charge.
+              </p>
+              <p>
+                <strong>Where to watch it.</strong> Today the portal does not show mandates or charges — its dashboard
+                and payments screens are built on hosted subscriptions, so rail activity will not appear there and your
+                revenue figure will read zero even while charges are settling to your wallet. Until that lands, the
+                API and your webhook endpoint are the source of truth: <Code>GET /v1/mandates</Code> and{" "}
+                <Code>GET /v1/charges</Code> both list and filter.
+              </p>
             </Section>
 
             <Section id="rail-mandates" title="Create a mandate">
