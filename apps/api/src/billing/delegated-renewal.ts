@@ -55,7 +55,9 @@ async function recordRenewalSettled(
   sub: RenewalSub,
   mandateId: string,
   grossAmount: bigint,
-  settlementTxHash: Hex,
+  // Nullable: Circle's auto-relayer may have delivered the mint, and an RPC that
+  // will not serve logs leaves the arrival certain but the transaction unnamed.
+  settlementTxHash: Hex | null,
   settlementBlock: bigint | undefined,
   sourceChain: string,
   periodDurationSec: number,
@@ -251,16 +253,20 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
         where: { subscriptionId: sub.id, status: { in: ["pulled", "burned"] } },
       });
       if (pending) {
-        const mintTx = await advanceBridge(pending, (tx) =>
+        const outcome = await advanceBridge(pending, (tx) =>
           recordRenewalSettled(sub, pending.mandateId, pending.grossAmount, tx, undefined,
             chainKeyForId(pending.chainId) ?? "source", periodDur, pending.id)
         );
         outcomes.push({
           subscriptionId: sub.subscriptionId,
-          result: mintTx ? "settled" : "bridge_pending",
+          result: outcome.settled ? "settled" : "bridge_pending",
           chain: chainKeyForId(pending.chainId) ?? "source",
-          txHash: mintTx ?? pending.burnTxHash ?? undefined,
-          detail: mintTx ? "resumed bridge → minted on Arc" : `resumed (${pending.status}) — mint pending, re-run pass`,
+          txHash: (outcome.settled ? outcome.mintTxHash : null) ?? pending.burnTxHash ?? undefined,
+          detail: outcome.settled
+            ? outcome.mintTxHash
+              ? "resumed bridge → minted on Arc"
+              : "resumed bridge → delivered on Arc, mint tx unresolved"
+            : `resumed (${pending.status}) — mint pending, re-run pass`,
         });
         continue;
       }
@@ -396,17 +402,19 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
             status: "pulled",
           },
         });
-        const mintTx = await advanceBridge(bridge, (tx) =>
+        const outcome = await advanceBridge(bridge, (tx) =>
           recordRenewalSettled(sub, bridge.mandateId, bridge.grossAmount, tx, undefined,
             chosenKey, periodDur, bridge.id)
         );
         outcomes.push({
           subscriptionId: sub.subscriptionId,
-          result: mintTx ? "settled" : "bridge_pending",
+          result: outcome.settled ? "settled" : "bridge_pending",
           chain: chosenKey,
-          txHash: mintTx ?? undefined,
-          detail: mintTx
-            ? "source → pulled + bridged + minted on Arc"
+          txHash: (outcome.settled ? outcome.mintTxHash : null) ?? undefined,
+          detail: outcome.settled
+            ? outcome.mintTxHash
+              ? "source → pulled + bridged + minted on Arc"
+              : "source → pulled + bridged, delivered on Arc with no mint tx to cite"
             : "source → pulled + burned, mint pending (re-run pass to resume)",
         });
       }

@@ -123,8 +123,11 @@ const MESSAGE_RECEIVED_EVENT = MESSAGE_TRANSMITTER_ABI[2];
 // Six windows of 9k blocks is roughly 15 hours at Arc's ~1s blocks — comfortably
 // longer than the seconds it takes an auto-relayer to win a race, and long enough
 // for a bridge resumed on the next billing pass.
-const LOG_WINDOW = 9_000n;
-const LOG_WINDOWS_BACK = 6;
+// Override when the RPC's cap is lower — some providers advertise 10k and refuse
+// far less, and at least one refuses eth_getLogs entirely while reporting it as a
+// range error. Both are survivable: see findMintTx.
+const LOG_WINDOW = BigInt(process.env.CCTP_LOG_WINDOW_BLOCKS ?? "9000");
+const LOG_WINDOWS_BACK = Number(process.env.CCTP_LOG_WINDOWS_BACK ?? "6");
 
 // CCTP V2 deploys its contracts at the SAME address on every supported EVM
 // testnet. These are the published V2 testnet addresses — override per chain via
@@ -223,40 +226,65 @@ async function isAlreadyMinted(publicClient: ArcClient, nonce: Hex): Promise<boo
 /// MessageReceived indexes the nonce, so this is an exact lookup once the right
 /// window is in range.
 async function findMintTx(publicClient: ArcClient, nonce: Hex): Promise<Hex | null> {
-  const head = await publicClient.getBlockNumber();
+  let head: bigint;
+  try {
+    head = await publicClient.getBlockNumber();
+  } catch {
+    return null;
+  }
   for (let i = 0; i < LOG_WINDOWS_BACK; i++) {
     const toBlock = head - BigInt(i) * LOG_WINDOW;
     if (toBlock <= 0n) break;
     const fromBlock = toBlock > LOG_WINDOW ? toBlock - LOG_WINDOW : 0n;
-    const logs = await publicClient.getLogs({
-      address: getArcMessageTransmitter(),
-      event: MESSAGE_RECEIVED_EVENT,
-      args: { nonce },
-      fromBlock,
-      toBlock,
-    });
-    if (logs[0]?.transactionHash) return logs[0].transactionHash;
+    try {
+      const logs = await publicClient.getLogs({
+        address: getArcMessageTransmitter(),
+        event: MESSAGE_RECEIVED_EVENT,
+        args: { nonce },
+        fromBlock,
+        toBlock,
+      });
+      if (logs[0]?.transactionHash) return logs[0].transactionHash;
+    } catch (e) {
+      // An RPC that refuses the query tells us nothing about whether the mint
+      // happened — usedNonces already answered that. Never let a log-provider
+      // limitation propagate: the caller is deciding how to record an arrival,
+      // not whether one occurred.
+      console.warn(
+        `[cctp] getLogs [${fromBlock}, ${toBlock}] refused: ` +
+          `${(e as Error).message.split("\n")[0]}`
+      );
+      return null;
+    }
     if (fromBlock === 0n) break;
   }
   return null;
 }
 
-/// Resolve an already-delivered message to the transaction that delivered it.
-async function settledElsewhere(publicClient: ArcClient, nonce: Hex): Promise<Hex> {
+/// Resolve an already-delivered message to the transaction that delivered it, or
+/// null when the chain will not tell us.
+///
+/// This used to throw, on the reasoning that there was "nothing truthful to
+/// record". That reasoning was backwards: usedNonces has already proved the funds
+/// are on Arc, and throwing turned an ARRIVED payment into one that retries
+/// forever and reads as pending to the payer and the developer. A missing
+/// reference is a smaller lie than a missing payment. Settle, and say loudly that
+/// the reference could not be resolved.
+async function settledElsewhere(publicClient: ArcClient, nonce: Hex): Promise<Hex | null> {
   const hash = await findMintTx(publicClient, nonce);
   if (hash) {
     console.log(`[cctp] message ${nonce} was already minted on Arc by ${hash} — treating as delivered`);
     return hash;
   }
-  // The funds ARE on Arc — usedNonces said so — we just cannot name the
-  // transaction, so there is nothing truthful to record against the payment.
-  // Loud and specific, because this is a bookkeeping problem and not a lost
-  // payment, and the two want very different responses from whoever reads it.
-  throw new Error(
-    `CCTP message ${nonce} is already minted on Arc, but its MessageReceived log is ` +
-      `outside the ${LOG_WINDOWS_BACK * Number(LOG_WINDOW)}-block lookback. The funds ` +
-      `arrived; only the settlement reference is missing. Locate the mint and settle by hand.`
+  console.warn(
+    `[cctp] message ${nonce} IS minted on Arc (usedNonces confirms it) but its ` +
+      `MessageReceived log could not be read — either it is outside the ` +
+      `${LOG_WINDOWS_BACK * Number(LOG_WINDOW)}-block lookback, or this RPC does not serve ` +
+      `eth_getLogs. Settling without a settlement reference. The funds arrived; only the ` +
+      `transaction hash is missing. Point ARC_TESTNET_RPC_URL at a provider that serves logs ` +
+      `to stop losing these references.`
   );
+  return null;
 }
 
 /// Mint the bridged USDC on Arc by submitting the attestation to the Arc
@@ -268,7 +296,7 @@ async function settledElsewhere(publicClient: ArcClient, nonce: Hex): Promise<He
 /// the SUCCESS case: the subscriber has their USDC. Treating it as an error is
 /// what stranded a checkout whose money had already landed, so every point at
 /// which we could lose the race re-checks before failing.
-export async function receiveOnArc(att: CctpAttestation): Promise<Hex> {
+export async function receiveOnArc(att: CctpAttestation): Promise<Hex | null> {
   const { account, publicClient, walletClient } = arcRelayer();
   const nonce = messageNonce(att.message);
 

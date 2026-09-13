@@ -178,7 +178,16 @@ export async function planCharge(c: ChargeContext) {
 /// Record settlement: the charge succeeded, and the bridge row that carried it is
 /// minted — in one transaction, so a crash cannot leave a minted bridge with a
 /// pending charge in front of it.
-async function recordChargeSettled(c: ChargeContext, chainKey: string, mintTxHash: Hex, bridgeId: string) {
+async function recordChargeSettled(
+  c: ChargeContext,
+  chainKey: string,
+  // Nullable: Circle's auto-relayer may have delivered the mint before us, and an
+  // RPC that will not serve logs leaves the arrival certain but unnamed. A charge
+  // whose funds reached the merchant is succeeded either way — the alternative is
+  // reporting an arrived payment as pending forever.
+  mintTxHash: Hex | null,
+  bridgeId: string
+) {
   await prisma.$transaction([
     prisma.charge.update({
       where: { id: c.id },
@@ -298,11 +307,13 @@ export async function executeCharge(chargeDbId: string): Promise<void> {
   });
 
   try {
-    const mintTx = await advanceBridge(bridge, (tx) =>
+    const outcome = await advanceBridge(bridge, (tx) =>
       recordChargeSettled(c, plan.chainKey, tx, bridge.id)
     );
-    if (!mintTx) {
+    if (!outcome.settled) {
       console.log(`[charge] ${c.chargeId} burned, mint pending — resume pass will finish it`);
+    } else if (!outcome.mintTxHash) {
+      console.warn(`[charge] ${c.chargeId} settled with no mint tx to cite — see the cctp warning above`);
     }
   } catch (e) {
     // The money is with the relayer or already burned. The charge stays pending on
@@ -329,8 +340,8 @@ export async function resumeChargeBridges(): Promise<number> {
     }
     const chainKey = chainKeyForId(bridge.chainId) ?? "source";
     try {
-      const mintTx = await advanceBridge(bridge, (tx) => recordChargeSettled(c, chainKey, tx, bridge.id));
-      if (mintTx) settled++;
+      const outcome = await advanceBridge(bridge, (tx) => recordChargeSettled(c, chainKey, tx, bridge.id));
+      if (outcome.settled) settled++;
     } catch (e) {
       console.error(`[charge/resume] ${c.chargeId} still stalled:`, e);
     }
