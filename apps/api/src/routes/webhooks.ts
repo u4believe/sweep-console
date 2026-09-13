@@ -6,7 +6,7 @@ import { verifyApiKey, type AuthedRequest } from "../middleware/auth";
 import { ok, created, err, validationError } from "../lib/response";
 import { signWebhook } from "../lib/webhooks/sign";
 import { ids } from "../lib/ids";
-import { WEBHOOK_EVENTS } from "../lib/webhooks/events";
+import { WEBHOOK_EVENTS, subscribableEvents } from "../lib/webhooks/events";
 import { assertDeliverableUrl, WebhookUrlError } from "../lib/webhooks/url-guard";
 
 export const webhooksRouter = Router();
@@ -25,8 +25,20 @@ webhooksRouter.post("/", verifyApiKey, async (req, res) => {
     ));
   }
 
-  // Same guard as the portal route. Without it this endpoint — reachable with
-  // nothing but an API key — is a way around it.
+  // Same two guards as the portal route. Without them this endpoint — reachable
+  // with nothing but an API key — is the way around both.
+  const allowed = new Set<string>(
+    subscribableEvents({ externalRailEnabled: merchant.externalRailEnabled })
+  );
+  const refused = parsed.data.events.filter((e) => !allowed.has(e));
+  if (refused.length > 0) {
+    return validationError(res, {
+      events:
+        `${refused.join(", ")} ${refused.length === 1 ? "belongs" : "belong"} to the payment rail, ` +
+        `which is not enabled on this account — nothing would ever be delivered.`,
+    });
+  }
+
   try {
     await assertDeliverableUrl(parsed.data.url);
   } catch (e) {

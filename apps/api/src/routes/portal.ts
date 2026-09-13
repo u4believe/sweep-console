@@ -15,6 +15,8 @@ import { requireStepUp } from "../lib/portal/stepup";
 import {
   WEBHOOK_EVENTS,
   WEBHOOK_EVENT_DESCRIPTIONS,
+  eventGroup,
+  subscribableEvents,
 } from "../lib/webhooks/events";
 import {
   assertDeliverableUrl,
@@ -1074,6 +1076,11 @@ portalRouter.get("/payments", async (req, res) => {
 portalRouter.get("/webhooks", async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
   try {
+    const merchant = await prisma.merchant.findUnique({
+      where: { id: dbId },
+      select: { externalRailEnabled: true },
+    });
+    const railEnabled = merchant?.externalRailEnabled ?? false;
     const endpoints = await prisma.webhookEndpoint.findMany({
       where: { merchantId: dbId, isActive: true },
       include: {
@@ -1083,10 +1090,17 @@ portalRouter.get("/webhooks", async (req, res) => {
       orderBy: { createdAt: "desc" },
     });
     return ok(res, {
+      // Every event is listed, including ones this account cannot receive —
+      // hiding the rail's four would leave a developer with no idea the
+      // capability exists. `available` is what the form disables on; the refusal
+      // that matters is server-side, on create.
       available_events: WEBHOOK_EVENTS.map((e) => ({
         id: e,
         description: WEBHOOK_EVENT_DESCRIPTIONS[e],
+        group: eventGroup(e),
+        available: railEnabled || eventGroup(e) !== "rail",
       })),
+      rail_enabled: railEnabled,
       data: endpoints.map((ep) => ({
         id: ep.endpointId,
         url: ep.url,
@@ -1729,6 +1743,27 @@ portalRouter.post("/webhooks", async (req, res) => {
     );
   }
   const { url, events } = parsed.data;
+
+  // The picker disables what this account cannot receive; this is the refusal
+  // that counts, because the form is not the only way to reach this route. An
+  // endpoint subscribed to an event that can never fire is a silent failure the
+  // developer has no way to diagnose.
+  const merchantForEvents = await prisma.merchant.findUnique({
+    where: { id: dbId },
+    select: { externalRailEnabled: true },
+  });
+  const allowed = new Set<string>(
+    subscribableEvents({ externalRailEnabled: merchantForEvents?.externalRailEnabled ?? false })
+  );
+  const refused = events.filter((e) => !allowed.has(e));
+  if (refused.length > 0) {
+    return validationError(res, {
+      events:
+        `${refused.join(", ")} ${refused.length === 1 ? "belongs" : "belong"} to the payment rail, ` +
+        `which is not enabled on this account — nothing would ever be delivered. Ask us to enable ` +
+        `the rail, or remove ${refused.length === 1 ? "it" : "them"}.`,
+    });
+  }
 
   // Registering an endpoint makes this server dial an address the merchant
   // chose — see lib/webhooks/url-guard.ts.

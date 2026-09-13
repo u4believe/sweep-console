@@ -12,7 +12,18 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 interface AvailableEvent {
   id: string;
   description: string;
+  group: "subscriptions" | "rail";
+  /// False for rail events on an account without the rail: shown, but not
+  /// selectable. Hiding them would leave a developer unaware the capability
+  /// exists; offering them would let them subscribe to something that can never
+  /// be delivered.
+  available: boolean;
 }
+
+const GROUP_LABEL: Record<AvailableEvent["group"], string> = {
+  subscriptions: "Subscriptions",
+  rail: "Payment rail",
+};
 
 interface Delivery {
   id: string;
@@ -108,7 +119,9 @@ export function WebhooksPage() {
         else setError(json.error?.message ?? "Failed to load webhooks");
         if (json.available_events) {
           setAvailableEvents(json.available_events);
-          if (!eventsTouched) setFormEvents(json.available_events.map((e) => e.id));
+          if (!eventsTouched) {
+            setFormEvents(json.available_events.filter((e) => e.available).map((e) => e.id));
+          }
         }
       })
       .catch(() => setError("Could not reach the API server"));
@@ -146,7 +159,7 @@ export function WebhooksPage() {
       }
       setNewSecret({ id: data.id!, url: data.url!, secret: data.secret! });
       setFormUrl("");
-      setFormEvents(availableEvents.map((e) => e.id));
+      setFormEvents(availableEvents.filter((e) => e.available).map((e) => e.id));
       setEventsTouched(false);
       loadEndpoints();
     } catch (e) {
@@ -439,25 +452,52 @@ export function WebhooksPage() {
               </p>
             </div>
 
-            <Kicker>Events to receive</Kicker>
-            <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
-              {availableEvents.map((ev) => (
-                <label key={ev.id} className="flex cursor-pointer items-start gap-2" style={{ fontSize: 13 }}>
-                  <input
-                    type="checkbox"
-                    checked={formEvents.includes(ev.id)}
-                    onChange={() => toggleEvent(ev.id)}
-                    style={{ accentColor: "var(--color-accent)", width: 15, height: 15, marginTop: 2, flex: "none" }}
-                  />
-                  <span className="min-w-0">
-                    <Mono size={12.5}>{ev.id}</Mono>
-                    <span className="block" style={{ fontSize: 11.5, color: "var(--color-neutral-700)", lineHeight: 1.45 }}>
-                      {ev.description}
-                    </span>
-                  </span>
-                </label>
-              ))}
-            </div>
+            {(["subscriptions", "rail"] as const).map((group) => {
+              const events = availableEvents.filter((e) => e.group === group);
+              if (events.length === 0) return null;
+              const groupAvailable = events.some((e) => e.available);
+              return (
+                <div key={group} style={{ marginBottom: 14 }}>
+                  <Kicker>
+                    {group === "subscriptions" ? "Events to receive · " : ""}
+                    {GROUP_LABEL[group]}
+                  </Kicker>
+                  {!groupAvailable && (
+                    <p className="m-0 mb-2" style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
+                      Available once the payment rail is enabled on your account. These fire when a payer
+                      authorizes a mandate and when your app charges against it.
+                    </p>
+                  )}
+                  <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+                    {events.map((ev) => (
+                      <label
+                        key={ev.id}
+                        className="flex items-start gap-2"
+                        style={{
+                          fontSize: 13,
+                          cursor: ev.available ? "pointer" : "not-allowed",
+                          opacity: ev.available ? 1 : 0.5,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={formEvents.includes(ev.id)}
+                          disabled={!ev.available}
+                          onChange={() => toggleEvent(ev.id)}
+                          style={{ accentColor: "var(--color-accent)", width: 15, height: 15, marginTop: 2, flex: "none" }}
+                        />
+                        <span className="min-w-0">
+                          <Mono size={12.5}>{ev.id}</Mono>
+                          <span className="block" style={{ fontSize: 11.5, color: "var(--color-neutral-700)", lineHeight: 1.45 }}>
+                            {ev.description}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
 
             <button type="submit" className="btn btn-primary" style={{ marginTop: 18 }} disabled={submitting}>
               {submitting ? "Creating…" : "Create endpoint"}

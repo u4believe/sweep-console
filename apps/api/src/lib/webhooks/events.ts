@@ -46,3 +46,31 @@ export const WEBHOOK_EVENT_DESCRIPTIONS: Record<WebhookEventType, string> = {
   "charge.succeeded": "USDC settled on Arc for a charge you requested.",
   "charge.failed": "A charge could not be collected.",
 };
+
+/// The events that only exist on the external payment rail.
+///
+/// Kept next to the list itself so the grouping cannot drift from it — the
+/// original sin this file was written to fix was three copies of "which events
+/// exist" disagreeing with each other.
+export const RAIL_EVENTS = [
+  "mandate.authorized",
+  "mandate.revoked",
+  "charge.succeeded",
+  "charge.failed",
+] as const satisfies readonly WebhookEventType[];
+
+export type WebhookEventGroup = "subscriptions" | "rail";
+
+const RAIL_EVENT_SET = new Set<string>(RAIL_EVENTS);
+
+export function eventGroup(event: WebhookEventType): WebhookEventGroup {
+  return RAIL_EVENT_SET.has(event) ? "rail" : "subscriptions";
+}
+
+/// Events this merchant could actually receive. An account without the rail can
+/// never be sent a mandate or charge event, so offering them is the same silent
+/// failure as listing an event no call site fires: the developer subscribes,
+/// nothing arrives, and there is nothing anywhere to explain why.
+export function subscribableEvents(opts: { externalRailEnabled: boolean }): WebhookEventType[] {
+  return WEBHOOK_EVENTS.filter((e) => opts.externalRailEnabled || eventGroup(e) !== "rail");
+}
