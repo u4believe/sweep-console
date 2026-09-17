@@ -58,13 +58,14 @@ app.use(cors({
   },
   credentials: true,
   methods: ["GET", "POST", "PATCH", "DELETE"],
-  // Every header the portal actually sends must be listed. Omitting one does not
-  // degrade — the browser refuses the preflight and fetch throws a bare "Failed
-  // to fetch", which is indistinguishable from the API being down. That is how
-  // x-step-up-token went missing: every step-up-guarded action (withdraw, plan
-  // delete, key regeneration, webhook secret reveal) replays its request with
-  // that header, so all of them failed at the retry — after the merchant had
-  // already entered a correct code, which is the worst possible moment.
+  // Defence in depth rather than a live requirement: the browser never reaches
+  // this middleware. VITE_API_URL is the relative "/api", proxied to Express by
+  // Vite in development and by a host rewrite in production, so every portal
+  // request is same-origin and no preflight happens. This list only matters if
+  // someone points the client at an absolute cross-origin API URL — at which
+  // point a missing header would fail the step-up replay with a bare "Failed to
+  // fetch", indistinguishable from the API being down. x-step-up-token is listed
+  // so that configuration works rather than breaks confusingly.
   allowedHeaders: ["Content-Type", "Authorization", "x-step-up-token"],
 }));
 

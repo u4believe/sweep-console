@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/chunk";
 import { Kicker, Section } from "@/components/portal/primitives";
 import { apiFetch, messageOf, wasCancelled } from "@/lib/stepup";
 
@@ -97,7 +98,7 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
       });
     } catch (e) {
       setWithdrawing(false);
-      setWithdrawErr(e instanceof Error ? e.message : "Something went wrong");
+      setWithdrawErr(isStaleBuildError(e) ? STALE_BUILD_MESSAGE : e instanceof Error ? e.message : "Something went wrong");
     }
   }
 
