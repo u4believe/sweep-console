@@ -23,7 +23,9 @@ import {
 // email across all merchants — cancel (no escrow to return) and enable/revoke
 // the cross-chain renewal grant. No checkout session, no merchant context needed.
 
-const TIER2_ENABLED = import.meta.env.VITE_TIER2_DELEGATION === "true";
+// Not a flag any more — see DelegatedRenewalToggle. Grants are how renewals are
+// collected, so the section that manages them cannot be optional.
+const TIER2_ENABLED = true;
 
 /// The API sends a chain key ("base"); this is the name a person reads. Falls
 /// back to the key rather than a chain id, which means nothing to a subscriber.

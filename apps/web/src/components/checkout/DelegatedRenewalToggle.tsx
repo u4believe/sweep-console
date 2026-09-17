@@ -36,7 +36,13 @@ import type { GrantTarget } from "@/lib/gateway";
 // so a deployment that forgets this one ships the flag as false — and the failure
 // mode should be an absent section, not an empty numbered one that reads as a
 // broken page.
-export const TIER2_ENABLED = import.meta.env.VITE_TIER2_DELEGATION === "true";
+/// Retained as a named constant so the removal is legible in blame, but this is
+/// no longer a flag: the ERC-7715 grant IS how a subscription is paid. It became
+/// mandatory when the Arc-native path was removed — Arc is settlement-only, so
+/// there is no other way to collect. While it was still read from
+/// VITE_TIER2_DELEGATION, an unset variable hid the only control that can start a
+/// payment, and the hosted checkout silently could not take money.
+export const TIER2_ENABLED = true;
 
 interface Props {
   sessionId: string;

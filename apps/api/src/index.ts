@@ -58,7 +58,14 @@ app.use(cors({
   },
   credentials: true,
   methods: ["GET", "POST", "PATCH", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  // Every header the portal actually sends must be listed. Omitting one does not
+  // degrade — the browser refuses the preflight and fetch throws a bare "Failed
+  // to fetch", which is indistinguishable from the API being down. That is how
+  // x-step-up-token went missing: every step-up-guarded action (withdraw, plan
+  // delete, key regeneration, webhook secret reveal) replays its request with
+  // that header, so all of them failed at the retry — after the merchant had
+  // already entered a correct code, which is the worst possible moment.
+  allowedHeaders: ["Content-Type", "Authorization", "x-step-up-token"],
 }));
 
 app.use(cookieParser());
