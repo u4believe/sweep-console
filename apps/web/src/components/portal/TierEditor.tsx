@@ -56,6 +56,10 @@ export function TierEditor({
   const [feats, setFeats] = useState(featureList(tier.features).join("\n"));
   // Held as the string the merchant typed, so "9." and "9.0" behave while typing.
   const [price, setPrice] = useState((tier.amount / 1_000_000).toFixed(2));
+  // No default, deliberately. Every option reprices a different set of people,
+  // so a pre-selected one would be a decision made on the creator's behalf — and
+  // the API refuses a price without a scope for the same reason.
+  const [scope, setScope] = useState<"" | "new" | "existing" | "everyone">("");
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -76,7 +80,10 @@ export function TierEditor({
 
   const dirty = name.trim() !== tier.name || feats !== originalFeats || price.trim() !== originalPrice;
   const canSave =
-    dirty && name.trim().length > 0 && !saving && (price.trim() === originalPrice || (priceValid && !priceRaised));
+    dirty &&
+    name.trim().length > 0 &&
+    !saving &&
+    (!priceChanged || (priceValid && scope !== ""));
 
   const endpoint = planDefault
     ? `${API_URL}/portal/plans/${planId}/default-tier`
@@ -91,19 +98,27 @@ export function TierEditor({
       if (feats !== originalFeats) {
         body.features = feats.split("\n").map((s) => s.trim()).filter(Boolean);
       }
-      if (priceChanged) body.amount = priceMicros;
+      if (priceChanged) {
+        body.amount = priceMicros;
+        body.applies_to = scope;
+      }
 
-      const res = await fetch(endpoint, {
+      // apiFetch, not fetch: a price change is step-up guarded, so this request
+      // is answered with a 401 naming the challenge and has to be replayed with
+      // the proof. Plain fetch would surface that as "Couldn't save this tier."
+      const res = await apiFetch(endpoint, {
         method: "PATCH",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const json = await res.json().catch(() => ({})) as { error?: { message?: string } };
-        throw new Error(json.error?.message ?? "Couldn't save this tier.");
+        // Closing the dialog is not a failure — say nothing and leave the form
+        // as it was, so the merchant can change their mind without an error.
+        if (await wasCancelled(res)) return;
+        throw new Error(await messageOf(res, "Couldn't save this tier."));
       }
       setSaved(true);
+      setScope("");
       setTimeout(() => setSaved(false), 2000);
       onChanged();
     } catch (e) {
@@ -207,7 +222,7 @@ export function TierEditor({
 
           <div className="field">
             <label htmlFor={`price-${tier.id}`}>
-              Price per {INTERVAL_NOUNS[tier.interval] ?? tier.interval} — can only be lowered
+              Price per {INTERVAL_NOUNS[tier.interval] ?? tier.interval}
             </label>
             <input
               id={`price-${tier.id}`}
@@ -216,31 +231,68 @@ export function TierEditor({
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               aria-describedby={`price-help-${tier.id}`}
-              aria-invalid={priceRaised || (price.trim() !== "" && !priceValid) || undefined}
+              aria-invalid={(price.trim() !== "" && !priceValid) || undefined}
             />
             <p
               id={`price-help-${tier.id}`}
               className="m-0 mt-1"
-              style={{
-                fontSize: 11.5,
-                color: priceRaised ? "var(--color-accent-700)" : "var(--color-neutral-700)",
-              }}
+              style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}
             >
-              {priceRaised
-                // Named before they try to save, with the reason. A merchant told
-                // only "invalid" would assume a formatting mistake.
-                ? `Can't go above ${originalPrice} USDC. Subscribers authorized their wallet for at most that ` +
-                  `much per ${INTERVAL_NOUNS[tier.interval] ?? tier.interval}, so a higher charge would be ` +
-                  `refused and their subscription would fall past due. Add a new tier to sell at a higher price.`
-                : price.trim() !== "" && !priceValid
-                  ? "Enter an amount in USDC, up to 6 decimal places."
-                  : priceChanged
-                    ? `Lowering to ${Number(price).toFixed(2)} USDC. Subscribers on this tier pay the new price ` +
-                      `from their next renewal; nobody is charged extra, and nothing is refunded for periods ` +
-                      `already paid.`
-                    : `Up to ${originalPrice} USDC. Lowering applies to existing subscribers too.`}
+              {price.trim() !== "" && !priceValid
+                ? "Enter an amount in USDC, up to 6 decimal places."
+                : priceChanged
+                  ? `${priceRaised ? "Raising" : "Lowering"} from ${originalPrice} to ${Number(price).toFixed(2)} USDC.` +
+                    (priceRaised
+                      // The consequence of a raise, before they choose a scope:
+                      // a subscriber's wallet cap may not reach the new price.
+                      ? " Subscribers whose wallet permission is too small for the new price are asked to" +
+                        " re-authorize; nothing is collected from them until they do, and they are never" +
+                        " charged more than they approved."
+                      : " Every subscriber's permission already covers a lower amount, so nothing needs re-approving.")
+                  : `Currently ${originalPrice} USDC. Changing it asks who it applies to, and emails the subscribers it affects.`}
             </p>
           </div>
+
+          {/* The scope. Only once a price is actually different — offering it
+              while nothing has changed is a question about nothing. */}
+          {priceChanged && priceValid && (
+            <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
+              <legend style={{ fontSize: 12.5, fontWeight: 600, padding: 0 }}>
+                Who does {Number(price).toFixed(2)} USDC apply to?
+              </legend>
+              <div className="mt-1 flex flex-col gap-1.5">
+                {([
+                  ["new", "New subscribers only", "Everyone already subscribed keeps the price they signed up at. Nobody is emailed, because nobody's price changed."],
+                  ["existing", "Existing subscribers only", `The listed price stays ${originalPrice} USDC for new signups. Current subscribers move at their next renewal.`],
+                  ["everyone", "Everyone", "The listed price changes and current subscribers move at their next renewal."],
+                ] as const).map(([id, label, note]) => (
+                  <label key={id} className="flex items-start gap-2" style={{ fontSize: 12.5, cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name={`scope-${tier.id}`}
+                      id={`scope-${tier.id}-${id}`}
+                      checked={scope === id}
+                      onChange={() => setScope(id)}
+                      style={{ accentColor: "var(--color-accent)", marginTop: 3, flex: "none" }}
+                    />
+                    <span className="min-w-0">
+                      <span style={{ fontWeight: 600 }}>{label}</span>
+                      <span className="block" style={{ fontSize: 11.5, color: "var(--color-neutral-700)", lineHeight: 1.45 }}>
+                        {note}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <p className="m-0 mt-2" style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
+                {scope === ""
+                  ? "Pick one to save."
+                  : scope === "new"
+                    ? "Saving asks you to confirm it's you."
+                    : "Saving asks you to confirm it's you, then emails every affected subscriber the old price, the new price, and when it starts."}
+              </p>
+            </fieldset>
+          )}
 
           <div className="field">
             <label htmlFor={`feats-${tier.id}`}>Features — one per line</label>
