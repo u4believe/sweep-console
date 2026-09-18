@@ -306,7 +306,29 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
         continue;
       }
 
-      const amount = group[0].periodAmount;
+      // Charge what the plan LISTS, not what the grant permits.
+      //
+      // This read the grant's periodAmount, which is the subscriber's signed
+      // ceiling — so every renewal collected the maximum the wallet would allow
+      // and a creator lowering their price changed nothing. The listed price is
+      // the subscription's own snapshot, or the plan's current amount for a
+      // default-tier subscription (Subscription.amount is null there, which is
+      // how a price cut reaches those subscribers with nothing written).
+      //
+      // Clamped by the cap regardless. A price may only ever be lowered, so the
+      // cap always covers it and this can never bind — but if anything ever
+      // raises a price past what someone signed, collecting the smaller number
+      // beats having their wallet refuse the charge and marking them past due for
+      // something they did not do. It is loud because that would be a bug.
+      const signedCap = group[0].periodAmount;
+      const listed = sub.amount ?? sub.plan.amount;
+      if (listed > signedCap) {
+        console.warn(
+          `[billing/tier2] ${sub.subscriptionId} lists ${listed} but the grant caps at ${signedCap} — ` +
+            `charging the cap. A listed price above a signed cap should be impossible; prices only go down.`
+        );
+      }
+      const amount = listed < signedCap ? listed : signedCap;
       const fee = (amount * platformFeeBps()) / 10_000n;
       const merchantShare = amount - fee;
       const creator = sub.merchant.walletAddress as Address;

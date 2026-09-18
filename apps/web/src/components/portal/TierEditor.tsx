@@ -7,11 +7,18 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 /**
  * Edits ONE existing tier, independently of every other tier on the plan.
  *
- * A tier's price, interval and trial are its billing terms — subscriptions
- * snapshot them at checkout and the checkout page sells against them — so they
- * are fixed for the life of the tier and shown read-only here. Name and feature
- * copy are presentation: they apply from the next checkout onward and are
- * editable in place.
+ * The price may be LOWERED, never raised. Every subscriber signed a wallet
+ * permission capped at the price they saw, so a cut is always collectable while
+ * a rise would be refused by their own wallet and drop them into dunning. The
+ * field below is therefore bounded by today's price, and a cut reaches existing
+ * subscribers at their next renewal — which is the point of being able to make
+ * one.
+ *
+ * The interval and trial stay fixed for the life of the tier. The interval is
+ * baked into every signed grant's period schedule, so changing it would
+ * desynchronise each subscriber's enforcer window from the billing clock; the
+ * trial is a promise already made to whoever took it. Name and feature copy are
+ * presentation and apply from the next checkout onward.
  *
  * Saving or removing this tier issues a request scoped to this tier alone; no
  * sibling tier is read, rewritten, or invalidated by either action.
@@ -47,6 +54,8 @@ export function TierEditor({
 }) {
   const [name, setName] = useState(tier.name);
   const [feats, setFeats] = useState(featureList(tier.features).join("\n"));
+  // Held as the string the merchant typed, so "9." and "9.0" behave while typing.
+  const [price, setPrice] = useState((tier.amount / 1_000_000).toFixed(2));
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -55,9 +64,19 @@ export function TierEditor({
   const [confirmRemove, setConfirmRemove] = useState(false);
 
   const originalFeats = featureList(tier.features).join("\n");
+  const originalPrice = (tier.amount / 1_000_000).toFixed(2);
 
-  const dirty = name.trim() !== tier.name || feats !== originalFeats;
-  const canSave = dirty && name.trim().length > 0 && !saving;
+  // Micro-units, rounded rather than truncated: 9.999 typed into a USDC field is
+  // a slip, and flooring it to 9.99 would quietly undercharge for the life of
+  // the plan.
+  const priceMicros = Math.round(Number(price) * 1_000_000);
+  const priceValid = /^\d+(\.\d{1,6})?$/.test(price.trim()) && priceMicros > 0;
+  const priceRaised = priceValid && priceMicros > tier.amount;
+  const priceChanged = priceValid && priceMicros !== tier.amount;
+
+  const dirty = name.trim() !== tier.name || feats !== originalFeats || price.trim() !== originalPrice;
+  const canSave =
+    dirty && name.trim().length > 0 && !saving && (price.trim() === originalPrice || (priceValid && !priceRaised));
 
   const endpoint = planDefault
     ? `${API_URL}/portal/plans/${planId}/default-tier`
@@ -72,6 +91,7 @@ export function TierEditor({
       if (feats !== originalFeats) {
         body.features = feats.split("\n").map((s) => s.trim()).filter(Boolean);
       }
+      if (priceChanged) body.amount = priceMicros;
 
       const res = await fetch(endpoint, {
         method: "PATCH",
@@ -130,7 +150,7 @@ export function TierEditor({
         </span>
         {isDefault && <span className="tag tag-accent">Default</span>}
         {isRecommended && <span className="tag tag-outline">Recommended</span>}
-        <span className="tag tag-neutral">Price, interval &amp; trial locked</span>
+        <span className="tag tag-neutral">Interval &amp; trial locked</span>
 
         {planDefault ? null : confirmRemove ? (
           <span className="ml-auto flex items-center gap-2">
@@ -186,6 +206,43 @@ export function TierEditor({
           </div>
 
           <div className="field">
+            <label htmlFor={`price-${tier.id}`}>
+              Price per {INTERVAL_NOUNS[tier.interval] ?? tier.interval} — can only be lowered
+            </label>
+            <input
+              id={`price-${tier.id}`}
+              className="input"
+              inputMode="decimal"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              aria-describedby={`price-help-${tier.id}`}
+              aria-invalid={priceRaised || (price.trim() !== "" && !priceValid) || undefined}
+            />
+            <p
+              id={`price-help-${tier.id}`}
+              className="m-0 mt-1"
+              style={{
+                fontSize: 11.5,
+                color: priceRaised ? "var(--color-accent-700)" : "var(--color-neutral-700)",
+              }}
+            >
+              {priceRaised
+                // Named before they try to save, with the reason. A merchant told
+                // only "invalid" would assume a formatting mistake.
+                ? `Can't go above ${originalPrice} USDC. Subscribers authorized their wallet for at most that ` +
+                  `much per ${INTERVAL_NOUNS[tier.interval] ?? tier.interval}, so a higher charge would be ` +
+                  `refused and their subscription would fall past due. Add a new tier to sell at a higher price.`
+                : price.trim() !== "" && !priceValid
+                  ? "Enter an amount in USDC, up to 6 decimal places."
+                  : priceChanged
+                    ? `Lowering to ${Number(price).toFixed(2)} USDC. Subscribers on this tier pay the new price ` +
+                      `from their next renewal; nobody is charged extra, and nothing is refunded for periods ` +
+                      `already paid.`
+                    : `Up to ${originalPrice} USDC. Lowering applies to existing subscribers too.`}
+            </p>
+          </div>
+
+          <div className="field">
             <label htmlFor={`feats-${tier.id}`}>Features — one per line</label>
             <textarea
               id={`feats-${tier.id}`}
@@ -233,13 +290,15 @@ export function TierEditor({
         </div>
 
         <p className="m-0" style={{ fontSize: 12, color: "var(--color-neutral-700)", lineHeight: 1.6 }}>
-          Name and feature copy apply from the next checkout onward
-          {subscriberCount > 0 && (
-            <> — the {subscriberCount === 1 ? "1 subscriber" : `${subscriberCount} subscribers`} already
-            on this plan keep the terms they signed up with</>
-          )}
-          . Price, interval and trial length are fixed once a tier exists; add another tier to sell
-          different terms.
+          Name and feature copy apply from the next checkout onward. A price cut applies to everyone,
+          including the{" "}
+          {subscriberCount > 0
+            ? subscriberCount === 1
+              ? "1 subscriber"
+              : `${subscriberCount} subscribers`
+            : "subscribers"}{" "}
+          already on this plan, from their next renewal. The interval and trial length are fixed once a
+          tier exists; add another tier to sell different terms.
           <br />
           <br />
           {planDefault ? (

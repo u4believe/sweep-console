@@ -12,6 +12,7 @@ import { verifyPortalSession } from "../middleware/portalAuth";
 import type { PortalRequest } from "../middleware/portalAuth";
 import { closePlanSubscriptions, findSubsToClose } from "../lib/plan-lifecycle";
 import { requireStepUp } from "../lib/portal/stepup";
+import { refusePriceChange, propagateTierPriceCut } from "../lib/plan-pricing";
 import {
   WEBHOOK_EVENTS,
   WEBHOOK_EVENT_DESCRIPTIONS,
@@ -479,15 +480,23 @@ const updateTierSchema = z
   .object({
     name: z.string().min(1).max(60).optional(),
     features: z.array(z.string().max(200)).max(20).optional(),
+    // USDC micro-units, and only ever downward — refusePriceChange enforces it.
+    amount: z.number().int().positive().optional(),
   })
   .strict() // surfaces an attempt to edit a locked term instead of ignoring it
   .refine((d) => Object.keys(d).length > 0, {
     message: "No editable fields provided",
   });
 
-/// The billing terms, named in the refusal so the caller knows which field was
-/// rejected rather than getting a bare "unrecognized key".
-const LOCKED_TIER_TERMS = ["amount", "interval", "trial_days"];
+/// The terms that can never change, named in the refusal so the caller knows
+/// which field was rejected rather than getting a bare "unrecognized key".
+///
+/// `amount` is NOT here: a price may be lowered (see lib/plan-pricing.ts). The
+/// interval is permanent because it is baked into every signed grant's period
+/// schedule — changing it would desynchronise each subscriber's enforcer window
+/// from the billing clock. The trial is permanent because it is a promise
+/// already made to the people who took it.
+const LOCKED_TIER_TERMS = ["interval", "trial_days"];
 
 function lockedTermIn(body: unknown): string | null {
   if (!body || typeof body !== "object") return null;
@@ -504,7 +513,8 @@ portalRouter.patch("/plans/:id/tiers/:tierId", async (req, res) => {
   if (locked) {
     return err(
       res,
-      `A tier's price, interval and trial are fixed once it exists (${locked}). Add a new tier to sell different terms.`,
+      `A tier's interval and trial are fixed once it exists (${locked}). Its price can be lowered, ` +
+        `never raised. Add a new tier to sell different terms.`,
       422,
     );
   }
@@ -534,22 +544,52 @@ portalRouter.patch("/plans/:id/tiers/:tierId", async (req, res) => {
     if (!plan) return err(res, "Plan not found", 404);
 
     const d = parsed.data;
-    // Scope the update by planId too, so a tierId from another merchant's plan
-    // can't be written through this route.
-    const result = await prisma.planTier.updateMany({
-      where: {
-        id: req.params.tierId as string,
-        planId: plan.id,
-        archived: false,
-      },
-      data: {
-        ...(d.name !== undefined ? { name: d.name } : {}),
-        ...(d.features !== undefined
-          ? { features: d.features as Prisma.InputJsonValue }
-          : {}),
-      },
+
+    // A price change is validated against what the tier costs NOW, because the
+    // current price is the ceiling: only descending is allowed, so there is no
+    // separate original to remember.
+    const existing = await prisma.planTier.findFirst({
+      where: { id: req.params.tierId as string, planId: plan.id, archived: false },
+      select: { amount: true, interval: true },
     });
-    if (result.count === 0) return err(res, "Tier not found", 404);
+    if (!existing) return err(res, "Tier not found", 404);
+
+    let repriced = 0;
+    if (d.amount !== undefined) {
+      const refusal = refusePriceChange(existing.amount, BigInt(d.amount));
+      if (refusal) return validationError(res, { amount: refusal });
+    }
+
+    // One transaction: the tier's new price and the subscribers moved onto it
+    // must land together, or a crash between them leaves people paying a price
+    // the plan no longer lists.
+    await prisma.$transaction(async (tx) => {
+      await tx.planTier.updateMany({
+        where: { id: req.params.tierId as string, planId: plan.id, archived: false },
+        data: {
+          ...(d.name !== undefined ? { name: d.name } : {}),
+          ...(d.features !== undefined
+            ? { features: d.features as Prisma.InputJsonValue }
+            : {}),
+          ...(d.amount !== undefined ? { amount: BigInt(d.amount) } : {}),
+        },
+      });
+      if (d.amount !== undefined) {
+        repriced = await propagateTierPriceCut(
+          tx,
+          plan.id,
+          existing.amount,
+          existing.interval,
+          BigInt(d.amount)
+        );
+      }
+    });
+    if (d.amount !== undefined) {
+      console.log(
+        `[portal/tier] ${req.params.tierId} price ${existing.amount} -> ${d.amount}; ` +
+          `${repriced} live subscription(s) moved to the new price`
+      );
+    }
 
     const tier = await prisma.planTier.findUnique({
       where: { id: req.params.tierId as string },
@@ -561,6 +601,9 @@ portalRouter.patch("/plans/:id/tiers/:tierId", async (req, res) => {
       interval: tier!.interval,
       trial_days: tier!.trialDays,
       features: tier!.features ?? null,
+      // Present only on a price change: a creator cutting a price wants to know
+      // it reached the people already paying, not just the listing.
+      ...(d.amount !== undefined ? { repriced_subscriptions: repriced } : {}),
     });
   } catch (e) {
     console.error("[portal/plans tiers PATCH]", e);
@@ -582,7 +625,8 @@ portalRouter.patch("/plans/:id/default-tier", async (req, res) => {
   if (locked) {
     return err(
       res,
-      `The default tier's price, interval and trial are the plan's own terms and are fixed (${locked}). Add a tier to sell different terms.`,
+      `The default tier's interval and trial are the plan's own terms and are fixed (${locked}). ` +
+        `Its price can be lowered, never raised. Add a tier to sell different terms.`,
       422,
     );
   }
@@ -607,11 +651,16 @@ portalRouter.patch("/plans/:id/default-tier", async (req, res) => {
         merchantId: dbId,
         archived: false,
       },
-      select: { id: true, metadata: true },
+      select: { id: true, metadata: true, amount: true },
     });
     if (!plan) return err(res, "Plan not found", 404);
 
     const d = parsed.data;
+    if (d.amount !== undefined) {
+      const refusal = refusePriceChange(plan.amount, BigInt(d.amount));
+      if (refusal) return validationError(res, { amount: refusal });
+    }
+
     // Merge, don't replace: metadata carries keys this route knows nothing about.
     const metadata = {
       ...((plan.metadata as Record<string, unknown> | null) ?? {}),
@@ -619,10 +668,21 @@ portalRouter.patch("/plans/:id/default-tier", async (req, res) => {
       ...(d.features !== undefined ? { defaultFeatures: d.features } : {}),
     };
 
+    // No propagation needed, and that is not an omission: a default-tier
+    // subscription stores no amount of its own — Subscription.amount is null and
+    // the billing engine falls back to plan.amount — so lowering the plan's price
+    // reaches every one of those subscribers at their next renewal with nothing
+    // written against them.
     const updated = await prisma.plan.update({
       where: { id: plan.id },
-      data: { metadata: metadata as Prisma.InputJsonValue },
+      data: {
+        metadata: metadata as Prisma.InputJsonValue,
+        ...(d.amount !== undefined ? { amount: BigInt(d.amount) } : {}),
+      },
     });
+    if (d.amount !== undefined) {
+      console.log(`[portal/default-tier] plan ${plan.id} price ${plan.amount} -> ${d.amount}`);
+    }
 
     const meta = planMeta(updated.metadata);
     return ok(res, {
