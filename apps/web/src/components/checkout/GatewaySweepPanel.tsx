@@ -273,8 +273,8 @@ export function GatewaySweepPanel({
       {phase === "review" && plan && !hasAnyGrant(plan) && targets.length > 0 && (
         <div className="space-y-3">
           <p className="text-sm text-gray-600">
-            Enable cross-chain once and we'll handle every charge on Arc, pulling from your USDC on
-            other chains when your Arc balance runs low. No extra fee — gas and bridge costs are on us.
+            Authorize once and we'll charge each renewal from whichever of your chains holds enough
+            USDC, settling it to the creator on Arc. No extra fee — gas and bridge costs are on us.
           </p>
           <ul className="space-y-1 rounded-lg bg-gray-50 px-4 py-3 text-sm text-gray-600">
             <li>• Authorize renewals on: {targets.map((t) => t.name).join(", ")}</li>

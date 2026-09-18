@@ -326,9 +326,9 @@ export function DelegatedRenewalToggle({
         {probing
           ? "Checking which chains your wallet can authorize…"
           : unusable
-            ? "This wallet can't authorize renewals on other chains. Renewals are charged from Arc, covered by the payment you sign."
+            ? "This wallet can't authorize renewals on other chains, so renewals will be charged from the chain you pay with today."
             : allOn
-              ? "Every supported chain is authorized. If your Arc balance runs dry, we'll charge the renewal from whichever chain has USDC."
+              ? "Every supported chain is authorized. Each renewal is charged from whichever one holds enough USDC at the time."
               : partiallyOn
                 ? `${grantedUsable.length} of ${usable.length} chains authorized — ${grantedUsable
                     .map((t) => t.name)

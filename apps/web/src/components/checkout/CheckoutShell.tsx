@@ -3,12 +3,9 @@ import { useConnectModal } from "@rainbow-me/rainbowkit";
 import {
   useAccount,
   useDisconnect,
-  useReadContract,
   useReconnect,
 } from "wagmi";
 import { formatUnits } from "viem";
-import { ERC20_ABI } from "@/lib/chain/abis";
-import { arcTestnet } from "@/lib/chain/config";
 import { GatewaySweepPanel } from "./GatewaySweepPanel";
 import { DelegatedRenewalToggle, TIER2_ENABLED } from "./DelegatedRenewalToggle";
 import { ManageSubscriptionsPanel } from "./ManageSubscriptionsPanel";
@@ -422,10 +419,9 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
   const chainCanPay = async (key: string): Promise<boolean> => {
     if (hasTrial || !payAddress) return true;
     const balances = await fetchWalletBalances(payAddress);
-    const held =
-      key === "arc"
-        ? BigInt(balances.arc_balance)
-        : BigInt(balances.chains.find((c) => c.chain === key)?.wallet_balance ?? "0");
+    // Source chains only. "arc" is not among them — it settles payments, it
+    // never funds one — so there is no Arc branch to take.
+    const held = BigInt(balances.chains.find((c) => c.chain === key)?.wallet_balance ?? "0");
     return held >= planAmount;
   };
 
@@ -513,14 +509,10 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
 
   // Persist the chosen tier on the session so the backend resolves the same terms.
 
-  const { data: usdcBalance } = useReadContract({
-    address: onchain.usdcAddress,
-    abi: ERC20_ABI,
-    functionName: "balanceOf",
-    args: address ? [address] : undefined,
-    chainId: arcTestnet.id,
-    query: { enabled: !!address },
-  });
+  // No Arc balance is read here any more. Arc is the settlement chain: the
+  // merchant is paid there, nothing is ever pulled from a subscriber's Arc
+  // wallet, so showing them that balance beside a checkout invited them to fund
+  // the one chain that cannot pay for this.
 
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -880,11 +872,6 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                         <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 13.5 }}>
                           {shortAddr(payAddress)}
                         </span>
-                        {usdcBalance !== undefined && (
-                          <span className="tag tag-neutral">
-                            Arc balance {formatUnits(usdcBalance, 6)} USDC
-                          </span>
-                        )}
                         <button
                           type="button"
                           className="btn btn-ghost ml-auto"
