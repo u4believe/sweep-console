@@ -22,6 +22,10 @@ interface Subscription {
   currentPeriodEnd: string;
   walletAddress: string;
   isTestMode: boolean;
+  price: number;
+  /// Their signed cap no longer covers the price — nothing is collected until
+  /// they approve the new amount, and no payment "fails" while that is true.
+  needsReauthorization: boolean;
 }
 
 type Filter = "all" | "active" | "trialing" | "past_due" | "cancelled";
@@ -105,7 +109,14 @@ export function SubscriptionsPage() {
                           </Mono>
                         </td>
                         <td>{sub.planName}</td>
-                        <td><StatusTag status={sub.status} /></td>
+                        <td>
+                          <StatusTag status={sub.status} />
+                          {sub.needsReauthorization && (
+                            <p className="m-0 mt-1" style={{ fontSize: 11, color: "var(--color-accent-700)" }}>
+                              awaiting re-authorization
+                            </p>
+                          )}
+                        </td>
                         <td style={{ color: "var(--color-neutral-700)" }}>
                           {new Date(sub.currentPeriodEnd).toLocaleDateString()}
                         </td>

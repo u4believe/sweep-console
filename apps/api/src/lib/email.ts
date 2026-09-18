@@ -584,3 +584,84 @@ export function railAccessRequestEmailHtml(d: RailAccessRequestData): string {
       ),
   });
 }
+
+export interface PriceChangeEmailData {
+  merchantName: string;
+  planName: string;
+  oldAmount: string;
+  newAmount: string;
+  currency: string;
+  interval: string;
+  /// When the new price first applies — the end of the period they have paid for.
+  effectiveFrom: Date | null;
+  /**
+   * True when this subscriber's signed wallet permission cannot cover the new
+   * price. They are not at risk of being overcharged — their wallet would refuse
+   * it — but nothing will be collected until they authorize the new amount, so
+   * this is the difference between "for your information" and "action needed".
+   */
+  needsReauthorization: boolean;
+}
+
+/**
+ * Sent to every affected subscriber when a creator changes a price.
+ *
+ * A price change is the one thing a standing authorization must never do
+ * quietly. The subscriber signed a cap, not a subscription to whatever the
+ * creator later decides, so this states both numbers and who changed it — and
+ * when their permission cannot cover the new price, it leads with that rather
+ * than burying it, because otherwise they discover it as a payment that silently
+ * stopped.
+ */
+export function priceChangeEmailHtml(d: PriceChangeEmailData): string {
+  const up = Number(d.newAmount) > Number(d.oldAmount);
+  const noun = INTERVAL_NOUN[d.interval] ?? d.interval;
+
+  return shell({
+    preheader:
+      `${d.merchantName} changed ${d.planName} from ${d.oldAmount} to ${d.newAmount} ${d.currency} per ${noun}.` +
+      (d.needsReauthorization ? " Your authorization needs updating." : ""),
+    sender: "notice",
+    merchantName: d.merchantName,
+    kicker: d.needsReauthorization ? "Action needed" : "Price change",
+    title: up ? `${d.planName} now costs more` : `${d.planName} now costs less`,
+    footerContact:
+      `Questions about the new price? Contact ${esc(d.merchantName)} directly — they set it. ` +
+      `Sweep Console collects what they list and can never take more than your wallet has authorized.`,
+    body:
+      heroAmount(
+        d.newAmount,
+        d.currency,
+        `per ${esc(noun)}, from ${esc(d.oldAmount)} ${esc(d.currency)}. Changed by ` +
+          `<strong style="color:#201e1d;">${esc(d.merchantName)}</strong>` +
+          (d.effectiveFrom ? `, applying from ${esc(DATE.format(d.effectiveFrom))}.` : ".")
+      ) +
+      detailRows([
+        { k: "Plan", v: esc(d.planName) },
+        { k: "Was", v: `${esc(d.oldAmount)} ${esc(d.currency)} per ${esc(noun)}` },
+        { k: "Now", v: `${esc(d.newAmount)} ${esc(d.currency)} per ${esc(noun)}`, accent: true },
+        ...(d.effectiveFrom
+          ? [{ k: "First charged", v: esc(DATE.format(d.effectiveFrom)) }]
+          : []),
+      ]) +
+      (d.needsReauthorization
+        ? alarm(
+            "Your authorization is too small",
+            `You authorized up to ${esc(d.oldAmount)} ${esc(d.currency)} per ${esc(noun)}, so the new price ` +
+              `cannot be collected — your wallet would refuse it, and we will not try. Nothing has been ` +
+              `charged and nothing will be until you approve the new amount. Update it from the page below, ` +
+              `or cancel if you would rather not continue.`
+          )
+        : panel(
+            "Nothing to do",
+            "Your existing authorization covers this",
+            `The permission you already signed allows up to ${esc(d.oldAmount)} ${esc(d.currency)} per ` +
+              `${esc(noun)}, so the new price is collected the same way as before.`
+          )) +
+      button(d.needsReauthorization ? "Update your authorization" : "Manage your subscriptions", manageUrl()) +
+      fineprint(
+        `You can cancel at any time, and revoke the permission in your wallet whenever you like — ` +
+        `only you can remove it. Periods already paid for are not affected.`
+      ),
+  });
+}

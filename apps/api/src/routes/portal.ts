@@ -13,6 +13,7 @@ import type { PortalRequest } from "../middleware/portalAuth";
 import { closePlanSubscriptions, findSubsToClose } from "../lib/plan-lifecycle";
 import { requireStepUp } from "../lib/portal/stepup";
 import { refusePriceChange, applyPriceChange, type PriceScope } from "../lib/plan-pricing";
+import { sendPriceChangeNotices } from "../lib/email/price-change";
 import {
   WEBHOOK_EVENTS,
   WEBHOOK_EVENT_DESCRIPTIONS,
@@ -563,9 +564,10 @@ portalRouter.patch(
     // separate original to remember.
     const existing = await prisma.planTier.findFirst({
       where: { id: req.params.tierId as string, planId: plan.id, archived: false },
-      select: { amount: true, interval: true },
+      select: { amount: true, interval: true, name: true },
     });
     if (!existing) return err(res, "Tier not found", 404);
+    const existingName = existing.name;
 
     let outcome = { listedChanged: false, repriced: 0, grandfathered: 0 };
     if (d.amount !== undefined) {
@@ -614,6 +616,16 @@ portalRouter.patch(
         `[portal/tier] ${req.params.tierId} price ${existing.amount} -> ${d.amount} (${d.applies_to}); ` +
           `listed=${outcome.listedChanged} repriced=${outcome.repriced} grandfathered=${outcome.grandfathered}`
       );
+      // Detached, after the commit: the price is changed either way, and a
+      // creator should not wait on a mail provider to learn that it worked.
+      void sendPriceChangeNotices({
+        planDbId: plan.id,
+        tierName: existingName,
+        oldAmount: existing.amount,
+        newAmount: BigInt(d.amount),
+        interval: existing.interval,
+        appliesToExisting: d.applies_to !== "new",
+      });
     }
 
     const tier = await prisma.planTier.findUnique({
@@ -745,6 +757,14 @@ portalRouter.patch(
         `[portal/default-tier] plan ${plan.id} price ${plan.amount} -> ${d.amount} (${d.applies_to}); ` +
           `listed=${outcome.listedChanged} repriced=${outcome.repriced} grandfathered=${outcome.grandfathered}`
       );
+      void sendPriceChangeNotices({
+        planDbId: plan.id,
+        tierName: null,
+        oldAmount: plan.amount,
+        newAmount: BigInt(d.amount),
+        interval: plan.interval,
+        appliesToExisting: d.applies_to !== "new",
+      });
     }
 
     const meta = planMeta(updated.metadata);
@@ -1154,21 +1174,39 @@ portalRouter.get("/subscriptions", async (req, res) => {
   try {
     const subs = await prisma.subscription.findMany({
       where: { merchantId: dbId },
-      include: { plan: { select: { name: true } } },
+      include: {
+        plan: { select: { name: true, amount: true } },
+        renewalDelegations: { where: { status: "active" }, select: { periodAmount: true } },
+      },
       orderBy: { createdAt: "desc" },
       take: 50,
     });
     return ok(res, {
-      data: subs.map((s) => ({
-        id: s.subscriptionId,
-        externalRef: s.externalRef,
-        email: s.subscriberEmail ?? null,
-        planName: s.plan.name,
-        status: s.status,
-        currentPeriodEnd: s.currentPeriodEnd.toISOString(),
-        walletAddress: s.walletAddress,
-        isTestMode: s.isTestMode,
-      })),
+      data: subs.map((s) => {
+        // Computed, not stored. A raised price can outgrow what a subscriber
+        // authorized, and until they approve the new amount nothing is collected
+        // — no payment fails, no dunning runs, the money simply never arrives.
+        // Without surfacing it the creator's only clue is revenue that stopped.
+        // One live grant covering the price is enough, since one chain can pay.
+        const price = s.amount ?? s.plan.amount;
+        const bestCap = s.renewalDelegations.reduce(
+          (max, g) => (g.periodAmount > max ? g.periodAmount : max),
+          0n
+        );
+        const live = ["active", "trialing", "past_due"].includes(s.status);
+        return {
+          id: s.subscriptionId,
+          externalRef: s.externalRef,
+          email: s.subscriberEmail ?? null,
+          planName: s.plan.name,
+          status: s.status,
+          currentPeriodEnd: s.currentPeriodEnd.toISOString(),
+          walletAddress: s.walletAddress,
+          isTestMode: s.isTestMode,
+          price: Number(price),
+          needsReauthorization: live && s.renewalDelegations.length > 0 && bestCap < price,
+        };
+      }),
     });
   } catch (e) {
     console.error("[portal/subscriptions]", e);
