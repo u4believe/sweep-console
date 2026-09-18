@@ -116,7 +116,7 @@ export function PostPaymentGrants({
         <p className="m-0" style={{ fontSize: 12.5, color: "var(--color-neutral-800)", lineHeight: 1.6 }}>
           {remaining.length === 0
             ? "Every supported chain is authorized. Renewals will charge from whichever one holds enough USDC."
-            : "Authorize more chains so a renewal can still go through when your Arc balance runs low. We submit each one and pay the gas. Revoke anytime from your wallet."}
+            : "Right now a renewal can only be collected from the chain you just paid from — if it runs low, the renewal fails even with USDC sitting on another chain. Authorize more and we charge whichever one holds enough. We submit each and pay the gas. Revoke anytime from your wallet."}
         </p>
 
         <div style={{ borderTop: "1px solid var(--color-divider)", marginTop: 14 }}>

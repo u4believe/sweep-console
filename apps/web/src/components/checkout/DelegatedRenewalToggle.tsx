@@ -1,28 +1,31 @@
-// "Automatic renewal" — for a subscriber paying on Arc (the primary flow) who
-// also wants renewals to fall back to their USDC on other chains when their Arc
-// balance runs dry.
+// "Automatic renewal" — the control that decides how many chains a renewal can
+// be collected from.
 //
 // ONE switch, and it means "all chains".
 //
-// Chain selection lives in step 03 ("Pay from") — it is the only picker on this
-// page, so this component deliberately has no chain rows of its own. Two lists
-// of the same four chains, each with its own notion of what was chosen, is how
-// a subscriber ends up unsure which one is authorizing anything.
+// This is not a convenience. Step 03 ("Pay from") authorizes exactly the chain
+// being paid from, deliberately — someone comparing Base should not be asked to
+// authorize everything. But that leaves a subscription renewable on one chain
+// only, and the renewal engine can collect from a granted chain only if it holds
+// a full period. A wallet with 2 USDC on Base and 40 on Optimism fails its
+// renewal if Base is all it granted, with the money sitting right there.
 //
-// Off (the default): renewals are authorized only for the chain picked in 03,
-// and that grant is signed when the subscriber presses "Sign in wallet &
-// subscribe" — not a moment earlier. Arc needs no grant at all; it rides the
-// ERC-2612 permit.
+// So this switch is the difference between one chain and a fallback set. On, it
+// authorizes every supported chain in one run: a 7702 smart-account upgrade plus
+// an ERC-7715 delegation on each of Base/Arbitrum/Optimism. It is the only
+// control here that opens the wallet. Off, renewals depend on a single chain
+// staying funded.
 //
-// On: every supported chain is authorized in one run — the Arc permit, then a
-// 7702 smart-account upgrade plus an ERC-7715 delegation on each of
-// Base/Arbitrum/Optimism. This is the only control here that opens the wallet.
+// Chain selection stays in step 03; this component has no chain rows of its own.
+// Two lists of the same chains, each with its own notion of what was chosen, is
+// how a subscriber ends up unsure what they authorized.
 //
 // Turning it back off revokes every grant. Revocation is a server call against
-// the stored delegation, so it needs no signature.
+// the stored delegation, so it needs no signature — and it cannot remove the
+// permission from the wallet, which only the subscriber can do.
 //
-// Self-gating: renders only when the feature flag is on AND the wallet advertises
-// ERC-7715 support; otherwise it's invisible and checkout proceeds Arc-only.
+// Self-gating: the wallet must advertise ERC-7715 support. There is no feature
+// flag any more — see TIER2_ENABLED below.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAccount, useChainId, useConnectorClient } from "wagmi";
@@ -50,11 +53,9 @@ interface Props {
   walletAddress: string;
   email?: string;
   emailToken?: string | null;
-  /** Signs (or returns the already-signed) Arc EIP-2612 permit. */
-  /** True once that permit exists, whoever collected it. */
   /**
-   * Called once every chain is authorized, so the shell can go on to charge —
-   * Arc first, then whichever approved chain holds enough USDC.
+   * Called once every chain is authorized, so the shell can go on to charge from
+   * whichever granted chain holds enough USDC.
    */
   onAuthorizedAll: () => void;
 }
@@ -197,9 +198,9 @@ export function DelegatedRenewalToggle({
   }, [address, chainId, connectorClient, refreshPlan]);
 
   /**
-   * The one path that opens the wallet. Arc's permit first (it covers the
-   * opening charge as well, so it must exist before anything else is signed),
-   * then upgrade + delegation on every other chain.
+   * The one path that opens the wallet: a smart-account upgrade and an ERC-7715
+   * delegation per chain. No permit is involved — Arc is the settlement chain,
+   * never a funding one, so there is nothing to sign there.
    */
   async function authorizeAll(list: GrantTarget[], scope: number | "all") {
     if (!address || !connectorClient || workingRef.current) return;
@@ -208,9 +209,6 @@ export function DelegatedRenewalToggle({
     workingRef.current = true;
     setProgress({ done: 0, total: list.length });
     try {
-      // Arc: ERC-2612 permit. Signed once per checkout and shared with the pay
-      // button, so a subscriber who authorizes here never signs it twice.
-
       // One ERC-7715 delegation per chain. A single chain failing never aborts
       // the rest — grantRenewalMandates keeps going and reports what didn't land.
       const failures = list.length === 0
