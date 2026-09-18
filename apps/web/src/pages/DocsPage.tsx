@@ -511,6 +511,20 @@ export function DocsPage() {
                 <Row k="charge.failed · mandate_period_consumed" v="Every granted chain has already been redeemed this period, even if the mandate's own ceiling has room." />
               </div>
               <p>
+                <strong>Charging more than the cap means a new mandate.</strong> <Code>max_amount</Code> is fixed for
+                the life of a mandate — it is the number the payer&apos;s wallet enforces, and nothing on your side or
+                ours can raise it. So a price increase past that ceiling is not an edit, it is a fresh authorization:
+                create a second mandate at the new amount, send the payer its <Code>authorization_url</Code>, and
+                charge the new one once <Code>mandate.authorized</Code> arrives. Revoke the old mandate then — not
+                before, or you have cancelled a working authorization while waiting on a signature that may never come.
+              </p>
+              <p>
+                Until they sign, keep collecting on the old mandate at the old amount. It is still valid, and a payer
+                who ignores the email keeps their subscription working rather than silently lapsing. Charging
+                <em>below</em> the cap needs none of this: every <Code>POST /v1/charges</Code> names its own amount, so
+                lowering a price is simply charging less, with no authorization change and nothing for the payer to do.
+              </p>
+              <p>
                 A failed charge leaves the mandate <Code>active</Code>. Nothing about the rail cancels an authorization
                 on your behalf — only the payer, from their wallet, or you, via{" "}
                 <Code>DELETE /v1/mandates/:id</Code>, which is idempotent and fires <Code>mandate.revoked</Code>. That
