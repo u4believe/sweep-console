@@ -25,6 +25,7 @@ import {
   redeemPeriodicTransfer,
   getDelegateAddress,
   decodePeriodTransferTerms,
+  mandateCovers,
 } from "../lib/chain/delegation";
 import { periodConsumed } from "../lib/rail";
 import { advanceBridge } from "./bridge";
@@ -310,33 +311,56 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
       //
       // This read the grant's periodAmount, which is the subscriber's signed
       // ceiling — so every renewal collected the maximum the wallet would allow
-      // and a creator lowering their price changed nothing. The listed price is
+      // and a creator changing their price changed nothing. The listed price is
       // the subscription's own snapshot, or the plan's current amount for a
       // default-tier subscription (Subscription.amount is null there, which is
-      // how a price cut reaches those subscribers with nothing written).
+      // how a price change reaches those subscribers with nothing written).
       //
-      // Clamped by the cap regardless. A price may only ever be lowered, so the
-      // cap always covers it and this can never bind — but if anything ever
-      // raises a price past what someone signed, collecting the smaller number
-      // beats having their wallet refuse the charge and marking them past due for
-      // something they did not do. It is loud because that would be a bug.
-      const signedCap = group[0].periodAmount;
-      const listed = sub.amount ?? sub.plan.amount;
-      if (listed > signedCap) {
-        console.warn(
-          `[billing/tier2] ${sub.subscriptionId} lists ${listed} but the grant caps at ${signedCap} — ` +
-            `charging the cap. A listed price above a signed cap should be impossible; prices only go down.`
-        );
-      }
-      const amount = listed < signedCap ? listed : signedCap;
+      // NOT clamped by the cap. A clamp was briefly here, from when prices could
+      // only be lowered: it made the over_cap guard below unreachable, so a price
+      // above someone's signed cap would quietly collect the old cap forever
+      // instead of asking them to re-authorize. Charging less than the listed
+      // price without telling anyone is worse than refusing: it hides the one
+      // thing that needs a decision.
+      const amount = sub.amount ?? sub.plan.amount;
       const fee = (amount * platformFeeBps()) / 10_000n;
       const merchantShare = amount - fee;
       const creator = sub.merchant.walletAddress as Address;
-      const allowedChainKeys = group
+      // Only chains whose grant actually covers this price are candidates.
+      //
+      // Without this, selection is by BALANCE and the cap is checked afterwards:
+      // a subscriber with a covering grant on Base and a stale one on Optimism
+      // gets Optimism picked because it holds more USDC, fails the cap check, and
+      // the whole subscription is skipped — while the chain that could have paid
+      // was never tried. Filtering first also gives "no covering grant anywhere"
+      // its true meaning: this subscriber must re-authorize, not merely top up.
+      const covering = group.filter((m) =>
+        mandateCovers({ periodAmount: m.periodAmount, periodDuration: m.periodDuration }, amount, periodDur)
+      );
+      const allowedChainKeys = covering
         .map((m) => chainKeyForId(m.chainId))
         .filter((k): k is string => !!k);
 
-      // Single-chain selection among granted chains that currently hold enough
+      if (allowedChainKeys.length === 0) {
+        // Every grant is too small for the current price — the creator raised it
+        // above what this subscriber authorized. Retrying cannot fix that, and
+        // only the subscriber can, so this must NOT go to dunning: it would spend
+        // the ladder and cancel them for a decision the creator made.
+        console.warn(
+          `[billing/tier2] ${sub.subscriptionId} needs re-authorization: price ${amount} exceeds every ` +
+            `signed cap (${group.map((m) => `${chainKeyForId(m.chainId)}:${m.periodAmount}`).join(", ")})`
+        );
+        outcomes.push({
+          subscriptionId: sub.subscriptionId,
+          result: "over_cap",
+          detail:
+            `price ${amount} exceeds the signed cap on every granted chain — the subscriber must ` +
+            `re-authorize before this can be collected`,
+        });
+        continue;
+      }
+
+      // Single-chain selection among covering chains that currently hold enough
       // AND where the subscriber's smart account is deployed (redeemable).
       const selection = await selectPaymentChain(sub.walletAddress as Hex, {
         amount,
