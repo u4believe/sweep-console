@@ -36,6 +36,7 @@ authenticator.options = { window: 1 };
 
 export type StepUpAction =
   | "plan.delete"
+  | "plan.reprice"
   | "tier.delete"
   | "apikey.regenerate"
   | "webhook.reveal"
@@ -78,6 +79,13 @@ export const STEP_UP_ACTIONS: Record<StepUpAction, ActionPolicy> = {
   // plan is still in the record.
   "plan.delete": { label: "close a plan", factor: "any" },
   "tier.delete": { label: "remove a tier", factor: "any" },
+  // Repricing changes what subscribers are charged, so it is guarded — but it
+  // hands over no credential and redirects no money: settlement still goes to
+  // the payout wallet, which is totp-only in its own right. An intruder in the
+  // mailbox could disrupt a creator's pricing, not enrich themselves. And like
+  // closing a plan it announces itself, because every active subscriber is
+  // emailed. So "any", on the same reasoning as the two above.
+  "plan.reprice": { label: "change a plan's price", factor: "any" },
 
   // Each of these hands over a credential that outlives the session asking for
   // it — an API key, or a signing secret that lets its holder forge events into

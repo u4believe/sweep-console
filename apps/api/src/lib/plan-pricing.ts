@@ -43,14 +43,13 @@ export function refusePriceChange(current: bigint, next: bigint): string | null 
   if (next === current) {
     return `That is already the price (${fmt(current)} USDC).`;
   }
-  if (next > current) {
-    return (
-      `A price can only be lowered, and this would raise it from ${fmt(current)} to ${fmt(next)} USDC. ` +
-      `Every subscriber authorized their wallet for at most ${fmt(current)} per period, so a higher ` +
-      `charge would be refused by their wallet and their subscription would fall past due. ` +
-      `Add a new tier to sell at a higher price.`
-    );
-  }
+  // A raise is permitted. It used to be refused outright, on the grounds that a
+  // subscriber's signed cap could not cover it — which was true, and is now
+  // handled rather than forbidden: a subscriber whose grant is too small is
+  // asked to re-authorize instead of being charged, and is never dunned for it.
+  // The "never above the original" ceiling went with that rule; keeping it would
+  // have meant storing an original price forever to enforce a limit that only
+  // decided WHO had to re-sign.
   return null;
 }
 
@@ -88,4 +87,87 @@ export async function propagateTierPriceCut(
     data: { amount: newAmount },
   });
   return count;
+}
+
+/**
+ * Who a price change reaches.
+ *
+ * - "new"      the listing changes; everyone already subscribed keeps what they
+ *              pay now. Grandfathering, and the only scope that never needs a
+ *              subscriber to re-authorize.
+ * - "existing" the listing is untouched; current subscribers move to the new
+ *              price. A loyalty discount without changing the shopfront.
+ * - "everyone" both.
+ */
+export type PriceScope = "new" | "existing" | "everyone";
+
+export interface PriceChangeResult {
+  /** Whether the plan's or tier's advertised price was rewritten. */
+  listedChanged: boolean;
+  /** Live subscriptions moved onto the new price. */
+  repriced: number;
+  /** Live subscriptions pinned to the old price so a listing change misses them. */
+  grandfathered: number;
+}
+
+/**
+ * Applies a price change under one scope.
+ *
+ * The subtlety is the default tier. A subscription on it stores no amount of its
+ * own — Subscription.amount is null and the billing engine falls back to
+ * plan.amount — so it INHERITS whatever the plan lists. That inheritance is what
+ * makes "everyone" free (nothing to write) and what makes "new" require a write:
+ * to grandfather an inheriting subscriber you have to pin them to the old price
+ * first, or the listing change sweeps them up. Miss that and "applies to new
+ * subscribers only" silently reprices everybody.
+ *
+ * A named tier is the reverse: its subscribers always carry an explicit
+ * snapshot, so they are grandfathered by default and only "existing"/"everyone"
+ * writes to them.
+ */
+export async function applyPriceChange(
+  tx: SubscriptionRepricer,
+  opts: {
+    planDbId: string;
+    /** Null for the plan's own terms (the default tier at checkout). */
+    isDefaultTier: boolean;
+    oldAmount: bigint;
+    interval: string;
+    newAmount: bigint;
+    scope: PriceScope;
+  }
+): Promise<PriceChangeResult> {
+  const { planDbId, isDefaultTier, oldAmount, interval, newAmount, scope } = opts;
+
+  // Which live subscriptions are on these terms. For the default tier an
+  // inheriting subscriber (null amount, or null interval) counts, which is
+  // exactly the set a listing change would otherwise move.
+  const where = isDefaultTier
+    ? {
+        planId: planDbId,
+        status: { in: LIVE },
+        OR: [{ amount: null }, { amount: oldAmount }],
+        AND: [{ OR: [{ interval: null }, { interval }] }],
+      }
+    : { planId: planDbId, status: { in: LIVE }, amount: oldAmount, interval };
+
+  let repriced = 0;
+  let grandfathered = 0;
+
+  if (scope === "new") {
+    // Only inheriting subscribers need pinning; an explicit snapshot already
+    // equals oldAmount and rewriting it would be a no-op.
+    if (isDefaultTier) {
+      const { count } = await tx.subscription.updateMany({
+        where: { planId: planDbId, status: { in: LIVE }, amount: null },
+        data: { amount: oldAmount },
+      });
+      grandfathered = count;
+    }
+  } else {
+    const { count } = await tx.subscription.updateMany({ where, data: { amount: newAmount } });
+    repriced = count;
+  }
+
+  return { listedChanged: scope !== "existing", repriced, grandfathered };
 }

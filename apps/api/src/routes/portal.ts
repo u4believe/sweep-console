@@ -12,7 +12,7 @@ import { verifyPortalSession } from "../middleware/portalAuth";
 import type { PortalRequest } from "../middleware/portalAuth";
 import { closePlanSubscriptions, findSubsToClose } from "../lib/plan-lifecycle";
 import { requireStepUp } from "../lib/portal/stepup";
-import { refusePriceChange, propagateTierPriceCut } from "../lib/plan-pricing";
+import { refusePriceChange, applyPriceChange, type PriceScope } from "../lib/plan-pricing";
 import {
   WEBHOOK_EVENTS,
   WEBHOOK_EVENT_DESCRIPTIONS,
@@ -480,8 +480,12 @@ const updateTierSchema = z
   .object({
     name: z.string().min(1).max(60).optional(),
     features: z.array(z.string().max(200)).max(20).optional(),
-    // USDC micro-units, and only ever downward — refusePriceChange enforces it.
+    // USDC micro-units. Raises are allowed; a subscriber whose signed cap cannot
+    // cover the new price is asked to re-authorize rather than charged or dunned.
     amount: z.number().int().positive().optional(),
+    // Required WITH an amount: who the change reaches. No default, because
+    // guessing would silently reprice people — see lib/plan-pricing.ts.
+    applies_to: z.enum(["new", "existing", "everyone"]).optional(),
   })
   .strict() // surfaces an attempt to edit a locked term instead of ignoring it
   .refine((d) => Object.keys(d).length > 0, {
@@ -506,7 +510,16 @@ function lockedTermIn(body: unknown): string | null {
   );
 }
 
-portalRouter.patch("/plans/:id/tiers/:tierId", async (req, res) => {
+portalRouter.patch(
+  "/plans/:id/tiers/:tierId",
+  // Guarded only when a price is in the body. Renaming a tier or editing its
+  // feature copy should not demand a code — asking for one on every edit trains
+  // people to type codes without reading what they are approving.
+  (req, res, next) =>
+    req.body && typeof req.body === "object" && "amount" in req.body
+      ? requireStepUp("plan.reprice")(req, res, next)
+      : next(),
+  async (req, res) => {
   const dbId = (req as unknown as PortalRequest).merchantDbId;
 
   const locked = lockedTermIn(req.body);
@@ -554,16 +567,35 @@ portalRouter.patch("/plans/:id/tiers/:tierId", async (req, res) => {
     });
     if (!existing) return err(res, "Tier not found", 404);
 
-    let repriced = 0;
+    let outcome = { listedChanged: false, repriced: 0, grandfathered: 0 };
     if (d.amount !== undefined) {
       const refusal = refusePriceChange(existing.amount, BigInt(d.amount));
       if (refusal) return validationError(res, { amount: refusal });
+      if (!d.applies_to) {
+        return validationError(res, {
+          applies_to:
+            "Say who this price applies to: \"new\" (only new subscribers; everyone already " +
+            "subscribed keeps their price), \"existing\" (only current subscribers; the listed " +
+            "price is unchanged), or \"everyone\".",
+        });
+      }
     }
 
-    // One transaction: the tier's new price and the subscribers moved onto it
-    // must land together, or a crash between them leaves people paying a price
-    // the plan no longer lists.
+    // One transaction: the tier's new price and the subscriptions moved or
+    // pinned because of it must land together, or a crash between them leaves
+    // people on a price the plan does not list.
     await prisma.$transaction(async (tx) => {
+      const scope = d.applies_to as PriceScope | undefined;
+      if (d.amount !== undefined && scope) {
+        outcome = await applyPriceChange(tx, {
+          planDbId: plan.id,
+          isDefaultTier: false,
+          oldAmount: existing.amount,
+          interval: existing.interval,
+          newAmount: BigInt(d.amount),
+          scope,
+        });
+      }
       await tx.planTier.updateMany({
         where: { id: req.params.tierId as string, planId: plan.id, archived: false },
         data: {
@@ -571,23 +603,16 @@ portalRouter.patch("/plans/:id/tiers/:tierId", async (req, res) => {
           ...(d.features !== undefined
             ? { features: d.features as Prisma.InputJsonValue }
             : {}),
-          ...(d.amount !== undefined ? { amount: BigInt(d.amount) } : {}),
+          // "existing" leaves the shopfront alone: current subscribers move, new
+          // ones keep buying at the listed price.
+          ...(d.amount !== undefined && outcome.listedChanged ? { amount: BigInt(d.amount) } : {}),
         },
       });
-      if (d.amount !== undefined) {
-        repriced = await propagateTierPriceCut(
-          tx,
-          plan.id,
-          existing.amount,
-          existing.interval,
-          BigInt(d.amount)
-        );
-      }
     });
     if (d.amount !== undefined) {
       console.log(
-        `[portal/tier] ${req.params.tierId} price ${existing.amount} -> ${d.amount}; ` +
-          `${repriced} live subscription(s) moved to the new price`
+        `[portal/tier] ${req.params.tierId} price ${existing.amount} -> ${d.amount} (${d.applies_to}); ` +
+          `listed=${outcome.listedChanged} repriced=${outcome.repriced} grandfathered=${outcome.grandfathered}`
       );
     }
 
@@ -603,7 +628,14 @@ portalRouter.patch("/plans/:id/tiers/:tierId", async (req, res) => {
       features: tier!.features ?? null,
       // Present only on a price change: a creator cutting a price wants to know
       // it reached the people already paying, not just the listing.
-      ...(d.amount !== undefined ? { repriced_subscriptions: repriced } : {}),
+      ...(d.amount !== undefined
+        ? {
+            applies_to: d.applies_to,
+            listed_price_changed: outcome.listedChanged,
+            repriced_subscriptions: outcome.repriced,
+            grandfathered_subscriptions: outcome.grandfathered,
+          }
+        : {}),
     });
   } catch (e) {
     console.error("[portal/plans tiers PATCH]", e);
@@ -618,7 +650,13 @@ portalRouter.patch("/plans/:id/tiers/:tierId", async (req, res) => {
 //
 // The name and features live on plan.metadata (defaultTierName / defaultFeatures,
 // which is where the checkout reads them from); the trial is a real plan column.
-portalRouter.patch("/plans/:id/default-tier", async (req, res) => {
+portalRouter.patch(
+  "/plans/:id/default-tier",
+  (req, res, next) =>
+    req.body && typeof req.body === "object" && "amount" in req.body
+      ? requireStepUp("plan.reprice")(req, res, next)
+      : next(),
+  async (req, res) => {
   const dbId = (req as unknown as PortalRequest).merchantDbId;
 
   const locked = lockedTermIn(req.body);
@@ -651,7 +689,7 @@ portalRouter.patch("/plans/:id/default-tier", async (req, res) => {
         merchantId: dbId,
         archived: false,
       },
-      select: { id: true, metadata: true, amount: true },
+      select: { id: true, metadata: true, amount: true, interval: true },
     });
     if (!plan) return err(res, "Plan not found", 404);
 
@@ -659,6 +697,14 @@ portalRouter.patch("/plans/:id/default-tier", async (req, res) => {
     if (d.amount !== undefined) {
       const refusal = refusePriceChange(plan.amount, BigInt(d.amount));
       if (refusal) return validationError(res, { amount: refusal });
+      if (!d.applies_to) {
+        return validationError(res, {
+          applies_to:
+            "Say who this price applies to: \"new\" (only new subscribers; everyone already " +
+            "subscribed keeps their price), \"existing\" (only current subscribers; the listed " +
+            "price is unchanged), or \"everyone\".",
+        });
+      }
     }
 
     // Merge, don't replace: metadata carries keys this route knows nothing about.
@@ -668,20 +714,37 @@ portalRouter.patch("/plans/:id/default-tier", async (req, res) => {
       ...(d.features !== undefined ? { defaultFeatures: d.features } : {}),
     };
 
-    // No propagation needed, and that is not an omission: a default-tier
-    // subscription stores no amount of its own — Subscription.amount is null and
-    // the billing engine falls back to plan.amount — so lowering the plan's price
-    // reaches every one of those subscribers at their next renewal with nothing
-    // written against them.
-    const updated = await prisma.plan.update({
-      where: { id: plan.id },
-      data: {
-        metadata: metadata as Prisma.InputJsonValue,
-        ...(d.amount !== undefined ? { amount: BigInt(d.amount) } : {}),
-      },
+    let outcome = { listedChanged: false, repriced: 0, grandfathered: 0 };
+    let updated!: Awaited<ReturnType<typeof prisma.plan.update>>;
+    await prisma.$transaction(async (tx) => {
+      const scope = d.applies_to as PriceScope | undefined;
+      if (d.amount !== undefined && scope) {
+        // The default tier is where scope actually bites: its subscribers store
+        // no amount and inherit plan.amount, so "new" has to pin them to today's
+        // price BEFORE the listing moves, or grandfathering silently reprices
+        // everyone. applyPriceChange owns that ordering.
+        outcome = await applyPriceChange(tx, {
+          planDbId: plan.id,
+          isDefaultTier: true,
+          oldAmount: plan.amount,
+          interval: plan.interval,
+          newAmount: BigInt(d.amount),
+          scope,
+        });
+      }
+      updated = await tx.plan.update({
+        where: { id: plan.id },
+        data: {
+          metadata: metadata as Prisma.InputJsonValue,
+          ...(d.amount !== undefined && outcome.listedChanged ? { amount: BigInt(d.amount) } : {}),
+        },
+      });
     });
     if (d.amount !== undefined) {
-      console.log(`[portal/default-tier] plan ${plan.id} price ${plan.amount} -> ${d.amount}`);
+      console.log(
+        `[portal/default-tier] plan ${plan.id} price ${plan.amount} -> ${d.amount} (${d.applies_to}); ` +
+          `listed=${outcome.listedChanged} repriced=${outcome.repriced} grandfathered=${outcome.grandfathered}`
+      );
     }
 
     const meta = planMeta(updated.metadata);
