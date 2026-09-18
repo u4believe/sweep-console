@@ -3,5 +3,21 @@
   "rewrites": [
     { "source": "/insights/:path*", "destination": "https://cloud.umami.is/:path*" },
     { "source": "/((?!assets/).*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "comment": "The SPA shell names the hashed chunks, so a cached copy pins the whole module graph to the build it came from. It was served revalidatable rather than uncacheable, and a route whose edge entry carried a Last-Modified older than the deploy answered revalidation with 304 — leaving a browser on a dead build no matter how often it refreshed, with the only symptom a failed dynamic import on the withdrawal screen. no-store removes the possibility: the shell is ~750 bytes and is fetched fresh every time.",
+      "source": "/((?!assets/).*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, must-revalidate" }
+      ]
+    },
+    {
+      "comment": "Assets are content-hashed, so their URL changes whenever their bytes do. They can be cached forever, and should be — that is what makes an uncacheable shell cheap.",
+      "source": "/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    }
   ]
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/chunk";
+import { isStaleBuildError, STALE_BUILD_MESSAGE, recoverFromStaleBuild } from "@/lib/chunk";
 import { ExternalWalletVerify } from "./ExternalWalletVerify";
 import { ArcMark, BaseMark, ArbitrumMark, OptimismMark } from "@/components/landing/ChainMarks";
 
@@ -115,7 +115,12 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
         }
       });
     } catch (e) {
-      setError(isStaleBuildError(e) ? STALE_BUILD_MESSAGE : e instanceof Error ? e.message : "Something went wrong.");
+      if (isStaleBuildError(e)) {
+        if (recoverFromStaleBuild()) return;
+        setError(STALE_BUILD_MESSAGE);
+      } else {
+        setError(e instanceof Error ? e.message : "Something went wrong.");
+      }
       setPhase("idle");
     }
   }
