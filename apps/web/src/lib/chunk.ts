@@ -12,8 +12,16 @@
 // A plain reload is not enough to fix it. The SPA shell is served from the CDN
 // per-route, and a route whose cached entry carries a Last-Modified older than
 // the deploy answers the browser's revalidation with 304 — so the browser keeps
-// the stale HTML however many times it is refreshed. Recovery therefore has to
-// request a URL the cache has never seen.
+// the stale HTML however many times it is refreshed. Observed in production with
+// the Last-Modified moving BACKWARDS between requests (18:35 → 03:47 → 00:23) as
+// different edge nodes answered with their own validators. Recovery therefore
+// has to request a URL the cache has never seen.
+//
+// vercel.json is the other half: the shell is served no-store so there is no
+// cached copy to go stale, and /assets/* is immutable because those names are
+// content-hashed. If you are tempted to make the shell cacheable again, this is
+// what it cost — three days of a withdrawal that could not open its own dialog.
+// (That file is JSON and cannot carry the reasoning itself.)
 
 const SIGNATURES = [
   "failed to fetch dynamically imported module",
