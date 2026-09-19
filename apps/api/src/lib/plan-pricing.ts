@@ -20,6 +20,10 @@ import type { Prisma } from "@prisma/client";
 /// exactly one updateMany.
 interface SubscriptionRepricer {
   subscription: {
+    findMany(args: {
+      where: Prisma.SubscriptionWhereInput;
+      select: { id: true };
+    }): Promise<{ id: string }[]>;
     updateMany(args: {
       where: Prisma.SubscriptionWhereInput;
       data: { amount: bigint };
@@ -108,6 +112,18 @@ export interface PriceChangeResult {
   repriced: number;
   /** Live subscriptions pinned to the old price so a listing change misses them. */
   grandfathered: number;
+  /**
+   * WHO was moved, by id.
+   *
+   * Returned rather than left for the caller to work out, because the obvious
+   * way to work it out is wrong: looking up subscriptions whose amount equals
+   * the new price re-derives the audience from a value that is not an identity.
+   * Two subscribers on one plan can sit at different prices after earlier scoped
+   * changes, and an inheriting subscriber stores no amount at all — so that
+   * lookup silently finds nobody and the price-change emails never go out. This
+   * list is the set actually written, and cannot drift from it.
+   */
+  repricedIds: string[];
 }
 
 /**
@@ -153,6 +169,7 @@ export async function applyPriceChange(
 
   let repriced = 0;
   let grandfathered = 0;
+  let repricedIds: string[] = [];
 
   if (scope === "new") {
     // Only inheriting subscribers need pinning; an explicit snapshot already
@@ -165,9 +182,12 @@ export async function applyPriceChange(
       grandfathered = count;
     }
   } else {
+    // Read the ids BEFORE the write: afterwards these rows carry the new price
+    // and are indistinguishable from subscribers who were already on it.
+    repricedIds = (await tx.subscription.findMany({ where, select: { id: true } })).map((r) => r.id);
     const { count } = await tx.subscription.updateMany({ where, data: { amount: newAmount } });
     repriced = count;
   }
 
-  return { listedChanged: scope !== "existing", repriced, grandfathered };
+  return { listedChanged: scope !== "existing", repriced, grandfathered, repricedIds };
 }

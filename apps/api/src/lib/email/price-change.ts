@@ -18,7 +18,6 @@
 import { prisma } from "../prisma";
 import { sendEmail, priceChangeEmailHtml } from "../email";
 
-const LIVE = ["active", "trialing", "past_due"];
 const usdc = (v: bigint) => (Number(v) / 1_000_000).toFixed(2);
 
 export interface PriceChangeNotice {
@@ -28,8 +27,17 @@ export interface PriceChangeNotice {
   oldAmount: bigint;
   newAmount: bigint;
   interval: string;
-  /** Only subscriptions now paying this are notified. */
-  appliesToExisting: boolean;
+  /**
+   * The subscriptions actually moved, from applyPriceChange.
+   *
+   * Passed in rather than looked up. This used to re-derive the audience with
+   * "whose amount equals the new price", which reads like the same set and is
+   * not: subscribers sit at divergent prices after earlier scoped changes, and
+   * an inheriting subscriber stores no amount at all, so the lookup found
+   * nobody and no email was ever sent. An empty list means nobody moved — which
+   * is the correct outcome for an "applies to new subscribers only" change.
+   */
+  repricedIds: string[];
 }
 
 /**
@@ -40,14 +48,14 @@ export interface PriceChangeNotice {
  * people to ignore the next one.
  */
 export async function sendPriceChangeNotices(n: PriceChangeNotice): Promise<number> {
-  if (!n.appliesToExisting) {
-    console.log(`[price-change] plan ${n.planDbId}: new subscribers only — nobody notified`);
+  if (n.repricedIds.length === 0) {
+    console.log(`[price-change] plan ${n.planDbId}: nobody was repriced — nobody notified`);
     return 0;
   }
 
   try {
     const subs = await prisma.subscription.findMany({
-      where: { planId: n.planDbId, status: { in: LIVE }, amount: n.newAmount },
+      where: { id: { in: n.repricedIds } },
       select: {
         subscriptionId: true,
         subscriberEmail: true,

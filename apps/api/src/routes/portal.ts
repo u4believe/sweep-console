@@ -569,7 +569,7 @@ portalRouter.patch(
     if (!existing) return err(res, "Tier not found", 404);
     const existingName = existing.name;
 
-    let outcome = { listedChanged: false, repriced: 0, grandfathered: 0 };
+    let outcome = { listedChanged: false, repriced: 0, grandfathered: 0, repricedIds: [] as string[] };
     if (d.amount !== undefined) {
       const refusal = refusePriceChange(existing.amount, BigInt(d.amount));
       if (refusal) return validationError(res, { amount: refusal });
@@ -624,7 +624,7 @@ portalRouter.patch(
         oldAmount: existing.amount,
         newAmount: BigInt(d.amount),
         interval: existing.interval,
-        appliesToExisting: d.applies_to !== "new",
+        repricedIds: outcome.repricedIds,
       });
     }
 
@@ -726,7 +726,7 @@ portalRouter.patch(
       ...(d.features !== undefined ? { defaultFeatures: d.features } : {}),
     };
 
-    let outcome = { listedChanged: false, repriced: 0, grandfathered: 0 };
+    let outcome = { listedChanged: false, repriced: 0, grandfathered: 0, repricedIds: [] as string[] };
     let updated!: Awaited<ReturnType<typeof prisma.plan.update>>;
     await prisma.$transaction(async (tx) => {
       const scope = d.applies_to as PriceScope | undefined;
@@ -763,7 +763,7 @@ portalRouter.patch(
         oldAmount: plan.amount,
         newAmount: BigInt(d.amount),
         interval: plan.interval,
-        appliesToExisting: d.applies_to !== "new",
+        repricedIds: outcome.repricedIds,
       });
     }
 
