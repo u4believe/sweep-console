@@ -151,6 +151,17 @@ export async function applyPriceChange(
     interval: string;
     newAmount: bigint;
     scope: PriceScope;
+    /**
+     * The live named tiers of this plan, for the DEFAULT-tier case only.
+     *
+     * A default-tier subscriber is defined by exclusion — not on any named tier
+     * — rather than by matching the listed price, because the two drift apart
+     * the moment an "existing" change moves subscribers without moving the
+     * listing. Observed in production: a plan listing 12 whose two subscribers
+     * paid 3 and 5, so every later edit matched nobody, repriced nobody and
+     * emailed nobody while appearing to succeed.
+     */
+    namedTiers?: { amount: bigint; interval: string }[];
   }
 ): Promise<PriceChangeResult> {
   const { planDbId, isDefaultTier, oldAmount, interval, newAmount, scope } = opts;
@@ -162,8 +173,9 @@ export async function applyPriceChange(
     ? {
         planId: planDbId,
         status: { in: LIVE },
-        OR: [{ amount: null }, { amount: oldAmount }],
-        AND: [{ OR: [{ interval: null }, { interval }] }],
+        // Everyone on the plan EXCEPT those sitting on a named tier's terms.
+        // Inheriting subscribers (null amount) are included by construction.
+        NOT: (opts.namedTiers ?? []).map((t) => ({ amount: t.amount, interval: t.interval })),
       }
     : { planId: planDbId, status: { in: LIVE }, amount: oldAmount, interval };
 

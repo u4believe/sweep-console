@@ -701,7 +701,15 @@ portalRouter.patch(
         merchantId: dbId,
         archived: false,
       },
-      select: { id: true, metadata: true, amount: true, interval: true },
+      select: {
+        id: true,
+        metadata: true,
+        amount: true,
+        interval: true,
+        // Needed to tell a default-tier subscriber from a tier one: membership
+        // is by exclusion, not by matching the listed price.
+        tiers: { where: { archived: false }, select: { amount: true, interval: true } },
+      },
     });
     if (!plan) return err(res, "Plan not found", 404);
 
@@ -742,6 +750,7 @@ portalRouter.patch(
           interval: plan.interval,
           newAmount: BigInt(d.amount),
           scope,
+          namedTiers: plan.tiers,
         });
       }
       updated = await tx.plan.update({
