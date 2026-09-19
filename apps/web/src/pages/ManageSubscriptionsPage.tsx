@@ -36,6 +36,29 @@ const CHAIN_NAMES: Record<string, string> = {
   arc: "Arc",
 };
 
+/// The wallet that signed this subscription is the only one that can authorize
+/// for it: renewals redeem against subscription.walletAddress, so a grant from
+/// any other wallet is unredeemable — and paying gas for a 7702 upgrade on the
+/// wrong account is a cost the subscriber cannot get back. One person can hold
+/// several subscriptions across merchants on different wallets, so this is a
+/// per-subscription question, never a per-session one.
+function shortAddr(a: string): string {
+  return a.length >= 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
+}
+
+function walletMatches(connected: string | undefined, required: string): boolean {
+  return !!connected && connected.toLowerCase() === required.toLowerCase();
+}
+
+/// Their authorization no longer reaches the price. Not a payment failure —
+/// nothing is charged and nothing fails — so unless the page says so, the only
+/// symptom is a subscription that quietly stops being collected.
+function needsReauthorization(s: PortalSubscription): boolean {
+  if (s.status === "cancelled" || s.grants.length === 0) return false;
+  const best = s.grants.reduce((max, g) => (g.period_amount > max ? g.period_amount : max), 0);
+  return best < s.plan.amount;
+}
+
 function chainLabel(chainId: number, s: PortalSubscription): string {
   const g = s.grants.find((x) => x.chain_id === chainId);
   if (!g) return "Cross-chain";
@@ -142,6 +165,22 @@ export function ManageSubscriptionsPage() {
       openConnectModal?.();
       return;
     }
+    // Checked before anything is signed. Granting from the wrong wallet costs
+    // gas for an upgrade and a delegation that no renewal can ever redeem.
+    if (!walletMatches(address, s.wallet_address)) {
+      setError(
+        `This subscription pays from ${shortAddr(s.wallet_address)}. You're connected as ` +
+          `${shortAddr(address)} — switch to that wallet to authorize, because only the wallet that ` +
+          `signed up can approve charges for it.`
+      );
+      // Open the picker rather than leaving them to find it: a button that says
+      // "Switch to 0x…" and only prints an error is a dead end.
+      openConnectModal?.();
+      return;
+    }
+    // Captured before the grant lands, since afterwards the caps cover the price
+    // and the case is indistinguishable from a first-time enable.
+    const reauthorizing = needsReauthorization(s);
     setBusyId(s.id);
     setError("");
     setNotice("");
@@ -169,7 +208,12 @@ export function ManageSubscriptionsPage() {
       await grantRenewalMandates(address, usable, (input) =>
         portalSaveGrant(email.trim(), emailToken, s.id, input)
       );
-      setNotice("Cross-chain renewals enabled. Renewals can now fall back to your USDC on other chains.");
+      setNotice(
+        reauthorizing
+          ? `Approved. ${s.merchant.name} can now collect the new price, and your subscription continues ` +
+            `from the next renewal.`
+          : "Cross-chain renewals enabled. Renewals can now fall back to your USDC on other chains."
+      );
       await reload();
     } catch (e) {
       setError(describeError(e));
@@ -341,7 +385,15 @@ export function ManageSubscriptionsPage() {
                                     Refundable until {new Date(s.refundable_until).toLocaleString()} — cancel before then to get your first payment back.
                                   </p>
                                 )}
-                                <p className="mt-1 break-all font-mono text-[11px] text-gray-400">{s.wallet_address}</p>
+                                <p className="mt-1 break-all font-mono text-[11px] text-gray-400">
+                                  Pays from {s.wallet_address}
+                                </p>
+                                {address && !walletMatches(address, s.wallet_address) && s.status !== "cancelled" && (
+                                  <p className="text-[11px] text-amber-600">
+                                    You're connected as {shortAddr(address)} — switch to {shortAddr(s.wallet_address)}{" "}
+                                    to change anything that needs signing here.
+                                  </p>
+                                )}
                                 <p className="text-[11px] text-gray-400">
                                   {s.permissions.arc_subscription ? "Arc renewals on" : "No on-chain subscription"}
                                   {s.cross_chain_enabled ? ` · ${s.permissions.cross_chain_grants} cross-chain grant${s.permissions.cross_chain_grants > 1 ? "s" : ""}` : ""}
@@ -364,6 +416,36 @@ export function ManageSubscriptionsPage() {
                                 should be able to withdraw one without losing the
                                 other two — the previous single switch was all or
                                 nothing. */}
+                            {needsReauthorization(s) && (
+                              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                                <p className="m-0 text-xs font-semibold text-amber-900">
+                                  {s.merchant.name} raised this plan to ${formatUnits(BigInt(s.plan.amount), 6)}{" "}
+                                  {s.plan.currency}
+                                </p>
+                                <p className="m-0 mt-1 text-[11px] leading-relaxed text-amber-800">
+                                  You authorized up to $
+                                  {formatUnits(
+                                    BigInt(s.grants.reduce((max, g) => (g.period_amount > max ? g.period_amount : max), 0)),
+                                    6
+                                  )}{" "}
+                                  per period, so nothing is being collected — and you have not been charged the new
+                                  price. Approve the new amount to continue, or cancel below. Only{" "}
+                                  {shortAddr(s.wallet_address)} can approve it.
+                                </p>
+                                <button
+                                  onClick={() => void onEnableGrant(s)}
+                                  disabled={busy}
+                                  className="mt-2 rounded-lg bg-amber-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-950 disabled:opacity-50"
+                                >
+                                  {busy
+                                    ? "Working…"
+                                    : address && !walletMatches(address, s.wallet_address)
+                                      ? `Switch to ${shortAddr(s.wallet_address)}`
+                                      : `Approve $${formatUnits(BigInt(s.plan.amount), 6)} per period`}
+                                </button>
+                              </div>
+                            )}
+
                             {TIER2_ENABLED && s.status !== "cancelled" && (
                               <div className="mt-3 border-t border-gray-100 pt-3">
                                 {s.cross_chain_enabled ? (
