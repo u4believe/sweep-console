@@ -210,8 +210,17 @@ export function ManageSubscriptionsPage() {
       );
       setNotice(
         reauthorizing
-          ? `Approved. ${s.merchant.name} can now collect the new price, and your subscription continues ` +
-            `from the next renewal.`
+          ? // Says that a re-grant ADDS a permission rather than replacing one.
+            // We cannot remove the old one — disableDelegation is onlyDeleGator —
+            // and we no longer hold the means to use it, since re-granting
+            // overwrote the stored context. But it is still a standing
+            // authorization in their wallet, and someone who assumes it was
+            // replaced is wrong about what they are carrying.
+            `Approved. ${s.merchant.name} can now collect the new price, and your subscription continues ` +
+            `from the next renewal. Your earlier permission is still in your wallet — approving a new one ` +
+            `adds it rather than replacing it. We can no longer charge the old one, and it allowed less ` +
+            `than the new one does, but only you can remove it: disable it in your wallet's permissions ` +
+            `whenever you like.`
           : "Cross-chain renewals enabled. Renewals can now fall back to your USDC on other chains."
       );
       await reload();
