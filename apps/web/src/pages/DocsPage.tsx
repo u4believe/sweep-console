@@ -410,7 +410,7 @@ export function DocsPage() {
                 mints a <Code>pending</Code> row and returns a hosted URL for the payer to open — the same redirect
                 shape as a hosted checkout.
               </p>
-              <Pre>{`curl -X POST https://api.sweepconsole.com/v1/mandates \
+              <Pre>{`curl -X POST https://www.sweepconsole.xyz/api/v1/mandates \
   -H "Authorization: Bearer $SWEEP_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -461,7 +461,7 @@ export function DocsPage() {
                 One pull, when your billing logic says it is time. An <Code>Idempotency-Key</Code> header is{" "}
                 <strong>required</strong>, not advisory.
               </p>
-              <Pre>{`curl -X POST https://api.sweepconsole.com/v1/charges \
+              <Pre>{`curl -X POST https://www.sweepconsole.xyz/api/v1/charges \
   -H "Authorization: Bearer $SWEEP_API_KEY" \
   -H "Idempotency-Key: invoice_2026_09_user_8412" \
   -H "Content-Type: application/json" \
