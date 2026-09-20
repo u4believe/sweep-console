@@ -114,14 +114,25 @@ function intervalNoun(seconds: number): string {
  * permitted to move the money. It used to say renewals would run "when your Arc
  * balance is low", which described a funding path that no longer exists — Arc
  * settles payments and is never pulled from — and named neither party.
+ *
+ * It states a TOTAL per period, not "one charge per period". The latter is true
+ * of a hosted subscription, where claimPeriod holds (subscriptionId, periodKey)
+ * under a unique constraint and exactly one charge can land — but not of the
+ * external rail, where a developer may collect several times inside one period
+ * so long as they sum to the cap. Promising a protection that only half the
+ * product provides is the one mistake this sentence must not make, and the
+ * total is what the enforcer and the period ledger actually bound.
+ *
+ * "Subscription" is gone for the same reason: on the rail the charges may be
+ * usage, invoices or credits, and a mandate carries no plan to check against.
  */
 function justificationFor(t: GrantTarget, merchantName: string | undefined): string {
   const amount = (Number(t.period_amount) / 1_000_000).toFixed(2);
   const per = intervalNoun(t.period_duration);
-  const who = merchantName ? `${merchantName} subscription` : "This subscription";
+  const who = merchantName ?? "This merchant";
   return (
-    `${who}: up to ${amount} USDC per ${per} on ${t.name}, collected by Sweep Console. ` +
-    `One charge per period, revocable anytime in your wallet.`
+    `${who}: up to ${amount} USDC per ${per} in total on ${t.name}, collected by Sweep Console. ` +
+    `Revocable anytime in your wallet.`
   );
 }
 
