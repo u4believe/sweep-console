@@ -205,8 +205,12 @@ export function ManageSubscriptionsPage() {
         await reload();
         return;
       }
-      await grantRenewalMandates(address, usable, (input) =>
-        portalSaveGrant(email.trim(), emailToken, s.id, input)
+      await grantRenewalMandates(
+        address,
+        usable,
+        (input) => portalSaveGrant(email.trim(), emailToken, s.id, input),
+        undefined,
+        s.merchant.name
       );
       setNotice(
         reauthorizing

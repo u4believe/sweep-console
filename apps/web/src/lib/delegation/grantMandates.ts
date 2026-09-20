@@ -96,11 +96,43 @@ export interface GrantFailure {
 /// worked. Returns the targets that failed (empty when all succeeded); throws
 /// only when EVERY target failed, since callers treat a thrown error as
 /// "nothing was enabled" (see DelegatedRenewalToggle / GatewaySweepPanel).
+/// Seconds → the word a sentence needs. The prompt is read by a person deciding
+/// whether to trust it, so "per day" beats "per 86400 seconds".
+function intervalNoun(seconds: number): string {
+  if (seconds <= 86_400) return "day";
+  if (seconds <= 604_800) return "week";
+  if (seconds <= 2_678_400) return "month";
+  return "year";
+}
+
+/**
+ * What the wallet shows the subscriber when it asks them to sign.
+ *
+ * This is the only sentence standing between a standing payment authorization
+ * and someone clicking approve, so it names both parties: the merchant they
+ * think they are paying, and Sweep Console, which is the delegate actually
+ * permitted to move the money. It used to say renewals would run "when your Arc
+ * balance is low", which described a funding path that no longer exists — Arc
+ * settles payments and is never pulled from — and named neither party.
+ */
+function justificationFor(t: GrantTarget, merchantName: string | undefined): string {
+  const amount = (Number(t.period_amount) / 1_000_000).toFixed(2);
+  const per = intervalNoun(t.period_duration);
+  const who = merchantName ? `${merchantName} subscription` : "This subscription";
+  return (
+    `${who}: up to ${amount} USDC per ${per} on ${t.name}, collected by Sweep Console. ` +
+    `One charge per period, revocable anytime in your wallet.`
+  );
+}
+
 export async function grantRenewalMandates(
   walletAddress: string,
   targets: GrantTarget[],
   save: (input: Record<string, unknown>) => Promise<unknown>,
-  onProgress?: (done: number, total: number) => void
+  onProgress?: (done: number, total: number) => void,
+  /// Named in the prompt. Optional so a caller without one still signs, with
+  /// wording that is vaguer but never wrong.
+  merchantName?: string
 ): Promise<GrantFailure[]> {
   const now = Math.floor(Date.now() / 1000);
   const request = (client: Awaited<ReturnType<typeof connectorClientOnChain>>, t: GrantTarget) =>
@@ -112,7 +144,7 @@ export async function grantRenewalMandates(
       periodDurationSec: t.period_duration,
       startTimeSec: now,
       expirySec: now + MANDATE_LIFETIME_SEC,
-      justification: `Cross-chain renewals on ${t.name} when your Arc balance is low — capped to one period each cycle, revocable anytime.`,
+      justification: justificationFor(t, merchantName),
     });
 
   let done = 0;

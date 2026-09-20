@@ -41,6 +41,9 @@ interface Props {
   walletAddress: string;
   email?: string;
   emailToken?: string | null;
+  /// Named in the wallet's permission prompt, so the subscriber sees who they
+  /// are authorizing rather than only that something may take their USDC.
+  merchantName?: string;
   /**
    * `sourceChain` is the chain the funds were actually pulled from, for the
    * receipt; `subscriptionId` is what the confirmation page's renewal permissions
@@ -84,7 +87,7 @@ function describeError(e: unknown): string {
 
 export function GatewaySweepPanel({
   sessionId, sessionToken, walletAddress, email, emailToken, onSuccess, onClose, preferredChainKey,
-  autoStart = false,
+  autoStart = false, merchantName,
 }: Props) {
   const { data: connectorClient } = useConnectorClient();
   const [phase, setPhase] = useState<Phase>("planning");
@@ -190,8 +193,12 @@ export function GatewaySweepPanel({
         // each charge. Shared loop — switches the wallet to each target chain before
         // requesting its grant, and keeps going even if one chain fails; the
         // actual payment below just needs ONE granted chain with funds.
-        await grantRenewalMandates(walletAddress, targets, (input) =>
-          saveDelegation(sessionId, input)
+        await grantRenewalMandates(
+          walletAddress,
+          targets,
+          (input) => saveDelegation(sessionId, input),
+          undefined,
+          merchantName
         );
       }
 

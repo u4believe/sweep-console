@@ -99,7 +99,8 @@ export function AuthorizePage() {
         address,
         todo,
         (body) => saveAuthorizationGrant(mandateId, { ...body, session_token: view.session_token }),
-        (done, total) => setProgress({ done, total })
+        (done, total) => setProgress({ done, total }),
+        view.merchant_name
       );
       // A chain that failed does not cost the subscriber the ones that worked —
       // say which were skipped rather than pretending everything succeeded.

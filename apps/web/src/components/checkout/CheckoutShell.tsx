@@ -457,7 +457,9 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
           const failures = await grantRenewalMandates(
             payAddress,
             [target],
-            (input) => saveDelegation(sessionId, input)
+            (input) => saveDelegation(sessionId, input),
+            undefined,
+            merchant.name
           );
           if (failures.length > 0) throw new Error(`Couldn't authorize ${target.name}.`);
         }
@@ -600,6 +602,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
               new subscription — the checkout session is spent by now. */}
           {subscriptionId && payAddress && (
             <PostPaymentGrants
+              merchantName={merchant.name}
               subscriptionId={subscriptionId}
               sessionId={sessionId}
               sessionToken={sessionToken}
@@ -725,6 +728,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
           {showSweep && payAddress ? (
             /* Cross-chain path: sweep USDC from Base / Arbitrum / Optimism */
             <GatewaySweepPanel
+              merchantName={merchant.name}
               preferredChainKey={sweepChain ?? payChain}
               autoStart={sweepChain !== null}
               sessionId={sessionId}
@@ -996,6 +1000,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                 {TIER2_ENABLED && verified && walletPresent && !walletBlocked && payAddress && (
                   <StepRow n="04" label="Automatic renewal" strong>
                     <DelegatedRenewalToggle
+                      merchantName={merchant.name}
                       sessionId={sessionId}
                       sessionToken={sessionToken}
                       walletAddress={payAddress}

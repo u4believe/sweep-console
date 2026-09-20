@@ -27,6 +27,7 @@ export function PostPaymentGrants({
   email,
   emailToken,
   alreadyGranted,
+  merchantName,
 }: {
   subscriptionId: string;
   sessionId: string;
@@ -36,6 +37,9 @@ export function PostPaymentGrants({
   emailToken?: string | null;
   /** chain_keys authorized during checkout. */
   alreadyGranted: string[];
+  /// Named in the wallet's permission prompt, so the subscriber sees who they
+  /// are authorizing rather than only that something may take their USDC.
+  merchantName?: string;
 }) {
   const { data: connectorClient } = useConnectorClient();
   const [targets, setTargets] = useState<GrantTarget[]>([]);
@@ -77,8 +81,9 @@ export function PostPaymentGrants({
       const failures = await grantRenewalMandates(
         walletAddress,
         list,
-        (input) =>
-          saveSubscriptionDelegation(subscriptionId, { ...input, ...proof })
+        (input) => saveSubscriptionDelegation(subscriptionId, { ...input, ...proof }),
+        undefined,
+        merchantName
       );
       const failed = new Set(failures.map((f) => f.target.chain_key));
       setGranted((prev) => [

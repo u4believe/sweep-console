@@ -53,6 +53,8 @@ interface Props {
   walletAddress: string;
   email?: string;
   emailToken?: string | null;
+  /// Named in the wallet's permission prompt.
+  merchantName?: string;
   /**
    * Called once every chain is authorized, so the shell can go on to charge from
    * whichever granted chain holds enough USDC.
@@ -146,6 +148,7 @@ export function DelegatedRenewalToggle({
   walletAddress,
   email,
   emailToken,
+  merchantName,
   onAuthorizedAll,
 }: Props) {
   const { address } = useAccount();
@@ -217,7 +220,8 @@ export function DelegatedRenewalToggle({
             walletAddress,
             list,
             (input) => saveDelegation(sessionId, input),
-            (done, total) => setProgress({ done, total })
+            (done, total) => setProgress({ done, total }),
+            merchantName
           );
 
       const failedIds = new Set(failures.map((f) => f.target.chain_id));
