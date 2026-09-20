@@ -115,13 +115,18 @@ function intervalNoun(seconds: number): string {
  * balance is low", which described a funding path that no longer exists — Arc
  * settles payments and is never pulled from — and named neither party.
  *
- * "Capped per <period>" carries the ceiling, and deliberately not "one charge
- * per period". That would be true of a hosted subscription, where claimPeriod
- * holds (subscriptionId, periodKey) under a unique constraint and exactly one
+ * "Up to" rather than a bare amount, because the permission authorises a
+ * MAXIMUM and not a commitment: a rail developer may charge less than the cap,
+ * or nothing at all in a given period, and "pay 5.00 USDC per day" would read
+ * as a promise to take exactly that.
+ *
+ * And deliberately not "one charge per period", which is the phrasing anyone
+ * will reach for next. That is true of a hosted subscription, where claimPeriod
+ * holds (subscriptionId, periodKey) under a unique constraint so exactly one
  * charge can land — and false on the external rail, where a developer may
  * collect several times inside one period so long as they sum to the cap.
  * Promising a protection only half the product provides is the one mistake this
- * sentence must not make; the cap is what the enforcer and the period ledger
+ * sentence must not make. The cap is what the enforcer and the period ledger
  * actually bound, whichever model is charging.
  *
  * "Subscription" is gone for the same reason: on the rail the charges may be
@@ -132,7 +137,7 @@ function justificationFor(t: GrantTarget, merchantName: string | undefined): str
   const per = intervalNoun(t.period_duration);
   const who = merchantName ?? "This merchant";
   return (
-    `${who}: pay ${amount} USDC capped per ${per} on ${t.name}, collected by Sweep Console. ` +
+    `${who}: pay up to ${amount} USDC per ${per} on ${t.name}, collected by Sweep Console. ` +
     `Revocable anytime in your wallet.`
   );
 }
