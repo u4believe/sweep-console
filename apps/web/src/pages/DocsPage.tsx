@@ -91,6 +91,7 @@ const toc = [
     items: [
       { id: "rail-overview", label: "What the rail is" },
       { id: "rail-getting-started", label: "Getting started" },
+      { id: "rail-example", label: "A working integration" },
       { id: "rail-mandates", label: "Create a mandate" },
       { id: "rail-authorize", label: "The authorization page" },
       { id: "rail-charges", label: "Collect a charge" },
@@ -360,23 +361,27 @@ export function DocsPage() {
                   <strong>Create an account</strong> and verify your email — the same signup as any creator.
                 </Step>
                 <Step n={2}>
-                  <strong>Link a payout wallet.</strong> An Arc address, verified by signing a nonce in Settings. Do
-                  this before anything else: a mandate will be created and authorized perfectly happily without one,
-                  and then the first charge fails with <Code>no_payout_wallet</Code>. It fails late, after the payer
-                  has already signed.
+                  <strong>Link a payout wallet</strong> — portal → <strong>Settings</strong> → <strong>Payout
+                  wallet</strong>. An Arc address, verified by signing a nonce. Do this before anything else: a
+                  mandate will be created and authorized perfectly happily without one, and then the first charge
+                  fails with <Code>no_payout_wallet</Code>. It fails late, after the payer has already signed.
                 </Step>
                 <Step n={3}>
-                  <strong>Ask us to enable the rail.</strong> This is the one step that is not self-serve — until your
-                  account is granted it, <Code>/v1/mandates</Code> and <Code>/v1/charges</Code> answer{" "}
+                  <strong>Ask us to enable the rail</strong> — portal → <strong>Payment rail</strong> →{" "}
+                  <strong>Request access</strong>. This is the one step that is not self-serve: until your account is
+                  granted it, <Code>/v1/mandates</Code> and <Code>/v1/charges</Code> answer{" "}
                   <Code>403 rail_not_enabled</Code>. The rail is the first place where an API key alone moves money to
-                  whoever holds it, so access is granted rather than switched on.
+                  whoever holds it, so access is granted rather than switched on. Once it is granted that screen
+                  becomes your mandates and charges instead, which is how you know it worked.
                 </Step>
                 <Step n={4}>
-                  <strong>Create a test API key</strong> in the portal under API keys. It is shown once. Treat it like
-                  a payment credential, because on this rail that is exactly what it is.
+                  <strong>Create a test API key</strong> — portal → <strong>API Keys</strong> → <strong>Regenerate</strong>.
+                  You will be asked to confirm it is you. The key is shown <em>once</em>; copy it then. Treat it like a
+                  payment credential, because on this rail that is exactly what it is.
                 </Step>
                 <Step n={5}>
-                  <strong>Register a webhook endpoint</strong> subscribed to <Code>mandate.authorized</Code>,{" "}
+                  <strong>Register a webhook endpoint</strong> — portal → <strong>Webhooks</strong> →{" "}
+                  <strong>Add endpoint</strong> — subscribed to <Code>mandate.authorized</Code>,{" "}
                   <Code>mandate.revoked</Code>, <Code>charge.succeeded</Code> and <Code>charge.failed</Code>. It must
                   be a public <Code>https://</Code> URL — localhost is refused, and the address is re-checked before
                   every delivery. Use a tunnel while developing.
@@ -401,6 +406,117 @@ export function DocsPage() {
                 include charges, and no screen sums the two. They are different products with different clocks, and one
                 combined number would answer neither question. For programmatic access,{" "}
                 <Code>GET /v1/mandates</Code> and <Code>GET /v1/charges</Code> both list and filter.
+              </p>
+            </Section>
+
+            <Section id="rail-example" title="A working integration">
+              <p>
+                The whole thing is two server routes and a webhook handler. This is Express; the shape is the same
+                anywhere. Nothing here is pseudo-code — it is what the four steps above look like written out.
+              </p>
+              <p className="font-semibold text-gray-800">1 · The &ldquo;Pay with USDC&rdquo; button</p>
+              <p>
+                A form that posts to your own server, exactly like a Stripe Checkout session. The secret key never
+                reaches the browser.
+              </p>
+              <Pre>{`<form method="POST" action="/subscribe/usdc">
+  <button type="submit">Pay with USDC</button>
+</form>`}</Pre>
+
+              <p className="font-semibold text-gray-800">2 · Create the mandate and redirect</p>
+              <Pre>{`const SWEEP = "https://www.sweepconsole.xyz/api";
+
+app.post("/subscribe/usdc", async (req, res) => {
+  const user = req.user;                       // however you authenticate
+
+  const r = await fetch(\`\${SWEEP}/v1/mandates\`, {
+    method: "POST",
+    headers: {
+      "Authorization": \`Bearer \${process.env.SWEEP_API_KEY}\`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      external_ref: user.id,                   // YOUR id — echoed on every event
+      email: user.email,
+      max_amount: 15_000_000,                  // 15.00 USDC ceiling, NOT the price
+      interval: "monthly",
+      chains: ["base", "arbitrum", "optimism"],
+      expires_at: "2027-09-20T00:00:00.000Z",
+      return_url: "https://shop.example.com/thanks",
+    }),
+  });
+  const mandate = await r.json();
+
+  await db.users.update(user.id, { sweepMandate: mandate.id });
+  res.redirect(mandate.authorization_url);     // they sign in their wallet
+});`}</Pre>
+              <p>
+                Give <Code>max_amount</Code> headroom over your price. It is a ceiling, it is fixed for the life of
+                the mandate, and charging above it later means asking the payer to sign a new one.
+              </p>
+
+              <p className="font-semibold text-gray-800">3 · The webhook handler</p>
+              <Pre>{`app.post("/webhooks/sweep", express.raw({ type: "application/json" }), (req, res) => {
+  const signature = String(req.headers["x-sweep-signature"] ?? "");
+  const expected =
+    "sha256=" + crypto.createHmac("sha256", process.env.SWEEP_WEBHOOK_SECRET).update(req.body).digest("hex");
+  const valid =
+    signature.length === expected.length &&
+    crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  if (!valid) return res.status(400).send("bad signature");
+
+  const event = JSON.parse(req.body.toString("utf8"));
+  const userId = event.external_ref;           // the id you sent at step 2
+
+  switch (event.event_type) {
+    case "mandate.authorized":
+      // Start YOUR clock here, not on the return_url — they can close the tab.
+      db.users.update(userId, { usdcActive: true, nextChargeOn: addMonths(new Date(), 1) });
+      break;
+
+    case "charge.succeeded":
+      db.users.update(userId, { paidUntil: addMonths(new Date(), 1) });
+      break;
+
+    case "charge.failed":
+      // Your policy, not ours. insufficient_funds is usually an empty wallet.
+      db.users.update(userId, { dunning: event.data.failure_code });
+      break;
+
+    case "mandate.revoked":
+    case "mandate.expired":
+      db.users.update(userId, { usdcActive: false });
+      break;
+  }
+
+  res.status(200).send("ok");                  // acknowledge fast, work after
+});`}</Pre>
+
+              <p className="font-semibold text-gray-800">4 · Charge on your own schedule</p>
+              <Pre>{`// Your cron, your billing day — Sweep has no schedule of its own.
+for (const user of await db.users.dueForCharge()) {
+  const r = await fetch(\`\${SWEEP}/v1/charges\`, {
+    method: "POST",
+    headers: {
+      "Authorization": \`Bearer \${process.env.SWEEP_API_KEY}\`,
+      "Idempotency-Key": \`\${user.id}:\${thisPeriod}\`,   // natural key beats a random one
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      mandate: user.sweepMandate,
+      amount: 9_000_000,                       // 9.00 USDC — anything up to the ceiling
+      description: "Pro plan — September",     // the ONLY thing the payer sees
+    }),
+  });
+
+  if (r.status === 202) continue;              // accepted; the outcome arrives by webhook
+  const { error } = await r.json();
+  if (error.code === "period_cap_exceeded") { /* already collected this period */ }
+  if (error.code === "mandate_revoked") { /* they withdrew consent — stop charging */ }
+}`}</Pre>
+              <p>
+                That is the integration. The one thing worth repeating: <Code>description</Code> is the only text the
+                payer sees on their receipt, so write it for them rather than for your logs.
               </p>
             </Section>
 
