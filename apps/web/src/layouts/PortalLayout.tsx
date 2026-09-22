@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/auth";
 import { Logo } from "@/components/ui/Logo";
@@ -14,6 +15,12 @@ const NAV = [
   { href: "/settings", label: "Settings" },
 ];
 
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+
+/// Appended only for operator accounts. Hiding it is presentation, not security:
+/// every admin route answers 404 to a non-admin regardless of what the nav shows.
+const ADMIN_NAV = { href: "/admin/rail", label: "Rail access" };
+
 /**
  * The portal shell — the Modernist top-nav variant.
  *
@@ -25,6 +32,17 @@ const NAV = [
  * screens below make no assumption about which is mounted.
  */
 export function PortalLayout() {
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API_URL}/portal/me`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((json: { data?: { isAdmin?: boolean } }) => setIsAdmin(!!json.data?.isAdmin))
+      .catch(() => setIsAdmin(false));
+  }, []);
+
+  const nav = isAdmin ? [...NAV, ADMIN_NAV] : NAV;
+
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -93,7 +111,7 @@ export function PortalLayout() {
             overflowX: "auto",
           }}
         >
-          {NAV.map((item) => {
+          {nav.map((item) => {
             const active = section === item.href.slice(1);
             return (
               <button

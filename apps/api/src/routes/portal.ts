@@ -14,6 +14,8 @@ import { closePlanSubscriptions, findSubsToClose } from "../lib/plan-lifecycle";
 import { requireStepUp } from "../lib/portal/stepup";
 import { refusePriceChange, applyPriceChange, type PriceScope } from "../lib/plan-pricing";
 import { sendPriceChangeNotices } from "../lib/email/price-change";
+import { isAdminRequest, sessionEmail, isAdminEmail, adminNotificationRecipients } from "../lib/portal/admin";
+import { railAccessGrantedEmailHtml } from "../lib/email";
 import {
   WEBHOOK_EVENTS,
   WEBHOOK_EVENT_DESCRIPTIONS,
@@ -136,7 +138,10 @@ portalRouter.get("/me", async (req, res) => {
         createdAt: true,
       },
     });
-    return ok(res, { data: merchant });
+    // The nav needs to know whether to show the operator screen. Advisory only —
+    // every admin route checks for itself and 404s, so a client that lies about
+    // this sees nothing.
+    return ok(res, { data: { ...merchant, isAdmin: isAdminEmail(merchant.email) } });
   } catch (e) {
     console.error("[portal/me]", e);
     return err(res, "Failed to load profile", 500);
@@ -1147,12 +1152,13 @@ portalRouter.post("/rail/request", async (req, res) => {
     // The timestamp is the record; the email is the notification. Send it after
     // the write and never let it fail the request — a creator who clicked and saw
     // an error would click again, and the mail is the least durable half.
-    const to = process.env.SUPPORT_EMAIL;
-    if (!to) {
-      console.warn(`[portal/rail/request] ${merchant.merchantId} requested the rail but SUPPORT_EMAIL is unset — no mail sent`);
+    // Every operator, so an approval cannot sit unseen because one is away.
+    const recipients = adminNotificationRecipients();
+    if (recipients.length === 0) {
+      console.warn(`[portal/rail/request] ${merchant.merchantId} requested the rail but no PLATFORM_ADMIN_EMAILS or SUPPORT_EMAIL is set — no mail sent`);
     } else {
       await sendEmail({
-        to,
+        to: recipients.join(", "),
         subject: `Rail access requested — ${merchant.name}`,
         html: railAccessRequestEmailHtml({
           merchantName: merchant.name,
@@ -1177,6 +1183,138 @@ portalRouter.post("/rail/request", async (req, res) => {
     return err(res, "Failed to send the request", 500);
   }
 });
+
+// ─── Operator: the payment rail queue ─────────────────────────────────────────
+//
+// Visible only to PLATFORM_ADMIN_EMAILS. Reading the queue needs no step-up —
+// deciding does. A code per decision rather than per session, because one code
+// unlocking a batch of approvals turns five judgements into one click.
+portalRouter.get("/admin/rail", async (req, res) => {
+  if (!(await isAdminRequest(req))) return err(res, "Not found", 404, "not_found");
+  try {
+    const [waiting, holders] = await Promise.all([
+      prisma.merchant.findMany({
+        where: { externalRailEnabled: false, NOT: { railRequestedAt: null } },
+        orderBy: { railRequestedAt: "asc" },
+        select: {
+          merchantId: true, name: true, email: true, walletAddress: true,
+          railRequestedAt: true, createdAt: true,
+          _count: { select: { plans: true, subscriptions: true } },
+        },
+      }),
+      prisma.merchant.findMany({
+        where: { externalRailEnabled: true },
+        orderBy: { railGrantedAt: "desc" },
+        select: {
+          merchantId: true, name: true, email: true, walletAddress: true,
+          railGrantedAt: true, railGrantedBy: true,
+          _count: { select: { mandates: true, charges: true } },
+        },
+      }),
+    ]);
+
+    return ok(res, {
+      data: {
+        // The facts a decision turns on, in the row. A reviewer clicking Grant
+        // with nothing but a name is rubber-stamping.
+        waiting: waiting.map((m) => ({
+          merchant_id: m.merchantId,
+          name: m.name,
+          email: m.email,
+          // Granting an account that cannot be paid only moves the failure
+          // later, to a charge that dies after the payer has already signed.
+          payout_wallet: m.walletAddress,
+          requested_at: m.railRequestedAt?.toISOString() ?? null,
+          account_age_days: Math.floor((Date.now() - m.createdAt.getTime()) / 86_400_000),
+          plans: m._count.plans,
+          subscriptions: m._count.subscriptions,
+        })),
+        holders: holders.map((m) => ({
+          merchant_id: m.merchantId,
+          name: m.name,
+          email: m.email,
+          payout_wallet: m.walletAddress,
+          granted_at: m.railGrantedAt?.toISOString() ?? null,
+          granted_by: m.railGrantedBy,
+          mandates: m._count.mandates,
+          charges: m._count.charges,
+        })),
+      },
+    });
+  } catch (e) {
+    console.error("[portal/admin/rail]", e);
+    return err(res, "Failed to load the rail queue", 500);
+  }
+});
+
+// ─── Operator: grant or withdraw the rail ─────────────────────────────────────
+const railDecisionSchema = z.object({ enabled: z.boolean() });
+
+portalRouter.post(
+  "/admin/rail/:merchantId",
+  // 404 before the step-up prompt, so a non-admin is never asked for a code for
+  // a screen they cannot see. Asking first would confirm the route exists.
+  async (req, res, next) => ((await isAdminRequest(req)) ? next() : err(res, "Not found", 404, "not_found")),
+  requireStepUp("rail.grant"),
+  async (req, res) => {
+    const parsed = railDecisionSchema.safeParse(req.body);
+    if (!parsed.success) return validationError(res, { enabled: "Say true or false." });
+    const { enabled } = parsed.data;
+
+    try {
+      const actor = await sessionEmail(req);
+      const target = await prisma.merchant.findUnique({
+        where: { merchantId: req.params.merchantId as string },
+        select: {
+          id: true, merchantId: true, name: true, email: true,
+          walletAddress: true, externalRailEnabled: true,
+        },
+      });
+      if (!target) return err(res, "Merchant not found", 404, "not_found");
+      if (target.externalRailEnabled === enabled) {
+        return ok(res, { data: { merchant_id: target.merchantId, enabled } });
+      }
+
+      await prisma.merchant.update({
+        where: { id: target.id },
+        data: {
+          externalRailEnabled: enabled,
+          // Kept on a withdrawal too: the record of who granted it, and when, is
+          // the history of the decision, not a description of today's state.
+          ...(enabled ? { railGrantedBy: actor, railGrantedAt: new Date() } : {}),
+        },
+      });
+      console.log(
+        `[admin/rail] ${actor} ${enabled ? "granted" : "withdrew"} the rail for ` +
+          `${target.merchantId} (${target.email})`
+      );
+
+      if (enabled) {
+        // The request screen promised an email. Detached — the grant is written,
+        // and an operator should not wait on a mail provider to see it land.
+        void sendEmail({
+          to: target.email,
+          subject: "Your Sweep Console payment rail is live",
+          html: railAccessGrantedEmailHtml({
+            merchantName: target.name,
+            hasPayoutWallet: !!target.walletAddress,
+          }),
+          text:
+            `The payment rail is now enabled on your Sweep Console account. ` +
+            `/v1/mandates and /v1/charges will stop answering 403 rail_not_enabled.` +
+            (target.walletAddress
+              ? ""
+              : ` Link a payout wallet in Settings before your first charge.`),
+        }).catch((e) => console.warn(`[admin/rail] could not email ${target.email}:`, e));
+      }
+
+      return ok(res, { data: { merchant_id: target.merchantId, enabled, by: actor } });
+    } catch (e) {
+      console.error("[portal/admin/rail POST]", e);
+      return err(res, "Failed to update the rail entitlement", 500);
+    }
+  }
+);
 
 portalRouter.get("/subscriptions", async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;

@@ -17,6 +17,7 @@ import { SubscriptionsPage } from "@/pages/portal/SubscriptionsPage";
 import { PaymentsPage } from "@/pages/portal/PaymentsPage";
 import { WebhooksPage } from "@/pages/portal/WebhooksPage";
 import { RailPage } from "@/pages/portal/RailPage";
+import { AdminRailPage } from "@/pages/portal/AdminRailPage";
 import { ApiKeysPage } from "@/pages/portal/ApiKeysPage";
 import { SettingsPage } from "@/pages/portal/SettingsPage";
 import { CheckoutPage } from "@/pages/CheckoutPage";
@@ -85,6 +86,7 @@ export default function App() {
           <Route path="/subscriptions" element={<SubscriptionsPage />} />
           <Route path="/payments" element={<PaymentsPage />} />
           <Route path="/rail" element={<RailPage />} />
+          <Route path="/admin/rail" element={<AdminRailPage />} />
           <Route path="/webhooks" element={<WebhooksPage />} />
           <Route path="/api-keys" element={<ApiKeysPage />} />
           <Route path="/settings" element={<SettingsPage />} />

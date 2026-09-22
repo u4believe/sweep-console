@@ -52,6 +52,12 @@ model Merchant {
   // so a creator who finds the rail has a way to ask for it from inside the
   // product rather than having to find a human first. Null = never asked.
   railRequestedAt      DateTime?
+  // Who granted the rail, and when. Two operators means "who did this" is a real
+  // question, and being able to answer it is the whole reason the admin panel
+  // uses a signed-in identity rather than a shared secret. Email rather than a
+  // merchant id because an operator may later cease to be a merchant here.
+  railGrantedBy        String?
+  railGrantedAt        DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 

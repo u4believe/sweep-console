@@ -37,6 +37,7 @@ authenticator.options = { window: 1 };
 export type StepUpAction =
   | "plan.delete"
   | "plan.reprice"
+  | "rail.grant"
   | "tier.delete"
   | "apikey.regenerate"
   | "webhook.reveal"
@@ -101,6 +102,13 @@ export const STEP_UP_ACTIONS: Record<StepUpAction, ActionPolicy> = {
   "wallet.change": { label: "change your payout wallet", factor: "totp-only" },
   "wallet.unlink": { label: "unlink your payout wallet", factor: "totp-only" },
   "payout.withdraw": { label: "withdraw USDC", factor: "totp-only" },
+
+  // Granting the payment rail. Not a credential and not this account's money —
+  // but it decides whether ANOTHER account may solicit recurring wallet
+  // authorizations with Sweep as the collection mechanism. An intruder in an
+  // operator's mailbox must not be able to hand that to a stranger, and unlike a
+  // card network there is no chargeback to unwind it afterwards.
+  "rail.grant": { label: "grant the payment rail", factor: "totp-only" },
 
   // Turning the second factor off, or printing a new sheet of codes, is a
   // takeover step. Both are meaningless without an authenticator anyway.
