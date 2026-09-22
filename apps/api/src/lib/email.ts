@@ -665,3 +665,56 @@ export function priceChangeEmailHtml(d: PriceChangeEmailData): string {
       ),
   });
 }
+
+/**
+ * Sent to a creator when an operator grants them the external rail.
+ *
+ * The request screen promises "we'll email you when it is live", and a promise
+ * made by a product is the product's to keep. Without this the creator's only
+ * way to discover the grant is to open the portal and notice the screen has
+ * changed — which is not a notification, it is luck.
+ */
+export function railAccessGrantedEmailHtml(opts: { merchantName: string; hasPayoutWallet: boolean }): string {
+  return shell({
+    preheader: "The payment rail is now enabled on your Sweep Console account.",
+    sender: "account",
+    kicker: "Access granted",
+    title: "The payment rail is live on your account",
+    body:
+      lede(
+        `Hi ${esc(opts.merchantName)}, your account can now create mandates and collect charges. ` +
+        `<code>/v1/mandates</code> and <code>/v1/charges</code> will stop answering ` +
+        `<code>403 rail_not_enabled</code>.`
+      ) +
+      detailRows([
+        { k: "What changed", v: "Payment rail enabled", accent: true },
+        {
+          k: "Payout wallet",
+          v: opts.hasPayoutWallet
+            ? "Linked"
+            : "NOT LINKED — link one before your first charge",
+          accent: !opts.hasPayoutWallet,
+        },
+        { k: "Mode", v: "Test — live API keys are not issued yet" },
+      ]) +
+      (opts.hasPayoutWallet
+        ? ""
+        : alarm(
+            "Link a payout wallet first",
+            "A mandate will be created and authorized without one, and then the first charge fails — " +
+              "after the payer has already signed. Settings → Payout wallet."
+          )) +
+      panel(
+        "Where to start",
+        "Create your first mandate",
+        "The Payment rail screen in the portal now lists your mandates and charges. The docs carry a " +
+          "working integration: the route that creates a mandate and redirects, the webhook handler, and " +
+          "the charge loop."
+      ) +
+      button("Open the payment rail", `${process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? ""}/rail`) +
+      fineprint(
+        "Your API key is a payment credential on this rail — it can move money to whoever holds it. " +
+        "Treat it like one, and rotate it from API Keys if it has ever been pasted somewhere it should not be."
+      ),
+  });
+}

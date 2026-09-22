@@ -16,6 +16,7 @@
 
 import "dotenv/config";
 import { prisma } from "../src/lib/prisma";
+import { sendEmail, railAccessGrantedEmailHtml } from "../src/lib/email";
 
 /// The Supabase transaction pooler refuses a connection now and then.
 async function retry<T>(f: () => Promise<T>, n = 4): Promise<T> {
@@ -41,6 +42,28 @@ async function list() {
   console.log(`merchants with the external rail enabled: ${on.length} of ${total}\n`);
   for (const m of on) console.log(`  ${m.merchantId}  ${m.email}  (${m.name})`);
   if (on.length === 0) console.log("  (none)");
+
+  // The queue. Requests were being recorded and then only ever read back to the
+  // requester's own screen, so the operator's list of who is waiting lived
+  // nowhere — the request button created a promise with no inbox behind it.
+  const waiting = await retry(() =>
+    prisma.merchant.findMany({
+      where: { externalRailEnabled: false, NOT: { railRequestedAt: null } },
+      select: { merchantId: true, email: true, name: true, railRequestedAt: true, walletAddress: true },
+      orderBy: { railRequestedAt: "asc" },
+    })
+  );
+  console.log(`\nawaiting a decision: ${waiting.length}`);
+  for (const m of waiting) {
+    const days = Math.floor((Date.now() - m.railRequestedAt!.getTime()) / 86_400_000);
+    console.log(
+      `  ${m.merchantId}  ${m.email}  (${m.name})` +
+        `\n     requested ${m.railRequestedAt!.toISOString().slice(0, 10)}` +
+        ` (${days}d ago) · payout wallet ${m.walletAddress ? "linked" : "NOT LINKED"}`
+    );
+  }
+  if (waiting.length === 0) console.log("  (none)");
+
   console.log(`\nTo grant it:  pnpm tsx scripts/external-rail.ts <email|merchantId> --on --write`);
 }
 
@@ -72,7 +95,10 @@ async function main() {
           { merchantId: target },
         ],
       },
-      select: { id: true, merchantId: true, email: true, name: true, externalRailEnabled: true },
+      select: {
+        id: true, merchantId: true, email: true, name: true,
+        externalRailEnabled: true, walletAddress: true,
+      },
     })
   );
 
@@ -101,10 +127,29 @@ async function main() {
   console.log(`\nWrote externalRailEnabled = ${want}.`);
   if (want) {
     console.log(
-      `This account can now reach /v1/mandates and /v1/charges once those routes ship.\n` +
+      `This account can now reach /v1/mandates and /v1/charges.\n` +
         `Mandates it creates are mode "external" and are invisible to the renewal cron —\n` +
         `its own billing system owns the clock.`
     );
+    // The request screen says "we'll email you when it is live". Nothing did.
+    // Sent here rather than from a route because granting happens here, and a
+    // promise kept only when someone remembers to send it by hand is not kept.
+    await sendEmail({
+      to: merchant.email,
+      subject: "Your Sweep Console payment rail is live",
+      html: railAccessGrantedEmailHtml({
+        merchantName: merchant.name,
+        hasPayoutWallet: !!merchant.walletAddress,
+      }),
+      text:
+        `The payment rail is now enabled on your Sweep Console account. /v1/mandates and /v1/charges ` +
+        `will stop answering 403 rail_not_enabled.` +
+        (merchant.walletAddress
+          ? ""
+          : ` Link a payout wallet in Settings before your first charge, or it will fail after the payer has signed.`),
+    })
+      .then(() => console.log(`Emailed ${merchant.email}.`))
+      .catch((e) => console.warn(`Could not email ${merchant.email}: ${(e as Error).message}`));
   } else {
     console.log(
       `Existing mandates are NOT revoked by this — they stay live on chain and this\n` +
