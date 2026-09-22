@@ -150,10 +150,14 @@ export function RailPage() {
             }
             hint={
               data.requestedAt
-                ? `Requested ${new Date(data.requestedAt).toLocaleDateString()}. We review these by hand — the rail ` +
-                  "is the one place an API key alone moves money, so it is granted per account rather than switched " +
-                  "on. We'll email you when it is live. Meanwhile the Payment rail section of the docs covers " +
-                  "everything you would build."
+                ? // Leads with why access is reviewed rather than why the key is
+                  // dangerous. Both are true, but only the first explains the
+                  // wait: an authorization solicited on this rail cannot be
+                  // unwound the way a card payment can.
+                  `Requested ${new Date(data.requestedAt).toLocaleDateString()}. We review these by hand because the ` +
+                  "rail decides whether an account can ask people for a standing claim on their wallet — and unlike " +
+                  "a card payment, there is no chargeback to undo one. We'll email you when it is live. Meanwhile " +
+                  "the Payment rail section of the docs has a working integration you can build against."
                 : "The rail lets your own app charge a wallet directly — you create a mandate, the payer signs it " +
                   "once, and your code calls POST /v1/charges on your own schedule. See the Payment rail section of " +
                   "the docs for what that involves."
