@@ -3,7 +3,6 @@ import { Link, useParams } from "react-router-dom";
 import { useAccount } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { formatUnits } from "viem";
-import { Logo } from "@/components/ui/Logo";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import {
   getAuthorization,
@@ -116,18 +115,17 @@ export function AuthorizePage() {
     }
   };
 
+  /// No top nav. This page asks one question — will you let this business charge
+  /// your wallet — and a header offering links elsewhere competes with it. The
+  /// platform's name belongs in the footer, where it reads as provenance rather
+  /// than navigation.
   const shell = (children: React.ReactNode) => (
-    <div className="flex min-h-screen flex-col bg-gray-50">
-      <header className="flex items-center justify-between border-b border-gray-100 bg-white px-6 py-4">
-        <Link to="/" className="flex items-center gap-2.5">
-          <Logo className="h-7 w-7" />
-          <span className="text-lg font-bold tracking-tight text-gray-900">Sweep Console</span>
-          <span className="ml-1 rounded-md bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700">
-            Authorize
-          </span>
-        </Link>
-      </header>
-      <main className="mx-auto w-full max-w-xl flex-1 px-6 py-12">{children}</main>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-ground px-4 py-10">
+      <main className="w-full max-w-md">{children}</main>
+      <p className="mt-6 text-center text-[11px] uppercase tracking-[0.14em] text-gray-400">
+        <Link to="/" className="hover:text-gray-600">Secured by Sweep Console</Link>
+        {" · "}Non-custodial
+      </p>
     </div>
   );
 
@@ -144,12 +142,15 @@ export function AuthorizePage() {
           ? "This link has expired."
           : "This authorization is no longer available.");
     return shell(
-      <div className="mx-auto max-w-md rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-xl">
-        <h1 className="text-xl font-bold text-gray-900">Nothing to authorize</h1>
-        <p className="mt-2 text-sm text-gray-500">{why}</p>
-        <p className="mt-4 text-sm text-gray-500">
-          Ask {view?.merchant_name ?? "the business"} to send you a new link.
-        </p>
+      <div className="border border-gray-200 bg-white shadow-sm">
+        <div className="h-1.5 bg-gray-300" />
+        <div className="px-8 py-7 text-center">
+          <h1 className="text-xl font-bold text-gray-900">Nothing to authorize</h1>
+          <p className="mt-2 text-sm text-gray-500">{why}</p>
+          <p className="mt-4 text-sm text-gray-500">
+            Ask {view?.merchant_name ?? "the business"} to send you a new link.
+          </p>
+        </div>
       </div>
     );
   }
@@ -160,8 +161,11 @@ export function AuthorizePage() {
 
   if (phase === "done") {
     return shell(
-      <div className="mx-auto max-w-md rounded-2xl border border-gray-100 bg-white p-8 shadow-xl">
-        <h1 className="text-xl font-bold text-gray-900">You&rsquo;re set up</h1>
+      <div className="border border-gray-200 bg-white shadow-sm">
+        <div className="h-1.5 bg-brand-600" />
+        <div className="px-8 py-7">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-700">Authorized</p>
+          <h1 className="mt-2 text-2xl font-bold tracking-tight text-gray-900">You&rsquo;re set up</h1>
         <p className="mt-2 text-sm text-gray-600">
           {view.merchant_name} can now charge up to <strong>{usdc(view.max_amount)}</strong> per {noun} from your
           wallet, until {new Date(view.expires_at).toLocaleDateString()}.
@@ -188,100 +192,126 @@ export function AuthorizePage() {
         {view.return_url && (
           <a
             href={view.return_url}
-            className="mt-6 block w-full rounded-lg bg-gray-900 py-2.5 text-center font-medium text-white transition hover:bg-black"
+            className="mt-6 block w-full bg-brand-600 py-3 text-center font-semibold text-white transition hover:bg-brand-700"
           >
             Back to {view.merchant_name}
           </a>
         )}
+        </div>
       </div>
     );
   }
 
+  // The hero drops a trailing ".00" — "5 USDC" is the number a person repeats
+  // back to themselves; "5.00 USDC" is a receipt. Cents survive when they exist.
+  const heroAmount = usdc(view.max_amount).replace(/\.00$/, "");
+
   return shell(
-    <div className="mx-auto max-w-md rounded-2xl border border-gray-100 bg-white p-8 shadow-xl">
-      <p className="text-sm text-gray-500">Recurring payment authorization</p>
-      <h1 className="mt-1 text-xl font-bold text-gray-900">{view.merchant_name}</h1>
+    <div className="border border-gray-200 bg-white shadow-sm">
+      {/* The accent rule is the only ornament: it marks this as a payment
+          surface without a logo competing with the merchant's name. */}
+      <div className="h-1.5 bg-brand-600" />
 
-      {/* The ceiling first, in money and in words. The on-chain cap is the only
-          consumer protection on this rail, so it should be the largest thing on
-          the page — not a detail under a button. */}
-      <div className="mt-6 rounded-xl border border-gray-100 bg-gray-50 p-5">
-        <p className="text-3xl font-bold tracking-tight text-gray-900">
-          {usdc(view.max_amount)}
-          <span className="ml-1 text-base font-medium text-gray-500">per {noun} maximum</span>
+      <div className="px-8 py-7">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-700">
+          Recurring payment authorization
         </p>
-        <p className="mt-2 text-sm text-gray-600">
-          {view.merchant_name} can charge you up to this much in total per {noun} — in one charge or several. They
-          cannot take more. Each chain you authorize enforces its own share in your wallet; Sweep enforces the total
-          across them.
-        </p>
-      </div>
+        <h1 className="mt-2 text-2xl font-bold tracking-tight text-gray-900">{view.merchant_name}</h1>
 
-      <dl className="mt-6 space-y-3 text-sm">
-        <div className="flex justify-between gap-4">
-          <dt className="text-gray-500">Paid in</dt>
-          <dd className="text-right font-medium text-gray-900">USDC from {chainNames.join(", ")}</dd>
+        <div className="mt-5 border-t border-gray-900" />
+
+        {/* The ceiling, as the largest thing on the page. It is the only
+            consumer protection on this rail, so it outranks the button. */}
+        <div className="mt-6 flex items-baseline gap-2">
+          <span className="text-5xl font-bold leading-none tracking-tight text-gray-900">{heroAmount}</span>
+          <span className="text-lg font-bold text-gray-900">USDC</span>
+          <span className="text-sm text-gray-500">per {noun}, maximum</span>
         </div>
-        <div className="flex justify-between gap-4">
-          <dt className="text-gray-500">Expires</dt>
-          <dd className="text-right font-medium text-gray-900">
-            {new Date(view.expires_at).toLocaleDateString()}
-          </dd>
-        </div>
-        {view.email && (
-          <div className="flex justify-between gap-4">
-            <dt className="text-gray-500">For</dt>
-            <dd className="text-right font-medium text-gray-900">{view.email}</dd>
+
+        <p className="mt-4 text-sm leading-relaxed text-gray-600">
+          They can charge up to this much a {noun} — in one charge or several — and never more, across every chain
+          you approve.
+        </p>
+
+        <dl className="mt-6 text-sm">
+          <div className="flex justify-between gap-4 border-t border-gray-100 py-3">
+            <dt className="text-gray-500">Paid in</dt>
+            <dd className="text-right font-medium text-gray-900">USDC from {chainNames.join(", ")}</dd>
           </div>
+          <div className="flex justify-between gap-4 border-t border-gray-100 py-3">
+            <dt className="text-gray-500">Expires</dt>
+            <dd className="text-right font-medium text-gray-900">
+              {new Date(view.expires_at).toLocaleDateString(undefined, {
+                year: "numeric", month: "short", day: "numeric",
+              })}
+            </dd>
+          </div>
+          {view.email && (
+            <div className="flex justify-between gap-4 border-t border-gray-100 py-3">
+              <dt className="text-gray-500">For</dt>
+              <dd className="break-all text-right font-medium text-gray-900">{view.email}</dd>
+            </div>
+          )}
+          {/* Stated as a row rather than buried in prose: "what leaves my wallet
+              right now" is the question behind the hesitation on this screen. */}
+          <div className="flex justify-between gap-4 border-y border-gray-100 py-3">
+            <dt className="text-gray-500">Charged today</dt>
+            <dd className="text-right font-semibold text-brand-700">0.00 USDC</dd>
+          </div>
+        </dl>
+
+        {error && (
+          <p className="mt-5 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
         )}
-      </dl>
 
-      <p className="mt-6 text-xs leading-relaxed text-gray-500">
-        {view.merchant_name} decides when to charge and for how much, within the limit above. Sweep Console moves the
-        money on their instruction — we don&rsquo;t set the price or the schedule. You can withdraw this permission at
-        any time from your wallet, and nothing is charged today.
-      </p>
+        {signedChains.length > 0 && remaining.length > 0 && (
+          <p className="mt-5 border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-700">
+            Already authorized on{" "}
+            {view.targets
+              .filter((t) => signedChains.includes(t.chain_id))
+              .map((t) => CHAIN_BLURB[t.chain_key] ?? t.name)
+              .join(", ")}
+            . {remaining.length} more to go.
+          </p>
+        )}
 
-      {error && <p className="mt-5 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">{error}</p>}
-
-      {signedChains.length > 0 && remaining.length > 0 && (
-        <p className="mt-5 rounded-lg bg-brand-50 px-4 py-3 text-sm text-brand-700">
-          Already authorized on{" "}
-          {view.targets
-            .filter((t) => signedChains.includes(t.chain_id))
-            .map((t) => CHAIN_BLURB[t.chain_key] ?? t.name)
-            .join(", ")}
-          . {remaining.length} more to go.
-        </p>
-      )}
-
-      <div className="mt-6">
-        {!address ? (
-          <button
-            onClick={openConnectModal}
-            className="w-full rounded-lg bg-gray-900 py-2.5 font-medium text-white transition hover:bg-black"
-          >
-            Connect wallet
-          </button>
-        ) : (
-          <>
+        <div className="mt-6">
+          {!address ? (
             <button
-              onClick={authorize}
-              disabled={phase === "signing" || remaining.length === 0}
-              className="w-full rounded-lg bg-gray-900 py-2.5 font-medium text-white transition hover:bg-black disabled:opacity-50"
+              onClick={openConnectModal}
+              className="w-full bg-brand-600 py-3 font-semibold text-white transition hover:bg-brand-700"
             >
-              {phase === "signing"
-                ? progress
-                  ? `Authorizing ${progress.done + 1} of ${progress.total}…`
-                  : "Authorizing…"
-                : `Authorize ${usdc(view.max_amount)} per ${noun}`}
+              Connect wallet
             </button>
-            <p className="mt-3 text-center text-xs text-gray-400">
-              Signing as {shortAddress(address)}
-              {view.targets.length > 1 && ` · ${view.targets.length} signatures, one per network`}
-            </p>
-          </>
-        )}
+          ) : (
+            <>
+              <button
+                onClick={authorize}
+                disabled={phase === "signing" || remaining.length === 0}
+                className="w-full bg-brand-600 py-3 font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
+              >
+                {phase === "signing"
+                  ? progress
+                    ? `Authorizing ${progress.done + 1} of ${progress.total}…`
+                    : "Authorizing…"
+                  : `Authorize ${usdc(view.max_amount)} per ${noun}`}
+              </button>
+              <p className="mt-3 text-center text-xs text-gray-400">
+                Signing as {shortAddress(address)}
+                {view.targets.length > 1 && ` · ${view.targets.length} signatures, one per network`}
+              </p>
+            </>
+          )}
+        </div>
+
+        {/* Who decides what, in the subscriber's own terms. The distinction
+            matters on this rail: the merchant sets the amount and the timing,
+            and the platform they are trusting with a standing permission is not
+            the one deciding how much to take. */}
+        <p className="mt-5 text-xs leading-relaxed text-gray-500">
+          {view.merchant_name} decides when to charge, within the limit above. Sweep Console moves the money on their
+          instruction and never holds it. Withdraw this permission anytime from your wallet.
+        </p>
       </div>
     </div>
   );
