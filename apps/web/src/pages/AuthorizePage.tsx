@@ -252,12 +252,7 @@ export function AuthorizePage() {
               <dd className="break-all text-right font-medium text-gray-900">{view.email}</dd>
             </div>
           )}
-          {/* Stated as a row rather than buried in prose: "what leaves my wallet
-              right now" is the question behind the hesitation on this screen. */}
-          <div className="flex justify-between gap-4 border-y border-gray-100 py-3">
-            <dt className="text-gray-500">Charged today</dt>
-            <dd className="text-right font-semibold text-brand-700">0.00 USDC</dd>
-          </div>
+          <div className="border-t border-gray-100" />
         </dl>
 
         {error && (

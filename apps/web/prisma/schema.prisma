@@ -58,6 +58,10 @@ model Merchant {
   // merchant id because an operator may later cease to be a merchant here.
   railGrantedBy        String?
   railGrantedAt        DateTime?
+  // Why access was withdrawn, and when. Kept because a withdrawal is a decision
+  // a merchant may appeal, and "we cannot recall" is not an answer to that.
+  railWithdrawnAt      DateTime?
+  railWithdrawnReason  String?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 

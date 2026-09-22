@@ -57,10 +57,33 @@ export function AdminRailPage() {
   /// should take effort, and because the step-up prompt that follows does not
   /// say which account it is for.
   async function decide(merchantId: string, name: string, enabled: boolean) {
-    const question = enabled
-      ? `Grant the payment rail to ${name}?\n\nThey will be able to create mandates and collect USDC from payers who authorize them. They'll be emailed.`
-      : `Withdraw the payment rail from ${name}?\n\nExisting mandates stay live on chain and are NOT revoked by this — withdraw the entitlement and revoke the mandates if the intent is to stop charges.`;
-    if (!confirm(question)) return;
+    let reason: string | undefined;
+
+    if (enabled) {
+      if (
+        !confirm(
+          `Grant the payment rail to ${name}?\n\nThey will be able to create mandates and collect USDC from ` +
+            `payers who authorize them. They'll be emailed.`
+        )
+      ) {
+        return;
+      }
+    } else {
+      // Asked for, not optional: the merchant is sent this verbatim, and a
+      // capability taken away without a stated reason cannot be appealed.
+      const answer = prompt(
+        `Withdraw the payment rail from ${name}?\n\n` +
+          `They will be emailed this reason and can reply to appeal. Their customers' existing ` +
+          `authorizations are NOT cancelled — this only blocks new charges.\n\n` +
+          `Reason:`
+      );
+      if (answer === null) return;
+      if (answer.trim().length < 3) {
+        setError("A reason is required to withdraw access — the merchant is sent it.");
+        return;
+      }
+      reason = answer.trim();
+    }
 
     setBusy(merchantId);
     setError("");
@@ -68,7 +91,7 @@ export function AdminRailPage() {
       const res = await apiFetch(`/portal/admin/rail/${merchantId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled }),
+        body: JSON.stringify(enabled ? { enabled } : { enabled, reason }),
       });
       if (!res.ok) {
         if (await wasCancelled(res)) return;

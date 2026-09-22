@@ -718,3 +718,58 @@ export function railAccessGrantedEmailHtml(opts: { merchantName: string; hasPayo
       ),
   });
 }
+
+/**
+ * Sent when an operator withdraws a merchant's payment rail.
+ *
+ * Withdrawal is the only action on this platform that removes a live capability
+ * from a business, so it owes them three things: that it happened, why, and how
+ * to contest it. A merchant who discovers it from a 403 in their own logs learns
+ * the first and neither of the others.
+ *
+ * It is also careful about what it does NOT claim. Their mandates are untouched
+ * — the payers' authorizations are still signed and still valid — so this stops
+ * new collection, it does not cancel anything their customers agreed to.
+ */
+export function railAccessWithdrawnEmailHtml(opts: {
+  merchantName: string;
+  reason: string;
+  activeMandates: number;
+}): string {
+  return shell({
+    preheader: `Payment rail access has been withdrawn from your Sweep Console account.`,
+    sender: "account",
+    kicker: "Access withdrawn",
+    title: "Your payment rail access has been withdrawn",
+    body:
+      lede(
+        `Hi ${esc(opts.merchantName)}, your account can no longer create mandates or collect charges. ` +
+        `<code>/v1/mandates</code> and <code>/v1/charges</code> now answer ` +
+        `<code>403 rail_not_enabled</code>.`
+      ) +
+      alarm("Reason given", esc(opts.reason)) +
+      detailRows([
+        { k: "New charges", v: "Blocked", accent: true },
+        {
+          k: "Existing authorizations",
+          // Said plainly: we have not cancelled what their customers signed.
+          v:
+            opts.activeMandates === 0
+              ? "None affected"
+              : `${opts.activeMandates} still valid — not cancelled by this`,
+        },
+        { k: "Charges already in flight", v: "Will finish settling" },
+      ]) +
+      panel(
+        "If you think this is wrong",
+        "You can appeal",
+        `Reply to this email with anything you think we have misread. A withdrawal is a decision made by a ` +
+          `person and it can be reversed by one. If access is restored, your existing mandates resume working ` +
+          `immediately — your customers do not need to authorize anything again.`
+      ) +
+      fineprint(
+        `Your customers' authorizations remain signed in their own wallets and are unaffected by this. ` +
+        `Only they can remove those, and nothing here charges them.`
+      ),
+  });
+}

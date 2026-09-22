@@ -15,7 +15,7 @@ import { requireStepUp } from "../lib/portal/stepup";
 import { refusePriceChange, applyPriceChange, type PriceScope } from "../lib/plan-pricing";
 import { sendPriceChangeNotices } from "../lib/email/price-change";
 import { isAdminRequest, sessionEmail, isAdminEmail, adminNotificationRecipients } from "../lib/portal/admin";
-import { railAccessGrantedEmailHtml } from "../lib/email";
+import { railAccessGrantedEmailHtml, railAccessWithdrawnEmailHtml } from "../lib/email";
 import {
   WEBHOOK_EVENTS,
   WEBHOOK_EVENT_DESCRIPTIONS,
@@ -1248,7 +1248,17 @@ portalRouter.get("/admin/rail", async (req, res) => {
 });
 
 // ─── Operator: grant or withdraw the rail ─────────────────────────────────────
-const railDecisionSchema = z.object({ enabled: z.boolean() });
+const railDecisionSchema = z
+  .object({
+    enabled: z.boolean(),
+    // Required to withdraw, and sent to the merchant verbatim. A capability
+    // taken away without a stated reason cannot be appealed, only resented.
+    reason: z.string().trim().min(3).max(300).optional(),
+  })
+  .refine((d) => d.enabled || !!d.reason, {
+    message: "A reason is required to withdraw access — the merchant is told it.",
+    path: ["reason"],
+  });
 
 portalRouter.post(
   "/admin/rail/:merchantId",
@@ -1258,8 +1268,15 @@ portalRouter.post(
   requireStepUp("rail.grant"),
   async (req, res) => {
     const parsed = railDecisionSchema.safeParse(req.body);
-    if (!parsed.success) return validationError(res, { enabled: "Say true or false." });
-    const { enabled } = parsed.data;
+    if (!parsed.success) {
+      return validationError(
+        res,
+        Object.fromEntries(
+          Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [k, v?.[0] ?? "Invalid"])
+        )
+      );
+    }
+    const { enabled, reason } = parsed.data;
 
     try {
       const actor = await sessionEmail(req);
@@ -1268,6 +1285,7 @@ portalRouter.post(
         select: {
           id: true, merchantId: true, name: true, email: true,
           walletAddress: true, externalRailEnabled: true,
+          _count: { select: { mandates: { where: { status: "active" } } } },
         },
       });
       if (!target) return err(res, "Merchant not found", 404, "not_found");
@@ -1281,13 +1299,34 @@ portalRouter.post(
           externalRailEnabled: enabled,
           // Kept on a withdrawal too: the record of who granted it, and when, is
           // the history of the decision, not a description of today's state.
-          ...(enabled ? { railGrantedBy: actor, railGrantedAt: new Date() } : {}),
+          ...(enabled
+            ? { railGrantedBy: actor, railGrantedAt: new Date() }
+            : { railWithdrawnAt: new Date(), railWithdrawnReason: reason }),
         },
       });
       console.log(
         `[admin/rail] ${actor} ${enabled ? "granted" : "withdrew"} the rail for ` +
           `${target.merchantId} (${target.email})`
       );
+
+      if (!enabled) {
+        // A withdrawal owes the merchant three things: that it happened, why,
+        // and how to contest it. Discovering it from a 403 in their own logs
+        // gives them only the first.
+        void sendEmail({
+          to: target.email,
+          subject: "Your Sweep Console payment rail access has been withdrawn",
+          html: railAccessWithdrawnEmailHtml({
+            merchantName: target.name,
+            reason: reason!,
+            activeMandates: target._count.mandates,
+          }),
+          text:
+            `Payment rail access has been withdrawn from your Sweep Console account. Reason: ${reason}. ` +
+            `/v1/mandates and /v1/charges now answer 403 rail_not_enabled. Your customers' existing ` +
+            `authorizations are NOT cancelled by this. Reply to this email to appeal.`,
+        }).catch((e) => console.warn(`[admin/rail] could not email ${target.email}:`, e));
+      }
 
       if (enabled) {
         // The request screen promised an email. Detached — the grant is written,
