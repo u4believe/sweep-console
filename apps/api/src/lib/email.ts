@@ -713,8 +713,10 @@ export function railAccessGrantedEmailHtml(opts: { merchantName: string; hasPayo
       ) +
       button("Open the payment rail", `${process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? ""}/rail`) +
       fineprint(
-        "Your API key is a payment credential on this rail — it can move money to whoever holds it. " +
-        "Treat it like one, and rotate it from API Keys if it has ever been pasted somewhere it should not be."
+        "Your API key can move your customers' money on this rail. It cannot redirect it — a charge always " +
+        "settles to your payout wallet, and changing that wallet needs your authenticator — but anyone holding " +
+        "the key can charge every mandate you have, up to each one's cap. Rotate it from API Keys if it has " +
+        "ever been somewhere it should not be."
       ),
   });
 }

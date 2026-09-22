@@ -106,6 +106,17 @@ export async function verifyStepUp(action: string, method: StepUpMethod, code: s
 }
 
 export async function messageOf(res: Response, fallback: string): Promise<string> {
-  const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-  return body?.error?.message ?? fallback;
+  const body = (await res.json().catch(() => null)) as
+    | { error?: { message?: string; details?: Record<string, string> } }
+    | null;
+  const error = body?.error;
+  if (!error) return fallback;
+
+  // A 422 carries the useful half in `details`; its `message` is the constant
+  // "Validation failed", which tells the reader nothing about which field or
+  // why. Surfacing only that turned a missing reason on the rail-withdrawal
+  // form into an error nobody could act on.
+  const detail = error.details && Object.values(error.details).filter(Boolean);
+  if (detail && detail.length > 0) return detail.join(" ");
+  return error.message ?? fallback;
 }

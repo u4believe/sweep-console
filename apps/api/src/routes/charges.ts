@@ -2,7 +2,9 @@
 //
 // One capped pull against a mandate, when the developer's own billing logic says
 // it is time. This is the first endpoint in the platform where a stolen API key
-// directly enriches whoever holds it, which is why it sits behind both
+// can move a merchant's customers' money — into the MERCHANT's payout wallet,
+// never the thief's, since changing that wallet is a totp-only action — which
+// is why it sits behind both
 // verifyApiKey and requireExternalRail, and why the Idempotency-Key header is
 // mandatory rather than advisory.
 //

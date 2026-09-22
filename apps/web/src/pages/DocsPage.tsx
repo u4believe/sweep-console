@@ -340,7 +340,9 @@ export function DocsPage() {
               <p>
                 The rail is an entitlement rather than a setting: <Code>/v1/mandates</Code> and <Code>/v1/charges</Code>{" "}
                 answer <Code>403 rail_not_enabled</Code> until your account is granted access. It is also the first
-                place where a leaked API key moves money to whoever holds it — treat the key accordingly.
+                place where a leaked API key can move your customers&apos; money — not to the thief, since a charge
+                always settles to your payout wallet and changing that wallet needs your authenticator, but anyone
+                holding it can charge every mandate you have up to its cap. Treat the key accordingly.
               </p>
               <div className="rounded-xl border border-gray-200 px-5 py-1">
                 <Row k="1 · POST /v1/mandates" v="You create a pending mandate and get back an authorization URL." />
@@ -370,8 +372,9 @@ export function DocsPage() {
                   <strong>Ask us to enable the rail</strong> — portal → <strong>Payment rail</strong> →{" "}
                   <strong>Request access</strong>. This is the one step that is not self-serve: until your account is
                   granted it, <Code>/v1/mandates</Code> and <Code>/v1/charges</Code> answer{" "}
-                  <Code>403 rail_not_enabled</Code>. The rail is the first place where an API key alone moves money to
-                  whoever holds it, so access is granted rather than switched on. Once it is granted that screen
+                  <Code>403 rail_not_enabled</Code>. Access is granted rather than switched on because the rail
+                  decides whether an account may solicit recurring wallet authorizations at all — and unlike a card
+                  network there is no chargeback to unwind one. Once it is granted that screen
                   becomes your mandates and charges instead, which is how you know it worked.
                 </Step>
                 <Step n={4}>
