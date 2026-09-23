@@ -9,7 +9,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 // API_URL: in production that is an absolute host, but in development it is the
 // relative "/api" the Vite proxy owns, and printing "/api" here as if it were a
 // base URL is worse than printing nothing. The docs name this same value.
-const PUBLIC_API_BASE = "https://sweepapi-production-28e1.up.railway.app";
+const PUBLIC_API_BASE = "https://api.sweepconsole.xyz";
 
 interface KeyInfo {
   hasTestKey: boolean;

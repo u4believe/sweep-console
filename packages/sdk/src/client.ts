@@ -7,7 +7,7 @@ import type {
 // is the Vercel-hosted front end and answers every path with the app shell, so
 // pointing a client there yields a 200 full of HTML — see `parse` below, which
 // exists because that mistake is otherwise diagnosed by JSON.parse.
-const DEFAULT_BASE_URL = "https://sweepapi-production-28e1.up.railway.app";
+const DEFAULT_BASE_URL = "https://api.sweepconsole.xyz";
 
 export interface SweepOptions {
   /** Override for self-hosting or a tunnel. Defaults to the hosted API. */
