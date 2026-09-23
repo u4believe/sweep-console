@@ -12,7 +12,8 @@
     "db:generate": "prisma generate --schema=../web/prisma/schema.prisma",
     "db:push": "prisma db push --schema=../web/prisma/schema.prisma",
     "circle:register-webhook": "tsx scripts/register-circle-webhook.ts",
-    "contract:retire": "tsx scripts/retire-subscription-manager.ts"
+    "contract:retire": "tsx scripts/retire-subscription-manager.ts",
+    "relayer:key": "tsx scripts/relayer-key.ts"
   },
   "dependencies": {
     "@circle-fin/adapter-viem-v2": "^1.0.0",
