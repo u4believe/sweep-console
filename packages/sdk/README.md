@@ -15,9 +15,8 @@ Requires Node 20+. You need a Sweep account with the **payment rail** enabled
 ```ts
 import { Sweep, usdc } from "@sweepconsole/node";
 
-const sweep = new Sweep(process.env.SWEEP_API_KEY!, {
-  baseUrl: process.env.SWEEP_API_URL,   // shown in the portal under API Keys
-});
+const sweep = new Sweep(process.env.SWEEP_API_KEY!);
+// baseUrl defaults to the hosted API; override it for a tunnel or self-hosting.
 ```
 
 **1 — when a user subscribes, create a mandate and send them to sign it**

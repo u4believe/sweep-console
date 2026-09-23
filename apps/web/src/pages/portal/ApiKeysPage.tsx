@@ -5,6 +5,12 @@ import { apiFetch, wasCancelled } from "@/lib/stepup";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
+// What a developer should point their client at. Deliberately not derived from
+// API_URL: in production that is an absolute host, but in development it is the
+// relative "/api" the Vite proxy owns, and printing "/api" here as if it were a
+// base URL is worse than printing nothing. The docs name this same value.
+const PUBLIC_API_BASE = "https://sweepapi-production-28e1.up.railway.app";
+
 interface KeyInfo {
   hasTestKey: boolean;
   name: string;
@@ -207,6 +213,21 @@ export function ApiKeysPage() {
                 {generating ? "Generating…" : keyInfo.hasTestKey ? "Rotate API key" : "Create API key"}
               </button>
             </form>
+          </Section>
+
+          <Section title="Base URL">
+            <p className="m-0 mb-2" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
+              Point your client here. The API is its own origin — the address of this dashboard serves
+              the web app, so a request sent there comes back as HTML rather than JSON.
+            </p>
+            <div className="flex items-center gap-2">
+              <Mono>{PUBLIC_API_BASE}</Mono>
+              <CopyButton value={PUBLIC_API_BASE} />
+            </div>
+            <p className="m-0 mt-3" style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
+              The <Mono size={12}>@sweepconsole/node</Mono> client already defaults to it — pass a{" "}
+              <Mono size={12}>baseUrl</Mono> only for a tunnel or a self-hosted API.
+            </p>
           </Section>
 
           <Section bordered={false}>

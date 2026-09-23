@@ -59,14 +59,15 @@ app.use(cors({
   },
   credentials: true,
   methods: ["GET", "POST", "PATCH", "DELETE"],
-  // Defence in depth rather than a live requirement: the browser never reaches
-  // this middleware. VITE_API_URL is the relative "/api", proxied to Express by
-  // Vite in development and by a host rewrite in production, so every portal
-  // request is same-origin and no preflight happens. This list only matters if
-  // someone points the client at an absolute cross-origin API URL — at which
-  // point a missing header would fail the step-up replay with a bare "Failed to
-  // fetch", indistinguishable from the API being down. x-step-up-token is listed
-  // so that configuration works rather than breaks confusingly.
+  // Load-bearing, not defence in depth. An earlier note here claimed the browser
+  // never reaches this middleware because VITE_API_URL is the relative "/api" —
+  // true in development, where Vite proxies it, and false in production, where
+  // the web app is served from Vercel and VITE_API_URL is this absolute host.
+  // Every portal request in production is cross-origin and preflighted, which a
+  // live OPTIONS confirms: the configured origin gets the headers back and any
+  // other origin is refused. So dropping x-step-up-token from this list breaks
+  // every step-up replay with a bare "Failed to fetch" that looks exactly like
+  // the API being down.
   allowedHeaders: ["Content-Type", "Authorization", "x-step-up-token"],
 }));
 

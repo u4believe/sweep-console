@@ -365,12 +365,23 @@ export function DocsPage() {
                 the pieces — you do not need it to get a first charge working.
               </p>
               <Pre>{`npm install @sweepconsole/node`}</Pre>
+              <div className="rounded-xl border border-gray-200 px-5 py-1">
+                <Row
+                  k="Base URL"
+                  v={
+                    <>
+                      <Code>https://sweepapi-production-28e1.up.railway.app</Code> — the API is its own origin.{" "}
+                      <Code>www.sweepconsole.xyz</Code> is this website, and it answers every path with the page you
+                      are reading, so a client pointed there gets a <Code>200</Code> full of HTML rather than JSON.
+                      The Node client already knows the right one.
+                    </>
+                  }
+                />
+              </div>
               <Pre>{`import { Sweep, usdc } from "@sweepconsole/node";
 import express from "express";
 
-const sweep = new Sweep(process.env.SWEEP_API_KEY!, {
-  baseUrl: process.env.SWEEP_API_URL,       // shown in the portal under API Keys
-});
+const sweep = new Sweep(process.env.SWEEP_API_KEY!);
 const app = express();
 
 // 1 ─ a user subscribes: create the mandate, send them to sign it
@@ -533,7 +544,7 @@ for (const user of await db.users.dueForCharge()) {
 </form>`}</Pre>
 
               <p className="font-semibold text-gray-800">2 · Create the mandate and redirect</p>
-              <Pre>{`const SWEEP = process.env.SWEEP_API_URL;   // shown in the portal under API Keys
+              <Pre>{`const SWEEP = "https://sweepapi-production-28e1.up.railway.app";
 
 app.post("/subscribe/usdc", async (req, res) => {
   const user = req.user;                       // however you authenticate
@@ -635,7 +646,7 @@ for (const user of await db.users.dueForCharge()) {
                 mints a <Code>pending</Code> row and returns a hosted URL for the payer to open — the same redirect
                 shape as a hosted checkout.
               </p>
-              <Pre>{`curl -X POST "$SWEEP_API_URL"/v1/mandates \
+              <Pre>{`curl -X POST https://sweepapi-production-28e1.up.railway.app/v1/mandates \
   -H "Authorization: Bearer $SWEEP_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -686,7 +697,7 @@ for (const user of await db.users.dueForCharge()) {
                 One pull, when your billing logic says it is time. An <Code>Idempotency-Key</Code> header is{" "}
                 <strong>required</strong>, not advisory.
               </p>
-              <Pre>{`curl -X POST "$SWEEP_API_URL"/v1/charges \
+              <Pre>{`curl -X POST https://sweepapi-production-28e1.up.railway.app/v1/charges \
   -H "Authorization: Bearer $SWEEP_API_KEY" \
   -H "Idempotency-Key: invoice_2026_09_user_8412" \
   -H "Content-Type: application/json" \
@@ -850,7 +861,7 @@ for (const user of await db.users.dueForCharge()) {
               <p>
                 <strong>2. From the API.</strong> POST to <Code>/v1/webhooks</Code> with your API key:
               </p>
-              <Pre>{`curl -X POST "$SWEEP_API_URL"/v1/webhooks \\
+              <Pre>{`curl -X POST https://sweepapi-production-28e1.up.railway.app/v1/webhooks \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
