@@ -5,6 +5,7 @@ import { addHours, addMinutes } from "date-fns";
 import jwt from "jsonwebtoken";
 import type { Response } from "express";
 import { prisma } from "../lib/prisma";
+import { IS_DEV, IS_PRODUCTION } from "../lib/env";
 import { ok, err, validationError } from "../lib/response";
 import { ids } from "../lib/ids";
 import { hashPassword, verifyPassword } from "../lib/password";
@@ -47,7 +48,7 @@ function issueSession(
 // domains, so the session cookie must be SameSite=None + Secure to be sent on
 // cross-site fetches; in dev we keep Lax over http.
 function sessionCookieOptions() {
-  const isProd = process.env.NODE_ENV === "production";
+  const isProd = IS_PRODUCTION;
   return {
     httpOnly: true,
     secure: isProd,
@@ -412,10 +413,16 @@ authRouter.post("/forgot-password", async (req, res) => {
       console.log(`[auth/forgot-password] Reset email sent to ${email}`);
     } catch (e) {
       console.error("[auth/forgot-password] SMTP failed (non-fatal):", (e as Error).message);
-      console.log("─────────────────────────────────────────");
-      console.log("[auth/forgot-password] RESET URL:");
-      console.log(resetUrl);
-      console.log("─────────────────────────────────────────");
+      // The reset URL is a bearer credential: whoever reads it owns the account
+      // until it expires. Printing it when delivery fails is a convenience for
+      // local work and an account-takeover path for anyone with production log
+      // access, so it stays behind the dev flag.
+      if (IS_DEV) {
+        console.log("─────────────────────────────────────────");
+        console.log("[auth/forgot-password] RESET URL:");
+        console.log(resetUrl);
+        console.log("─────────────────────────────────────────");
+      }
     }
     return ok(res, generic);
   } catch (e) {

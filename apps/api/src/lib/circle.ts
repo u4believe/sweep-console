@@ -22,6 +22,30 @@ function authHeaders(userToken?: string): Record<string, string> {
   return headers;
 }
 
+// Circle replies carry bearer credentials in the body: `userToken` authenticates
+// every subsequent wallet call for that merchant, and `encryptionKey` unlocks
+// the wallet's entropy in the client SDK. Logging a response verbatim — which
+// this did — puts both in the host's log stream, where anyone with log access
+// can lift them and act as the merchant's wallet. Log the shape, never the
+// secret.
+const SECRET_KEYS = new Set(["usertoken", "encryptionkey", "apikey", "token", "secret", "privatekey"]);
+
+function redact(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redact);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) =>
+        SECRET_KEYS.has(k.toLowerCase()) ? [k, "[redacted]"] : [k, redact(v)]
+      )
+    );
+  }
+  return value;
+}
+
+function safeBody(json: unknown): string {
+  return JSON.stringify(redact(json)).slice(0, 300);
+}
+
 async function circlePost<T>(path: string, body: unknown, userToken?: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
@@ -29,9 +53,9 @@ async function circlePost<T>(path: string, body: unknown, userToken?: string): P
     body: JSON.stringify(body),
   });
   const json = await res.json();
-  console.log(`[circle] POST ${path} → ${res.status}`, JSON.stringify(json).slice(0, 300));
+  console.log(`[circle] POST ${path} → ${res.status}`, safeBody(json));
   if (!res.ok) {
-    throw new Error(`Circle API error (${res.status}): ${(json as { message?: string }).message ?? JSON.stringify(json)}`);
+    throw new Error(`Circle API error (${res.status}): ${(json as { message?: string }).message ?? safeBody(json)}`);
   }
   return (json as { data: T }).data;
 }
@@ -39,9 +63,9 @@ async function circlePost<T>(path: string, body: unknown, userToken?: string): P
 async function circleGet<T>(path: string, userToken?: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { headers: authHeaders(userToken) });
   const json = await res.json();
-  console.log(`[circle] GET ${path} → ${res.status}`, JSON.stringify(json).slice(0, 300));
+  console.log(`[circle] GET ${path} → ${res.status}`, safeBody(json));
   if (!res.ok) {
-    throw new Error(`Circle API error (${res.status}): ${(json as { message?: string }).message ?? JSON.stringify(json)}`);
+    throw new Error(`Circle API error (${res.status}): ${(json as { message?: string }).message ?? safeBody(json)}`);
   }
   return (json as { data: T }).data;
 }

@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHmac } from "crypto";
 import type { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
 import { err } from "../lib/response";
@@ -52,45 +52,29 @@ export async function verifyApiKey(
 
   const expected = createHmac("sha256", secret).update(rawKey).digest("hex");
 
-  // Anything a downstream guard reads off `req.merchant` MUST be listed here.
-  // The `as Merchant` cast below asserts the whole model, so a field left out of
-  // this select arrives as undefined and the compiler says nothing — which is
-  // exactly how requireExternalRail first read externalRailEnabled as undefined
-  // and refused an account that had been granted the rail.
-  const merchants = await prisma.merchant.findMany({
-    select: {
-      id: true, liveKeyHash: true, testKeyHash: true,
-      merchantId: true, email: true, name: true,
-      webhookSecret: true, walletAddress: true, walletType: true,
-      passwordHash: true, isLive: true, externalRailEnabled: true,
-      createdAt: true, updatedAt: true,
-    },
+  // Looked up by hash rather than scanned. This used to select every merchant
+  // row — including passwordHash and webhookSecret — on every single API request
+  // and compare in Node: the whole credential table in process memory, once per
+  // call, to authenticate one key. The stored value is a deterministic HMAC of
+  // the presented key, so an equality lookup finds the same row and leaks
+  // nothing a timing-safe compare was protecting: the attacker would have to
+  // guess the HMAC output, not walk it byte by byte, and the comparison happens
+  // in the database over a hash of a secret it does not hold.
+  const merchant = await prisma.merchant.findFirst({
+    where: isLiveKey ? { liveKeyHash: expected } : { testKeyHash: expected },
   });
 
-  for (const merchant of merchants) {
-    const storedHash = isLiveKey ? merchant.liveKeyHash : merchant.testKeyHash;
-    if (storedHash && safeCompare(expected, storedHash)) {
-      if (isLiveKey && !merchant.isLive) {
-        err(res, "Live API key is not active for this account", 403);
-        return;
-      }
-      (req as AuthedRequest).merchant = merchant as Merchant;
-      (req as AuthedRequest).isTestMode = isTestKey;
-      next();
-      return;
-    }
+  if (!merchant) {
+    err(res, "Invalid API key", 401);
+    return;
   }
 
-  err(res, "Invalid API key", 401);
-}
-
-function safeCompare(a: string, b: string): boolean {
-  try {
-    const aBuf = Buffer.from(a, "hex");
-    const bBuf = Buffer.from(b, "hex");
-    if (aBuf.length !== bBuf.length) return false;
-    return timingSafeEqual(aBuf, bBuf);
-  } catch {
-    return false;
+  if (isLiveKey && !merchant.isLive) {
+    err(res, "Live API key is not active for this account", 403);
+    return;
   }
+
+  (req as AuthedRequest).merchant = merchant;
+  (req as AuthedRequest).isTestMode = isTestKey;
+  next();
 }

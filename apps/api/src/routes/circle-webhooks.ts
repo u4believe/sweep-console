@@ -2,6 +2,7 @@ import { Router } from "express";
 import express from "express";
 import { createPublicKey, verify as cryptoVerify } from "crypto";
 import { prisma, withRetry } from "../lib/prisma";
+import { IS_PRODUCTION } from "../lib/env";
 import { getWebhookPublicKey, getCircleWalletBalances } from "../lib/circle";
 
 export const circleWebhooksRouter = Router();
@@ -51,7 +52,7 @@ circleWebhooksRouter.post("/", (req, res) => {
     (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0].trim() ??
     req.socket.remoteAddress ??
     "";
-  if (process.env.NODE_ENV === "production" && clientIp && !CIRCLE_IPS.has(clientIp)) {
+  if (IS_PRODUCTION && clientIp && !CIRCLE_IPS.has(clientIp)) {
     console.warn(`[circle-webhook] sender IP not in known list (not blocking): ${clientIp}`);
   }
 

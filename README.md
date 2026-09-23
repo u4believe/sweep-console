@@ -1,8 +1,8 @@
 # SweepConsole
 
-A Stripe-like **stablecoin subscription platform** built on **Arc** (Circle's L1) with **USDC** settlement. Creators define a plan (with tiers), share a checkout/payment link, and get paid in USDC to a non-custodial wallet. Subscribers pay on Arc — or **from USDC on other chains** (Base / Arbitrum / Optimism) bridged to Arc via Circle's **CCTP V2**. Recurring renewals are handled by an off-chain billing engine against an on-chain `SubscriptionManager` contract.
+A Stripe-like **stablecoin subscription platform** built on **Arc** (Circle's L1) with **USDC** settlement. Creators define a plan (with tiers), share a checkout/payment link, and get paid in USDC to a non-custodial wallet. Subscribers pay **from USDC on Base / Arbitrum / Optimism**, bridged to Arc via Circle's **CCTP V2**; Arc is the settlement chain. Recurring renewals are handled by an off-chain billing engine that redeems an ERC-7715 wallet permission on a source chain — the platform deploys no contracts of its own.
 
-This README covers **(1) how to set the project up locally** and **(2) how the Circle tooling is integrated** (Programmable Wallets, CCTP V2, and Webhooks).
+This README covers **(1) how to set the project up locally** and **(2) how the Circle tooling is integrated** (Programmable Wallets, CCTP V2, and Webhooks). Product documentation for creators and API users lives at [`/docs`](apps/web/src/pages/DocsPage.tsx) in the app.
 
 ---
 
@@ -35,8 +35,8 @@ For decades, developers have billed a global audience in US dollars over card an
 **2. Hidden card fees & failed renewals.** Banks layer foreign-transaction and conversion fees onto every charge, and a recurring charge dies the moment the account isn't pre-funded.
 → **No card network means no surprise fees** — only the subscription amount moves. The user authorizes once; a failed charge is **retried daily for ~7 days** before anything is cancelled, and Sweep can pull the renewal from **any chain where the user holds USDC**, so a shortfall on one network doesn't break the subscription.
 
-**3. No real refund mechanism.** Traditional rails offer users little path to a refund; where one exists, it commonly takes 3–5 business days and returns less than was paid once fees are taken out.
-→ **On-chain escrow with instant refunds.** First payments are held in escrow for a settlement window (24h by default); cancelling within it returns **100% of the funds in the same transaction** — instant, full amount, nothing deducted — self-serve from the customer portal.
+**3. Cancelling is harder than subscribing.** On card rails the permission to charge lives with the merchant, so stopping it means asking them — or your bank — and hoping.
+→ **The permission is the subscriber's, and so is the off switch.** Every renewal is authorized by a capped grant held in the subscriber's own wallet, revocable there at any time without anyone's cooperation, and cancelling from the customer portal stops future charges immediately. Note what this does *not* buy: charges settle to the creator as they happen, so a settled payment is not reversible by Sweep — a refund is a transfer the creator makes.
 
 **4. Regional exclusion.** Card and bank rails (SWIFT, Visa, Mastercard) can lock entire regions out of global services overnight.
 → **Open stablecoin rails.** Anyone with an internet connection and a USDC balance can subscribe — no dependency on correspondent banking or card issuers that arbitrarily exclude a region.
@@ -47,27 +47,25 @@ For decades, developers have billed a global audience in US dollars over card an
 ### For developers
 
 **1. Unpredictable, eroding revenue.** Card processors take ~2.9% + a fixed fee, climbing to 4–6% on international cards, before VAT/tax obligations.
-→ **A flat 2% protocol fee, enforced on-chain** — creators keep **98%** of every payment, the same every time, with no per-card surcharge, FX margin, or climbing "international" rate.
+→ **A flat 3% platform fee** — creators keep **97%** of every payment, the same every time, with no per-card surcharge, FX margin, or climbing "international" rate. The platform absorbs gas and bridge costs out of its share, so a cross-chain payment nets the creator the same amount as a same-chain one.
 
 **2. Exposure to crypto volatility.** Accepting volatile crypto means $100 paid can settle as $90 by the time it lands.
 → **Everything settles in USDC** — $100 settles as 100 USDC, with no drift between payment and settlement. Dollar-denominated, forecastable revenue.
 
 **3. Juggling wallets across chains.** No single wallet supports every chain, forcing a patchwork of payout wallets, reconciliation headaches, and extra security surface.
-→ **One payout wallet.** A single **Circle Programmable Wallet on Arc** receives all revenue — whatever chain the customer paid from is bridged via CCTP and settled to that one address.
+→ **One payout wallet.** A single Arc address receives all revenue — a **Circle Programmable Wallet** created in the portal, or an external address you verify by signing a nonce. Whatever chain the customer paid from is bridged via CCTP and settled there.
 
 ---
 
 ## Architecture
 
-A pnpm monorepo with three workspaces:
+A pnpm monorepo with two workspaces:
 
 ```
 SweepConsole/
 ├── apps/
 │   ├── api/          # Express + TypeScript backend (REST API, billing engine, Circle/CCTP integration)
 │   └── web/          # Vite + React frontend (creator portal + subscriber checkout)
-└── packages/
-    └── contracts/    # Foundry (Solidity) — SubscriptionManager on Arc
 ```
 
 | Layer | Stack |
@@ -75,12 +73,11 @@ SweepConsole/
 | **Frontend** (`apps/web`) | Vite, React, TypeScript, Tailwind, wagmi + RainbowKit, Circle Web SDK |
 | **Backend** (`apps/api`) | Node, Express, TypeScript (`tsx`), Prisma, viem |
 | **Database** | PostgreSQL (Prisma schema lives in `apps/web/prisma/schema.prisma`) |
-| **Contracts** (`packages/contracts`) | Foundry, Solidity `0.8.24`, OpenZeppelin |
 | **Chain** | Arc testnet/mainnet (USDC is the native gas token on Arc) |
 
-**Core on-chain contract** — `SubscriptionManager` (Arc): settlement-window escrow for first payments, allowance-based renewals (`renewFromAllowance`), gasless `subscribeWithPermit`, owner-callable `cancelSubscription` (refunds escrow), and push settlement to creator + platform treasury.
+**No contracts of our own.** The platform calls USDC and Circle's CCTP contracts, plus MetaMask's delegation framework when it redeems a renewal permission. Nothing on any chain is deployed or owned by this codebase, so there is no escrow, no arbiter and no upgrade path to defend.
 
-**Billing engine** (`apps/api/src/billing`, run via `pnpm --filter @sweep/api billing:run`): a cron process that, each cycle, charges due subscriptions **Arc-first** (`processRenewals`) and then **cross-chain** (`runDelegatedRenewalsOnce`) for subscribers whose Arc balance is short. A per-`(subscription, period)` claim guarantees one charge per cycle even with liquidity on multiple chains.
+**Billing engine** (`apps/api/src/billing`, run via `pnpm --filter @sweep/api billing:run`): a cron process that collects each due subscription by redeeming one period of the subscriber's ERC-7715 grant on a granted source chain and bridging the creator's share to Arc (`runDelegatedRenewalsOnce`). A per-`(subscription, period)` claim guarantees one charge per cycle even with liquidity on several chains. A renewal that cannot be collected marks the subscription `past_due` and is retried by the next daily pass, up to 7 attempts, after which it is cancelled.
 
 ---
 
@@ -133,7 +130,6 @@ In local dev, expose the API with a tunnel (e.g. ngrok) and set `CIRCLE_WEBHOOK_
 
 - **Node** ≥ 20 and **pnpm** ≥ 9 (`packageManager: pnpm@9.15.0`)
 - **PostgreSQL** database (e.g. a Supabase project — gives pooled `DATABASE_URL` on `:6543` + direct `DIRECT_URL` on `:5432`)
-- **Foundry** (`forge`) to compile/deploy the contract — https://book.getfoundry.sh/getting-started/installation
 - A **Circle Developer account** (https://console.circle.com): an **API key**, a **W3S App ID** (for user-controlled wallets), and access to **CCTP** testnet
 - A **WalletConnect** project ID (https://cloud.walletconnect.com) for the frontend wallet connectors
 - SMTP credentials for transactional email (OTP / receipts)
@@ -157,18 +153,9 @@ cp .env.example apps/web/.env     # frontend — only VITE_* are read here
 pnpm --filter @sweep/api db:generate
 pnpm --filter @sweep/api db:push          # applies apps/web/prisma/schema.prisma
 
-# 4. Deploy the SubscriptionManager contract to Arc
-cd packages/contracts
-forge build
-forge script script/Deploy.s.sol --rpc-url <arc-testnet-rpc> --broadcast -vvvv
-#   put the deployed address into SUBSCRIPTION_MANAGER_ADDRESS in apps/api/.env
-cd ../..
-
-# 5. Register the Circle webhook (optional — needs a public URL / tunnel)
+# 4. Register the Circle webhook (optional — needs a public URL / tunnel)
 pnpm --filter @sweep/api circle:register-webhook
 ```
-
-The deploy script reads `PRIVATE_KEY`, `USDC_ADDRESS`, `PLATFORM_TREASURY`, `PLATFORM_FEE_BPS` (see `packages/contracts/.env`).
 
 ---
 
@@ -206,10 +193,10 @@ Backend (`apps/api/.env`) — the most important:
 | `CIRCLE_BLOCKCHAIN` | Wallet chain (`ETH-SEPOLIA` sandbox / `ARC-TESTNET`) |
 | `CIRCLE_WEBHOOK_URL` | Public URL Circle posts notifications to (`…/circle-webhooks`) |
 | `ARC_NETWORK`, `ARC_TESTNET_RPC_URL`, `ARC_MAINNET_RPC_URL` | Arc RPC selection |
-| `PLATFORM_PRIVATE_KEY` | Platform/relayer key (arbiter of the contract; submits renewals) |
+| `PLATFORM_PRIVATE_KEY` | Platform/relayer key — submits renewal and settlement transactions and pays their gas |
 | `PLATFORM_TREASURY_ADDRESS`, `PLATFORM_FEE_BPS` | Fee split |
-| `SUBSCRIPTION_MANAGER_ADDRESS` | Deployed contract address on Arc |
-| `SETTLEMENT_WINDOW_HOURS`, `BILLING_CRON_SCHEDULE` | Escrow window + cron schedule |
+| `BILLING_CRON_SCHEDULE` | When the daily renewal pass runs |
+| `ENABLE_DEV_ROUTES` | `true` mounts the unauthenticated `/dev/*` diagnostics. Development only — never set it on a deployed environment |
 | `SUPPORTED_SOURCE_CHAINS` | `base,arbitrum,optimism` |
 | `CCTP_IRIS_URL`, `CCTP_FAST_MAX_FEE_BPS` | CCTP attestation API + Fast-transfer fee cap |
 | `SMTP_*` | Transactional email |
@@ -229,7 +216,7 @@ See [`.env.example`](.env.example) for the complete, commented list.
 ### Handling secrets
 
 - **Only `VITE_*` variables are safe to expose.** They are compiled into the frontend bundle and readable by anyone. Everything else must stay server-side.
-- **`PLATFORM_PRIVATE_KEY` is the highest-value secret in the repo.** It is the contract's arbiter and pays gas for every renewal. Hold it in your host's secret manager (not a checked-in `.env`), fund it with only an operating balance, and rotate it — plus the on-chain arbiter — if it is ever exposed.
+- **`PLATFORM_PRIVATE_KEY` is the highest-value secret in the repo.** It signs every renewal and settlement transaction and pays their gas. Hold it in your host's secret manager (not a checked-in `.env`), fund it with only an operating balance, and rotate it if it is ever exposed.
 - **`JWT_SECRET` and `PLATFORM_API_SIGNING_SECRET` should be distinct, high-entropy values**, since they sign different trust domains (user sessions vs. merchant API keys / OTPs).
 - Never commit a real `.env`; it is gitignored, and only `.env.example` placeholders belong in version control.
 
@@ -246,8 +233,7 @@ See [`.env.example`](.env.example) for the complete, commented list.
 | `pnpm db:push` | Apply the Prisma schema to the database |
 | `pnpm db:generate` | Regenerate the Prisma client |
 | `pnpm db:studio` | Open Prisma Studio |
-| `pnpm --filter contracts test` | Run the Foundry contract tests |
-| `pnpm build` / `pnpm typecheck` | Build / typecheck the frontend (+ contracts typecheck) |
+| `pnpm build` / `pnpm typecheck` | Build / typecheck the frontend |
 
 ---
 
@@ -255,7 +241,6 @@ See [`.env.example`](.env.example) for the complete, commented list.
 
 - **Circle sandbox first.** Use `CIRCLE_BASE_URL=https://api-sandbox.circle.com` and a `TEST_API_KEY`. Keep `CIRCLE_BLOCKCHAIN=ETH-SEPOLIA` unless your account has Arc enabled for W3S.
 - **Webhooks need a public URL.** Tunnel the API (ngrok / cloudflared) and point `CIRCLE_WEBHOOK_URL` at `https://<tunnel>/circle-webhooks`, then run `circle:register-webhook`.
-- **Contract redeploys reset state.** A fresh `SubscriptionManager` has no subscriptions; rows that referenced the old address are stranded. Create new subscriptions after a redeploy.
 - **Supabase pooler.** The transaction pooler (`:6543`) backs the app; the direct connection (`:5432`) backs Prisma migrations. Both can be briefly flaky — a `db push` failure is usually transient, just retry.
 
 ---

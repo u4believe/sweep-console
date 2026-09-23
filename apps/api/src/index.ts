@@ -21,6 +21,7 @@ import { gatewayRouter } from "./routes/gateway";
 import { delegationRouter } from "./routes/delegation";
 import { authorizeRouter } from "./routes/authorize";
 import { devRouter } from "./routes/dev";
+import { IS_DEV, DEV_ROUTES_ENABLED } from "./lib/env";
 import { circleWebhooksRouter } from "./routes/circle-webhooks";
 import { apiLimiter, authLimiter } from "./middleware/rateLimit";
 import { startBillingEngine } from "./billing/scheduler";
@@ -45,7 +46,7 @@ const allowedOrigins = (process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?
 // In development the Vite dev server may bind to any free port (3000, 3001, …),
 // so allow any localhost/127.0.0.1 origin. Production stays restricted to the
 // configured origins above.
-const isDev = process.env.NODE_ENV !== "production";
+const isDev = IS_DEV;
 const LOCALHOST_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 // Allow the frontend to send cookies (credentials: 'include')
@@ -104,8 +105,13 @@ app.use("/", delegationRouter);
 // subscriber has no Sweep account; the link is the credential, as at checkout.
 app.use("/", authorizeRouter);
 
-// Dev-only diagnostics (e.g. the grant-test harness) — never in production
-if (process.env.NODE_ENV !== "production") {
+// Dev-only diagnostics (e.g. the grant-test harness). These routes are
+// unauthenticated and they seed, delete and settle real subscriptions against
+// the shared database, so mounting them takes an explicit ENABLE_DEV_ROUTES=true
+// on top of a non-production NODE_ENV — see lib/env.ts for why NODE_ENV is not
+// trusted to carry that decision by itself.
+if (DEV_ROUTES_ENABLED) {
+  console.warn("[boot] dev diagnostics mounted at /dev/* — unauthenticated, ENABLE_DEV_ROUTES=true");
   app.use("/", devRouter);
 }
 

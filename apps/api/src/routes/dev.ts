@@ -1,4 +1,4 @@
-// Dev-only diagnostics (registered only when NODE_ENV !== "production").
+// Dev-only diagnostics (registered only when ENABLE_DEV_ROUTES=true outside production).
 //
 // POST /dev/test-transfer-redeem — simulate the C1 primitive: the relayer redeems
 // the subscriber's ERC-7715 periodic mandate as a single `transfer(recipient,

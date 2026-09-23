@@ -52,7 +52,7 @@ function WebhookFlow() {
       <div className="flex flex-col items-stretch gap-3 sm:flex-row">
         <div className={box}>
           <p className="text-sm font-semibold text-gray-900">1 · Event occurs</p>
-          <p className="mt-1 text-xs text-gray-500">A payment succeeds, a renewal runs, a refund is issued…</p>
+          <p className="mt-1 text-xs text-gray-500">A payment succeeds, a renewal runs, a mandate is authorized…</p>
         </div>
         <span className={arrow}>→</span>
         <div className={box}>
@@ -82,6 +82,7 @@ const toc = [
       { id: "email-verification", label: "Email verification" },
       { id: "wallets", label: "Connecting & switching wallets" },
       { id: "upgrading", label: "Upgrading a plan" },
+      { id: "pricing-changes", label: "Changing a price" },
       { id: "revenue-split", label: "Revenue & settlement" },
       { id: "challenges", label: "Common challenges" },
     ],
@@ -156,8 +157,8 @@ export function DocsPage() {
           <p className="text-sm font-semibold uppercase tracking-wide text-brand-600">Documentation</p>
           <h1 className="mt-2 text-4xl font-bold tracking-tight text-gray-900">How Sweep Console works</h1>
           <p className="mt-3 text-lg text-gray-500">
-            A guide to creating an account, accepting and paying for subscriptions, how fees and settlement work —
-            and how to run the project locally with Circle's developer tools.
+            A guide to creating an account, accepting and paying for subscriptions, how fees and settlement work,
+            and how to charge a wallet from your own app.
           </p>
 
           {/* ── Using Sweep Console ─────────────────────────────────────── */}
@@ -213,8 +214,10 @@ export function DocsPage() {
                 </Step>
                 <Step n={3}>
                   In the dashboard, <strong>create your plan</strong>. Each creator has <strong>one plan</strong> with optional
-                  tiers (name, price, interval, trial, features). You can add tiers later, but an existing tier's terms are
-                  immutable — to change them, delete the plan and recreate it (deleted-plan data stays readable).
+                  tiers (name, price, interval, trial, features). You can add tiers later, and you can{" "}
+                  <a href="#pricing-changes" className="font-medium text-brand-700 hover:underline">change a tier&apos;s price</a>.
+                  The <strong>interval is fixed</strong> — a monthly tier cannot become yearly, because the billing period is
+                  baked into every subscriber&apos;s signed permission. To change that, create a new tier.
                 </Step>
                 <Step n={4}>
                   <strong>Link a payout wallet</strong>: bring your own (an external Arc address, verified by signing a nonce)
@@ -273,8 +276,9 @@ export function DocsPage() {
             <Section id="upgrading" title="Upgrading a plan">
               <p>
                 A creator has one plan with tiers, so an upgrade means <strong>moving to a higher tier</strong>. Mechanically that
-                is a <strong>cancel + resubscribe</strong>: the chosen tier's amount/interval is snapshotted onto the new
-                subscription (terms are immutable per subscription).
+                is a <strong>cancel + resubscribe</strong>: the chosen tier's amount and interval are snapshotted onto the new
+                subscription, so it keeps billing those terms even if the tier is repriced later — unless the creator
+                explicitly reprices existing subscribers.
               </p>
               <p>
                 Completing the new subscription <strong>auto-replaces the old one</strong> (or you can revoke the old one first from
@@ -283,10 +287,38 @@ export function DocsPage() {
               </p>
             </Section>
 
+            <Section id="pricing-changes" title="Changing a price">
+              <p>
+                A tier&apos;s <strong>price is editable</strong>; its <strong>interval is not</strong>. The interval is
+                part of what every subscriber&apos;s wallet signed, so changing it would mean re-collecting consent from
+                all of them — a new tier is the honest way to do that. You will be asked to confirm it is you before a
+                price change is saved.
+              </p>
+              <p>
+                When you change one, you choose <strong>who it applies to</strong>:
+              </p>
+              <div className="rounded-xl border border-gray-200 px-5 py-1">
+                <Row k="New subscribers only" v="The listed price changes. Everyone already subscribed keeps the price they signed up at." />
+                <Row k="Existing subscribers only" v="People already paying move to the new price; the listing is unchanged." />
+                <Row k="Everyone" v="Both — the listing and every live subscription on that tier." />
+              </div>
+              <p>
+                <strong>Every active subscriber on that tier is emailed</strong> whenever the price they pay changes,
+                whichever scope you pick. That is not optional: a recurring charge that quietly changes size is the
+                thing a standing payment authorization is most often abused for.
+              </p>
+              <p>
+                <strong>Raising a price is allowed</strong>, with one consequence worth understanding. A subscriber&apos;s
+                renewal permission has a signed ceiling. If the new price is above it, Sweep does <em>not</em> charge them
+                and does <em>not</em> count it as a failed payment — they are asked to re-authorize at the new amount
+                instead, and keep their subscription in the meantime. Lowering a price needs nothing from anyone.
+              </p>
+            </Section>
+
             <Section id="revenue-split" title="Creator revenue & settlement">
               <p>
-                <strong>Revenue allocation.</strong> The platform fee is <strong>3%</strong>{" "}
-                (<Code>PLATFORM_FEE_BPS=300</Code>) — so <strong>creators keep 97%</strong> of every charge. The split
+                <strong>Revenue allocation.</strong> The platform fee is <strong>3%</strong> — so{" "}
+                <strong>creators keep 97%</strong> of every charge. The split
                 is <Code>fee = amount × platformFeeBps / 10000</Code>: the creator receives <Code>amount − fee</Code> to their payout
                 wallet on Arc, and the fee goes to the platform treasury. The split is computed off-chain when the charge settles
                 and paid out in the same bridge, so the creator's share never sits in a contract. The platform absorbs gas and
@@ -731,7 +763,7 @@ for (const user of await db.users.dueForCharge()) {
             <Section id="webhooks" title="Set up an endpoint">
               <p>
                 Rather than polling our API, let Sweep <strong>push events to your server</strong> the moment they
-                happen — a subscription is created, a payment succeeds, a refund is issued. Your app reacts in real
+                happen — a subscription is created, a payment succeeds, a renewal fails. Your app reacts in real
                 time: grant access, update your database, send a receipt.
               </p>
               <WebhookFlow />
@@ -744,7 +776,7 @@ for (const user of await db.users.dueForCharge()) {
               <p>
                 <strong>2. From the API.</strong> POST to <Code>/v1/webhooks</Code> with your API key:
               </p>
-              <Pre>{`curl -X POST https://your-api.example.com/v1/webhooks \\
+              <Pre>{`curl -X POST https://www.sweepconsole.xyz/api/v1/webhooks \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{

@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { IS_PRODUCTION } from "./env";
 import {
   shell, lede, heroAmount, codeBlock, detailRows, panel, alarm, button,
   fineprint, fallbackUrl, emailLink, mono, esc, manageUrl,
@@ -131,8 +132,15 @@ function providers(): Provider[] {
 export async function sendEmail(opts: SendOptions): Promise<void> {
   const list = providers();
 
-  // Nothing configured — log so local dev still surfaces the content.
+  // Nothing configured. Locally that is normal, and printing the body is how
+  // you read the OTP you just asked for. In production the same branch would
+  // dump one-time codes, step-up codes and reset links into the host's logs
+  // while telling the caller the mail was sent — so there it fails loudly
+  // instead, and the caller decides what a failed send means.
   if (list.length === 0) {
+    if (IS_PRODUCTION) {
+      throw new Error("No email provider configured (RESEND_API_KEY / BREVO_API_KEY / SMTP_HOST)");
+    }
     console.log("\n─────────────────────────────────────────");
     console.log("[email] No email provider configured (RESEND_API_KEY / BREVO_API_KEY / SMTP_HOST) — logging instead");
     console.log("[email] To:", opts.to);

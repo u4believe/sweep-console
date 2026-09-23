@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { IS_DEV } from "./env";
 
 // How many times a query that never reached the database is re-sent, and the
 // base backoff between tries (300ms, then 600ms).
@@ -103,7 +104,7 @@ const globalForPrisma = globalThis as unknown as { prisma?: AppPrismaClient };
 
 export const prisma = globalForPrisma.prisma ?? createPrismaClient();
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+if (IS_DEV) globalForPrisma.prisma = prisma;
 
 /**
  * @deprecated Retries are handled for every query by the client above; this is
