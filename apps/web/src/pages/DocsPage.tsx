@@ -73,6 +73,69 @@ function WebhookFlow() {
   );
 }
 
+/**
+ * Hosted versus rail, side by side.
+ *
+ * This used to be a list of rows reading "Hosted: x · Rail: y", which asks the
+ * reader to parse two answers out of one sentence on every line. The whole
+ * point of the section is that these are two different products, so they get
+ * two different columns and the comparison is done by the eye rather than by
+ * the reader.
+ *
+ * Rendered twice: a real table where there is room for three columns, and a
+ * stack of labelled pairs where there is not. A three-column table at phone
+ * width is either a horizontal scroll or four words per line, and both are
+ * worse than repeating the markup.
+ */
+function Compare({ rows }: { rows: { aspect: string; hosted: ReactNode; rail: ReactNode }[] }) {
+  return (
+    <div className="my-6">
+      {/* sm and up */}
+      <table className="hidden w-full border-collapse text-sm sm:table">
+        <thead>
+          <tr>
+            <th className="w-[26%] border-b-2 border-gray-900 pb-2 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400">
+              &nbsp;
+            </th>
+            <th className="w-[37%] border-b-2 border-gray-900 px-4 pb-2 text-left font-bold text-gray-900">
+              Hosted checkout
+            </th>
+            <th className="w-[37%] border-b-2 border-brand-600 px-4 pb-2 text-left font-bold text-brand-700">
+              The rail
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.aspect} className="align-top">
+              <td className="border-b border-gray-100 py-3 pr-4 font-medium text-gray-900">{r.aspect}</td>
+              <td className="border-b border-gray-100 px-4 py-3 text-gray-600">{r.hosted}</td>
+              <td className="border-b border-gray-100 bg-brand-50/40 px-4 py-3 text-gray-600">{r.rail}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* below sm */}
+      <div className="space-y-4 sm:hidden">
+        {rows.map((r) => (
+          <div key={r.aspect} className="border-t border-gray-200 pt-3">
+            <p className="m-0 text-sm font-semibold text-gray-900">{r.aspect}</p>
+            <p className="m-0 mt-1.5 text-sm text-gray-600">
+              <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400">Hosted </span>
+              {r.hosted}
+            </p>
+            <p className="m-0 mt-1 text-sm text-gray-600">
+              <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-700">Rail </span>
+              {r.rail}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const toc = [
   {
     group: "Using Sweep Console",
@@ -274,15 +337,55 @@ export function DocsPage() {
                 schedule, no renewal engine. Choose this when you have your own pricing, usage-based billing, or a
                 billing system you are not replacing.
               </p>
-              <div className="rounded-xl border border-gray-200 px-5 py-1">
-                <Row k="Who sets the price" v="Hosted: a Sweep plan · Rail: your app" />
-                <Row k="Who decides when to charge" v="Hosted: Sweep's schedule · Rail: your code, per charge" />
-                <Row k="Trials" v={<>Hosted: <Code>trial_days</Code> on the plan · Rail: don&apos;t charge yet</>} />
-                <Row k="A payment fails" v="Hosted: retried daily ~7 days, then cancelled · Rail: charge.failed, your policy" />
-                <Row k="What the subscriber sees" v="Hosted: Sweep checkout + /manage · Rail: one authorization page, then your app" />
-                <Row k="Objects" v="Hosted: Plan → Subscription → Payment · Rail: Mandate → Charge" />
-                <Row k="Getting access" v="Hosted: sign up and go · Rail: Sweep enables it for your account" />
-              </div>
+              <Compare
+                rows={[
+                  {
+                    aspect: "Who owns the billing clock",
+                    hosted: "Sweep. It decides when a subscription is due and collects it.",
+                    rail: "You. Nothing here has a schedule of its own.",
+                  },
+                  {
+                    aspect: "Who sets the price",
+                    hosted: <>A plan you create in the portal, with optional tiers.</>,
+                    rail: <>Your app, on every call. Each <Code>POST /v1/charges</Code> names its own amount.</>,
+                  },
+                  {
+                    aspect: "How a charge happens",
+                    hosted: "Automatically, once per period, until cancelled.",
+                    rail: <>You call <Code>POST /v1/charges</Code>. As often as you like, up to the ceiling.</>,
+                  },
+                  {
+                    aspect: "Trials",
+                    hosted: <><Code>trial_days</Code> on the plan. Sweep starts billing when it ends.</>,
+                    rail: "Don't charge yet. A mandate costs the payer nothing until you do.",
+                  },
+                  {
+                    aspect: "When a payment fails",
+                    hosted: "Retried daily for ~7 attempts, then the subscription is cancelled.",
+                    rail: <><Code>charge.failed</Code> with a reason. What happens next is your policy.</>,
+                  },
+                  {
+                    aspect: "What the payer sees",
+                    hosted: <>Sweep's checkout, then a portal at <Code>/manage</Code> to cancel or re-authorize.</>,
+                    rail: "One authorization page, then your app. Sweep emails a receipt per charge.",
+                  },
+                  {
+                    aspect: "Objects you work with",
+                    hosted: <>Plan → Subscription → Payment</>,
+                    rail: <>Mandate → Charge</>,
+                  },
+                  {
+                    aspect: "Code you write",
+                    hosted: "None for billing. Create a plan, share the link.",
+                    rail: "Two server routes and a webhook handler.",
+                  },
+                  {
+                    aspect: "Getting access",
+                    hosted: "Sign up and go.",
+                    rail: <>Request it in the portal; Sweep enables it per account. Until then, <Code>403 rail_not_enabled</Code>.</>,
+                  },
+                ]}
+              />
               <p>
                 Everything else is the same: the same payout wallet on Arc, the same <strong>3%</strong>, gasless for
                 the payer, funded from Base / Arbitrum / Optimism, and an ERC-7715 wallet (MetaMask today) either way.
