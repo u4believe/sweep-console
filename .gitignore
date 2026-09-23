@@ -45,3 +45,6 @@ apps/api/q*.cjs
 
 # Rollback snapshots written by one-off data repairs. Real subscriber emails.
 *-snapshot.json
+
+# SDK build output
+packages/sdk/dist/

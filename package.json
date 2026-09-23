@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "description": "Stripe-like stablecoin subscription platform built on Arc (Circle L1) with USDC settlement",
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "packages/*"
   ],
   "scripts": {
     "dev": "pnpm --filter web dev",

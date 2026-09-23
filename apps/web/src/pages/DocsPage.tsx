@@ -90,6 +90,7 @@ const toc = [
   {
     group: "Payment rail (API)",
     items: [
+      { id: "rail-quickstart", label: "Quickstart" },
       { id: "rail-overview", label: "What the rail is" },
       { id: "rail-getting-started", label: "Getting started" },
       { id: "rail-example", label: "A working integration" },
@@ -357,6 +358,79 @@ export function DocsPage() {
           </div>
 
           <div className="mt-8 space-y-10">
+            <Section id="rail-quickstart" title="Quickstart">
+              <p>
+                The whole integration, in the order you write it. Four calls: create a mandate, send the payer to sign
+                it, listen for what happens, charge when your billing says so. Everything after this section explains
+                the pieces — you do not need it to get a first charge working.
+              </p>
+              <Pre>{`npm install @sweepconsole/node`}</Pre>
+              <Pre>{`import { Sweep, usdc } from "@sweepconsole/node";
+import express from "express";
+
+const sweep = new Sweep(process.env.SWEEP_API_KEY!, {
+  baseUrl: process.env.SWEEP_API_URL,       // shown in the portal under API Keys
+});
+const app = express();
+
+// 1 ─ a user subscribes: create the mandate, send them to sign it
+app.post("/subscribe/usdc", async (req, res) => {
+  const mandate = await sweep.mandates.create({
+    externalRef: req.user.id,               // YOUR id — echoed on every event
+    email: req.user.email,
+    maxAmount: usdc("15.00"),               // the CEILING, not the price
+    interval: "monthly",
+    chains: ["base", "arbitrum", "optimism"],
+    expiresAt: new Date("2027-01-01"),
+  });
+
+  await db.users.update(req.user.id, { sweepMandate: mandate.id });
+  res.redirect(mandate.authorizationUrl!);  // they sign in their wallet
+});
+
+// 2 ─ react to what happens. express.raw, not express.json — the signature is
+//     over the raw bytes, and parsing first destroys them.
+app.post("/webhooks/sweep",
+  express.raw({ type: "application/json" }),
+  sweep.webhooks.express(process.env.SWEEP_WEBHOOK_SECRET!, {
+    "mandate.authorized": (e) => db.users.activate(e.externalRef),
+    "charge.succeeded":   (e) => db.users.extend(e.externalRef),
+    "charge.failed":      (e) => db.users.dun(e.externalRef, e.data.failure_code),
+    "mandate.revoked":    (e) => db.users.deactivate(e.externalRef),
+  }));
+
+// 3 ─ charge on YOUR schedule. Sweep has none of its own.
+for (const user of await db.users.dueForCharge()) {
+  try {
+    await sweep.charges.create(
+      { mandate: user.sweepMandate, amount: usdc("9.00"), description: "Pro plan — September" },
+      { idempotencyKey: \`\${user.id}:\${thisPeriod}\` },
+    );
+  } catch (e) {
+    if (e instanceof Sweep.PeriodCapExceeded) continue;          // already collected
+    if (e instanceof Sweep.MandateRevoked) await db.users.deactivate(user.id);
+    else throw e;
+  }
+}`}</Pre>
+              <p>
+                Before any of it runs you need three things from the portal, once:{" "}
+                <strong>a payout wallet</strong> (Settings), <strong>the rail enabled</strong> on your account
+                (Payment rail → Request access), and <strong>an API key</strong> plus a{" "}
+                <strong>webhook endpoint</strong>. <a href="#rail-getting-started" className="text-brand-700 underline">Getting started</a>{" "}
+                walks through those five steps.
+              </p>
+              <div className="rounded-xl border border-gray-200 px-5 py-1">
+                <Row k="Why usdc(&quot;9.00&quot;)" v="Amounts are micro-units — 9000000. The helper returns a branded type, so a bare number will not compile where an amount belongs, and the factor of a million cannot reach production." />
+                <Row k="Why express.raw" v={<>The signature covers the exact bytes we sent. <Code>express.json()</Code> parses them first, so what you would hash is no longer what was signed.</>} />
+                <Row k="Why an idempotency key" v={<>Required, not advisory. A natural key — an invoice id, or <Code>{"`${userId}:${period}`"}</Code> — means a retry after a timeout collects once rather than twice.</>} />
+                <Row k="Why nothing returns a result" v={<><Code>charges.create</Code> resolves when the charge is accepted, not when it settles. Money moves cross-chain; the outcome arrives on <Code>charge.succeeded</Code> or <Code>charge.failed</Code>.</>} />
+              </div>
+              <p>
+                <strong>Not using Node?</strong> Everything above is four HTTP calls, and the sections below give each
+                one as <Code>curl</Code> with the same fields. The client is a convenience, not a requirement.
+              </p>
+            </Section>
+
             <Section id="rail-overview" title="What the rail is">
               <p>
                 Everything above describes Sweep&apos;s <strong>hosted</strong> product: you create a plan, we run the
@@ -459,7 +533,7 @@ export function DocsPage() {
 </form>`}</Pre>
 
               <p className="font-semibold text-gray-800">2 · Create the mandate and redirect</p>
-              <Pre>{`const SWEEP = "https://www.sweepconsole.xyz/api";
+              <Pre>{`const SWEEP = process.env.SWEEP_API_URL;   // shown in the portal under API Keys
 
 app.post("/subscribe/usdc", async (req, res) => {
   const user = req.user;                       // however you authenticate
@@ -561,7 +635,7 @@ for (const user of await db.users.dueForCharge()) {
                 mints a <Code>pending</Code> row and returns a hosted URL for the payer to open — the same redirect
                 shape as a hosted checkout.
               </p>
-              <Pre>{`curl -X POST https://www.sweepconsole.xyz/api/v1/mandates \
+              <Pre>{`curl -X POST "$SWEEP_API_URL"/v1/mandates \
   -H "Authorization: Bearer $SWEEP_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -612,7 +686,7 @@ for (const user of await db.users.dueForCharge()) {
                 One pull, when your billing logic says it is time. An <Code>Idempotency-Key</Code> header is{" "}
                 <strong>required</strong>, not advisory.
               </p>
-              <Pre>{`curl -X POST https://www.sweepconsole.xyz/api/v1/charges \
+              <Pre>{`curl -X POST "$SWEEP_API_URL"/v1/charges \
   -H "Authorization: Bearer $SWEEP_API_KEY" \
   -H "Idempotency-Key: invoice_2026_09_user_8412" \
   -H "Content-Type: application/json" \
@@ -776,7 +850,7 @@ for (const user of await db.users.dueForCharge()) {
               <p>
                 <strong>2. From the API.</strong> POST to <Code>/v1/webhooks</Code> with your API key:
               </p>
-              <Pre>{`curl -X POST https://www.sweepconsole.xyz/api/v1/webhooks \\
+              <Pre>{`curl -X POST "$SWEEP_API_URL"/v1/webhooks \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{

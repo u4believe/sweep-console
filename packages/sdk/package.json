@@ -1,0 +1,37 @@
+{
+  "name": "@sweepconsole/node",
+  "version": "0.1.0",
+  "description": "Node/TypeScript client for the Sweep Console payment rail \u2014 charge a USDC wallet from your own app",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "keywords": [
+    "usdc",
+    "stablecoin",
+    "subscriptions",
+    "payments",
+    "sweep-console"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
