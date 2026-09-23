@@ -6,7 +6,7 @@ import { verifyMessage } from "viem";
 import type { Prisma } from "@prisma/client";
 import { prisma, withRetry } from "../lib/prisma";
 import { ids } from "../lib/ids";
-import { ok, created, err, validationError } from "../lib/response";
+import { ok, created, err, validationError, serverError } from "../lib/response";
 import { sendEmail, payoutWalletEmailHtml, railAccessRequestEmailHtml } from "../lib/email";
 import { verifyPortalSession } from "../middleware/portalAuth";
 import type { PortalRequest } from "../middleware/portalAuth";
@@ -107,8 +107,7 @@ portalRouter.get("/dashboard", async (req, res) => {
       },
     });
   } catch (e) {
-    console.error("[portal/dashboard]", e);
-    return err(res, "Failed to load dashboard", 500);
+    return serverError(res, "portal/dashboard", e, "We couldn't load your dashboard.");
   }
 });
 
@@ -143,8 +142,7 @@ portalRouter.get("/me", async (req, res) => {
     // this sees nothing.
     return ok(res, { data: { ...merchant, isAdmin: isAdminEmail(merchant.email) } });
   } catch (e) {
-    console.error("[portal/me]", e);
-    return err(res, "Failed to load profile", 500);
+    return serverError(res, "portal/me", e, "We couldn't load your profile.");
   }
 });
 
@@ -228,8 +226,7 @@ portalRouter.get("/plans", async (req, res) => {
       })),
     });
   } catch (e) {
-    console.error("[portal/plans GET]", e);
-    return err(res, "Failed to load plans", 500);
+    return serverError(res, "portal/plans GET", e, "We couldn't load your plans.");
   }
 });
 
@@ -316,8 +313,7 @@ portalRouter.post("/plans", async (req, res) => {
       trial_days: plan.trialDays,
     });
   } catch (e) {
-    console.error("[portal/plans POST]", e);
-    return err(res, "Failed to create plan", 500);
+    return serverError(res, "portal/plans POST", e, "We couldn't create your plan.");
   }
 });
 
@@ -359,8 +355,7 @@ portalRouter.delete(
 
       return ok(res, { archived: true, cancelling: subs.length });
     } catch (e) {
-      console.error("[portal/plans DELETE]", e);
-      return err(res, "Failed to delete plan", 500);
+      return serverError(res, "portal/plans DELETE", e, "We couldn't delete that plan.");
     }
   },
 );
@@ -412,8 +407,7 @@ portalRouter.patch("/plans/:id/recommended", async (req, res) => {
     });
     return ok(res, { recommended_tier_id: wanted });
   } catch (e) {
-    console.error("[portal/plans recommended PATCH]", e);
-    return err(res, "Failed to set the recommended tier", 500);
+    return serverError(res, "portal/plans recommended PATCH", e, "We couldn't save that change.");
   }
 });
 
@@ -470,8 +464,7 @@ portalRouter.post("/plans/:id/tiers", async (req, res) => {
       features: tier.features ?? null,
     });
   } catch (e) {
-    console.error("[portal/plans tiers POST]", e);
-    return err(res, "Failed to add tier", 500);
+    return serverError(res, "portal/plans tiers POST", e, "We couldn't add that tier.");
   }
 });
 
@@ -655,8 +648,7 @@ portalRouter.patch(
         : {}),
     });
   } catch (e) {
-    console.error("[portal/plans tiers PATCH]", e);
-    return err(res, "Failed to update tier", 500);
+    return serverError(res, "portal/plans tiers PATCH", e, "We couldn't save that change.");
   }
 });
 
@@ -791,8 +783,7 @@ portalRouter.patch(
       features: meta?.defaultFeatures ?? null,
     });
   } catch (e) {
-    console.error("[portal/plans default-tier PATCH]", e);
-    return err(res, "Failed to update the default tier", 500);
+    return serverError(res, "portal/plans default-tier PATCH", e, "We couldn't save that change.");
   }
 });
 
@@ -827,8 +818,7 @@ portalRouter.delete(
         recommended_cleared: plan.recommendedTierId === tierId,
       });
     } catch (e) {
-      console.error("[portal/plans tiers DELETE]", e);
-      return err(res, "Failed to archive tier", 500);
+      return serverError(res, "portal/plans tiers DELETE", e, "We couldn't archive that tier.");
     }
   },
 );
@@ -874,8 +864,7 @@ portalRouter.get("/payment-links", async (req, res) => {
       })),
     });
   } catch (e) {
-    console.error("[portal/payment-links GET]", e);
-    return err(res, "Failed to load payment links", 500);
+    return serverError(res, "portal/payment-links GET", e, "We couldn't load your payment links.");
   }
 });
 
@@ -932,8 +921,7 @@ portalRouter.post("/payment-links", async (req, res) => {
 
     return created(res, { id: link.linkId, url: paymentLinkUrl(link.linkId) });
   } catch (e) {
-    console.error("[portal/payment-links POST]", e);
-    return err(res, "Failed to create payment link", 500);
+    return serverError(res, "portal/payment-links POST", e, "We couldn't create that payment link.");
   }
 });
 
@@ -951,8 +939,7 @@ portalRouter.delete("/payment-links/:id", async (req, res) => {
     if (count.count === 0) return err(res, "Payment link not found", 404);
     return ok(res, { success: true });
   } catch (e) {
-    console.error("[portal/payment-links DELETE]", e);
-    return err(res, "Failed to deactivate payment link", 500);
+    return serverError(res, "portal/payment-links DELETE", e, "We couldn't deactivate that payment link.");
   }
 });
 
@@ -1108,8 +1095,7 @@ portalRouter.get("/rail", async (req, res) => {
       },
     });
   } catch (e) {
-    console.error("[portal/rail]", e);
-    return err(res, "Failed to load rail activity", 500);
+    return serverError(res, "portal/rail", e, "We couldn't load your rail activity.");
   }
 });
 
@@ -1179,8 +1165,7 @@ portalRouter.post("/rail/request", async (req, res) => {
     console.log(`[portal/rail/request] ${merchant.merchantId} (${merchant.email}) requested the rail`);
     return ok(res, { data: { enabled: false, requestedAt: requestedAt.toISOString() } });
   } catch (e) {
-    console.error("[portal/rail/request]", e);
-    return err(res, "Failed to send the request", 500);
+    return serverError(res, "portal/rail/request", e, "We couldn't send your request.");
   }
 });
 
@@ -1242,8 +1227,7 @@ portalRouter.get("/admin/rail", async (req, res) => {
       },
     });
   } catch (e) {
-    console.error("[portal/admin/rail]", e);
-    return err(res, "Failed to load the rail queue", 500);
+    return serverError(res, "portal/admin/rail", e, "We couldn't load the rail queue.");
   }
 });
 
@@ -1349,8 +1333,7 @@ portalRouter.post(
 
       return ok(res, { data: { merchant_id: target.merchantId, enabled, by: actor } });
     } catch (e) {
-      console.error("[portal/admin/rail POST]", e);
-      return err(res, "Failed to update the rail entitlement", 500);
+      return serverError(res, "portal/admin/rail POST", e, "We couldn't save that change.");
     }
   }
 );
@@ -1395,8 +1378,7 @@ portalRouter.get("/subscriptions", async (req, res) => {
       }),
     });
   } catch (e) {
-    console.error("[portal/subscriptions]", e);
-    return err(res, "Failed to load subscriptions", 500);
+    return serverError(res, "portal/subscriptions", e, "We couldn't load your subscriptions.");
   }
 });
 
@@ -1456,8 +1438,7 @@ portalRouter.get("/payments", async (req, res) => {
       })),
     });
   } catch (e) {
-    console.error("[portal/payments]", e);
-    return err(res, "Failed to load payments", 500);
+    return serverError(res, "portal/payments", e, "We couldn't load your payments.");
   }
 });
 
@@ -1505,8 +1486,7 @@ portalRouter.get("/webhooks", async (req, res) => {
       })),
     });
   } catch (e) {
-    console.error("[portal/webhooks]", e);
-    return err(res, "Failed to load webhooks", 500);
+    return serverError(res, "portal/webhooks", e, "We couldn't load your webhooks.");
   }
 });
 
@@ -1582,8 +1562,7 @@ portalRouter.post(
         expiresAt: expiresAt.toISOString(),
       });
     } catch (e) {
-      console.error("[portal/wallet/external]", e);
-      return err(res, "Failed to start wallet verification", 500);
+      return serverError(res, "portal/wallet/external", e, "We couldn't start verifying that wallet.");
     }
   },
 );
@@ -1678,8 +1657,7 @@ portalRouter.post("/wallet/external/verify", async (req, res) => {
       addressVerifiedAt: verifiedAt.toISOString(),
     });
   } catch (e) {
-    console.error("[portal/wallet/external/verify]", e);
-    return err(res, "Failed to verify wallet", 500);
+    return serverError(res, "portal/wallet/external/verify", e, "We couldn't verify that wallet.");
   }
 });
 
@@ -1701,8 +1679,7 @@ portalRouter.post(
       });
       return ok(res, { success: true });
     } catch (e) {
-      console.error("[portal/wallet/unlink]", e);
-      return err(res, "Failed to unlink wallet", 500);
+      return serverError(res, "portal/wallet/unlink", e, "We couldn't unlink that wallet.");
     }
   },
 );
@@ -1925,8 +1902,7 @@ portalRouter.get("/api-keys", async (req, res) => {
       },
     });
   } catch (e) {
-    console.error("[portal/api-keys GET]", e);
-    return err(res, "Failed to load API keys", 500);
+    return serverError(res, "portal/api-keys GET", e, "We couldn't load your API keys.");
   }
 });
 
@@ -1996,8 +1972,7 @@ portalRouter.get("/wallet/circle/balance", async (req, res) => {
       },
     });
   } catch (e) {
-    console.error("[portal/wallet/circle/balance]", e);
-    return err(res, "Failed to fetch balance", 500);
+    return serverError(res, "portal/wallet/circle/balance", e, "We couldn't read your balance.");
   }
 });
 
@@ -2184,8 +2159,7 @@ portalRouter.post("/webhooks", async (req, res) => {
       secret: endpoint.secret,
     });
   } catch (e) {
-    console.error("[portal/webhooks POST]", e);
-    return err(res, "Failed to create webhook endpoint", 500);
+    return serverError(res, "portal/webhooks POST", e, "We couldn't create that endpoint.");
   }
 });
 
@@ -2202,8 +2176,7 @@ portalRouter.delete("/webhooks/:id", async (req, res) => {
     if (count.count === 0) return err(res, "Endpoint not found", 404);
     return ok(res, { success: true });
   } catch (e) {
-    console.error("[portal/webhooks DELETE]", e);
-    return err(res, "Failed to delete webhook endpoint", 500);
+    return serverError(res, "portal/webhooks DELETE", e, "We couldn't delete that endpoint.");
   }
 });
 
@@ -2232,8 +2205,7 @@ portalRouter.post(
       if (!endpoint) return err(res, "Endpoint not found", 404);
       return ok(res, { secret: endpoint.secret });
     } catch (e) {
-      console.error("[portal/webhooks secret]", e);
-      return err(res, "Failed to read signing secret", 500);
+      return serverError(res, "portal/webhooks secret", e, "We couldn't read that signing secret.");
     }
   },
 );
@@ -2264,8 +2236,7 @@ portalRouter.post(
       });
       return ok(res, { secret });
     } catch (e) {
-      console.error("[portal/webhooks roll]", e);
-      return err(res, "Failed to roll signing secret", 500);
+      return serverError(res, "portal/webhooks roll", e, "We couldn't replace that signing secret.");
     }
   },
 );
@@ -2297,8 +2268,7 @@ portalRouter.post(
 
       return ok(res, { key, name, prefix: keyPrefix });
     } catch (e) {
-      console.error("[portal/api-keys/regenerate]", e);
-      return err(res, "Failed to generate API key", 500);
+      return serverError(res, "portal/api-keys/regenerate", e, "We couldn't generate a new API key.");
     }
   },
 );

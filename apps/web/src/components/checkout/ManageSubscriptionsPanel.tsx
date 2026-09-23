@@ -6,6 +6,7 @@ import {
   type LinkedAccount,
   type LinkedSubscription,
 } from "@/lib/gateway";
+import { friendlyError } from "@/lib/errors";
 
 const INTERVAL_LABELS: Record<string, string> = {
   daily: "/ day",
@@ -50,7 +51,7 @@ export function ManageSubscriptionsPanel({ sessionId, email, emailToken, connect
       await revokeLinkedSubscription(sessionId, sub.id, email, emailToken);
       load(); // refresh — the revoked sub drops off the active list
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not revoke. Try again.");
+      setError(friendlyError(e, "Could not revoke. Try again."));
     } finally {
       setRevokingId(null);
     }

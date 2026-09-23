@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ErrorNote, Kicker, Section } from "./primitives";
 import { apiFetch, messageOf, wasCancelled } from "@/lib/stepup";
+import { friendlyError, throwApiError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -40,10 +41,10 @@ export function SecuritySettings() {
   async function load() {
     try {
       const res = await fetch(`${API_URL}/portal/security`, { credentials: "include" });
-      if (!res.ok) throw new Error(await messageOf(res, "Couldn't load your security settings."));
+      if (!res.ok) await throwApiError(res, "Couldn't load your security settings.");
       setState((await res.json()) as SecurityState);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't load your security settings.");
+      setError(friendlyError(e, "Couldn't load your security settings."));
     }
   }
 
@@ -57,12 +58,12 @@ export function SecuritySettings() {
         method: "POST",
         credentials: "include",
       });
-      if (!res.ok) throw new Error(await messageOf(res, "Couldn't start setup."));
+      if (!res.ok) await throwApiError(res, "Couldn't start setup.");
       const data = (await res.json()) as { qr: string; secret: string };
       setEnrolling({ qr: data.qr, secret: data.secret });
       setCode("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't start setup.");
+      setError(friendlyError(e, "Couldn't start setup."));
     } finally {
       setBusy(false);
     }
@@ -78,13 +79,13 @@ export function SecuritySettings() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: code.trim() }),
       });
-      if (!res.ok) throw new Error(await messageOf(res, "That code didn't match."));
+      if (!res.ok) await throwApiError(res, "That code didn't match.");
       const data = (await res.json()) as { recovery_codes: string[] };
       setFreshCodes(data.recovery_codes);
       setEnrolling(null);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "That code didn't match.");
+      setError(friendlyError(e, "That code didn't match."));
     } finally {
       setBusy(false);
     }

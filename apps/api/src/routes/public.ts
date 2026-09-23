@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma, withRetry } from "../lib/prisma";
-import { ok, err } from "../lib/response";
+import { ok, err, serverError } from "../lib/response";
 import { ids } from "../lib/ids";
 import { getUsdcAddress } from "../lib/chain/contract";
 import {
@@ -97,8 +97,7 @@ publicRouter.get("/stats", async (_req, res) => {
     statsCache = { at: Date.now(), data };
     return ok(res, { data });
   } catch (e) {
-    console.error("[public/stats]", e);
-    return err(res, "Failed to load stats", 500);
+    return serverError(res, "public/stats", e, "We couldn't load your figures.");
   }
 });
 
@@ -130,8 +129,7 @@ publicRouter.get("/customer/recall", async (req, res) => {
     const result = await lookupCustomerByEmail(session.merchantId, email);
     return ok(res, { known: result.known, verified: result.verified, wallet_masked: result.walletMasked });
   } catch (e) {
-    console.error("[public/customer/recall]", e);
-    return err(res, "Recall failed", 500);
+    return serverError(res, "public/customer/recall", e, "We couldn't look that up.");
   }
 });
 
@@ -152,8 +150,7 @@ publicRouter.get("/customer/wallet-status", async (req, res) => {
     const result = await lookupCustomerByWallet(session.merchantId, address);
     return ok(res, { linked: result.linked, verified: result.verified, email_masked: result.emailMasked });
   } catch (e) {
-    console.error("[public/customer/wallet-status]", e);
-    return err(res, "Lookup failed", 500);
+    return serverError(res, "public/customer/wallet-status", e, "We couldn't look that up.");
   }
 });
 
@@ -211,8 +208,7 @@ publicRouter.post("/customer/wallet-availability", async (req, res) => {
       message: conflict ? walletConflictMessage(conflict, session.merchant.name) : null,
     });
   } catch (e) {
-    console.error("[public/customer/wallet-availability]", e);
-    return err(res, "Lookup failed", 500);
+    return serverError(res, "public/customer/wallet-availability", e, "We couldn't look that up.");
   }
 });
 
@@ -257,8 +253,7 @@ publicRouter.post("/customer/otp/verify", async (req, res) => {
     return ok(res, { verified: true, email_token: token });
   } catch (e) {
     if (e instanceof OtpError) return err(res, e.message, e.httpStatus);
-    console.error("[public/customer/otp/verify]", e);
-    return err(res, "Verification failed", 500);
+    return serverError(res, "public/customer/otp/verify", e, "We couldn't complete that verification.");
   }
 });
 
@@ -324,8 +319,7 @@ publicRouter.post("/customer/subscriptions", async (req, res) => {
       })),
     });
   } catch (e) {
-    console.error("[public/customer/subscriptions]", e);
-    return err(res, "Failed to load subscriptions", 500);
+    return serverError(res, "public/customer/subscriptions", e, "We couldn't load your subscriptions.");
   }
 });
 
@@ -371,8 +365,7 @@ publicRouter.post("/customer/subscriptions/:id/revoke", async (req, res) => {
       revoked_delegations: result.revokedDelegations,
     });
   } catch (e) {
-    console.error("[public/customer/subscriptions/revoke]", e);
-    return err(res, "Failed to revoke subscription", 500);
+    return serverError(res, "public/customer/subscriptions/revoke", e, "We couldn't cancel that subscription.");
   }
 });
 
@@ -403,8 +396,7 @@ publicRouter.get("/pay/:link_id", async (req, res) => {
       },
     });
   } catch (e) {
-    console.error("[public/pay GET]", e);
-    return err(res, "Failed to load payment link", 500);
+    return serverError(res, "public/pay GET", e, "We couldn't load that payment link.");
   }
 });
 
@@ -443,8 +435,7 @@ publicRouter.post("/pay/:link_id/session", async (req, res) => {
     return ok(res, { session_id: session.sessionId, checkout_url: checkoutUrl });
   } catch (e) {
     if (e instanceof SessionCreationError) return err(res, e.message, e.httpStatus, e.code);
-    console.error("[public/pay session]", e);
-    return err(res, "Failed to start checkout", 500);
+    return serverError(res, "public/pay session", e, "We couldn't start your checkout.");
   }
 });
 
@@ -529,8 +520,7 @@ publicRouter.get("/checkout/:session_id", async (req, res) => {
       },
     });
   } catch (e) {
-    console.error("[public/checkout]", e);
-    return err(res, "Failed to load checkout session", 500);
+    return serverError(res, "public/checkout", e, "We couldn't load this checkout.");
   }
 });
 
@@ -565,8 +555,7 @@ publicRouter.post("/checkout/:session_id/tier", async (req, res) => {
     await withRetry(() => prisma.checkoutSession.update({ where: { id: session.id }, data: { tierId } }));
     return ok(res, { tier_id: tierId });
   } catch (e) {
-    console.error("[public/checkout/tier]", e);
-    return err(res, "Failed to select tier", 500);
+    return serverError(res, "public/checkout/tier", e, "We couldn't select that tier.");
   }
 });
 
@@ -620,8 +609,7 @@ publicRouter.post("/internal/checkout/confirm", async (req, res) => {
     if (e instanceof CheckoutVerificationError) {
       return err(res, e.message, e.httpStatus);
     }
-    console.error("[internal/checkout/confirm]", e);
-    return err(res, "Failed to confirm checkout", 500);
+    return serverError(res, "internal/checkout/confirm", e, "We couldn't confirm your payment.");
   }
 });
 

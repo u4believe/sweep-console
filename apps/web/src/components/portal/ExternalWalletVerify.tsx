@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAccount, useSignMessage } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { apiFetch, messageOf, wasCancelled } from "@/lib/stepup";
+import { throwApiError } from "@/lib/errors";
 
 // External payout addresses (merchant path B) must be ownership-verified before
 // the contract will ever push funds to them: connect the wallet, sign the
@@ -47,7 +48,7 @@ export function ExternalWalletVerify({
       });
       if (!startRes.ok) {
         if (await wasCancelled(startRes)) { setStep("idle"); return; }
-        throw new Error(await messageOf(startRes, "Failed to start verification"));
+        await throwApiError(startRes, "Failed to start verification");
       }
       const startData = await startRes.json();
 
@@ -62,7 +63,7 @@ export function ExternalWalletVerify({
       });
       if (!verifyRes.ok) {
         if (await wasCancelled(verifyRes)) { setStep("idle"); return; }
-        throw new Error(await messageOf(verifyRes, "Signature verification failed"));
+        await throwApiError(verifyRes, "Signature verification failed");
       }
       const verifyData = await verifyRes.json();
 

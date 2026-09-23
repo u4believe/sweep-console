@@ -2,6 +2,7 @@ import { useState } from "react";
 import { isStaleBuildError, STALE_BUILD_MESSAGE, recoverFromStaleBuild } from "@/lib/chunk";
 import { ExternalWalletVerify } from "./ExternalWalletVerify";
 import { ArcMark, BaseMark, ArbitrumMark, OptimismMark } from "@/components/landing/ChainMarks";
+import { friendlyError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -110,7 +111,7 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
           if (!confirmRes.ok) throw new Error(confirmData.error?.message ?? "Couldn't save the wallet.");
           finish(confirmData.walletAddress ?? "");
         } catch (e) {
-          setError(e instanceof Error ? e.message : "Couldn't save the wallet. Please try again.");
+          setError(friendlyError(e, "Couldn't save the wallet. Please try again."));
           setPhase("idle");
         }
       });
@@ -119,7 +120,7 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
         if (recoverFromStaleBuild()) return;
         setError(STALE_BUILD_MESSAGE);
       } else {
-        setError(e instanceof Error ? e.message : "Something went wrong.");
+        setError(friendlyError(e, "Something went wrong."));
       }
       setPhase("idle");
     }

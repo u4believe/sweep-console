@@ -8,6 +8,7 @@ import {
   type StepUpMethod,
   type StepUpNeed,
 } from "@/lib/stepup";
+import { friendlyError } from "@/lib/errors";
 
 const METHOD_LABEL: Record<StepUpMethod, string> = {
   totp: "Authenticator app",
@@ -88,7 +89,7 @@ export function StepUpDialog() {
     try {
       setExpiresAt(await startEmailChallenge(need.action));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not send the code.");
+      setError(friendlyError(e, "Could not send the code."));
     } finally {
       setSending(false);
     }
@@ -101,7 +102,7 @@ export function StepUpDialog() {
     try {
       settle(await verifyStepUp(need.action, method, code.trim()));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "That code didn't work.");
+      setError(friendlyError(e, "That code didn't work."));
       setBusy(false);
       setCode("");
       inputRef.current?.focus();

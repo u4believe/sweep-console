@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
+import { friendlyError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -30,7 +31,7 @@ export function PaymentLinkPage() {
         }
         window.location.assign((data as { checkout_url: string }).checkout_url);
       } catch (e) {
-        setErrorMsg(e instanceof Error ? e.message : "This payment link is unavailable.");
+        setErrorMsg(friendlyError(e, "This payment link is unavailable."));
       }
     })();
   }, [link_id, searchParams]);

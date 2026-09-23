@@ -46,7 +46,10 @@ export async function verifyApiKey(
 
   const secret = process.env.PLATFORM_API_SIGNING_SECRET;
   if (!secret) {
-    err(res, "Server misconfiguration", 500);
+    // Not the caller's problem and not the caller's business: they get the same
+    // sentence as any other outage, while the log says exactly what is missing.
+    console.error("[auth/api-key] PLATFORM_API_SIGNING_SECRET is not set — every API key will be refused");
+    err(res, "Something went wrong on our end. Please try again in a moment.", 500);
     return;
   }
 

@@ -5,6 +5,7 @@ import { SecuritySettings } from "@/components/portal/SecuritySettings";
 import { useAuth } from "@/context/auth";
 import { PageHeader } from "@/components/portal/PageHeader";
 import { ErrorNote, Kicker, Mono, Section } from "@/components/portal/primitives";
+import { friendlyError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -83,7 +84,7 @@ export function SettingsPage() {
       await refresh();
       setNameSaved(true);
     } catch (e) {
-      setNameError(e instanceof Error ? e.message : "Couldn't save. Please try again.");
+      setNameError(friendlyError(e, "Couldn't save. Please try again."));
     } finally {
       setSavingName(false);
     }

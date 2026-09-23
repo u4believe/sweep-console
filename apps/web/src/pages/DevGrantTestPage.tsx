@@ -14,6 +14,7 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useChainId, useConnectorClient } from "wagmi";
 import { decodeAbiParameters, type Hex } from "viem";
 import { grantRenewalMandate } from "@/lib/delegation/grant";
+import { friendlyError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 const DEFAULT_DELEGATE = (import.meta.env.VITE_RENEWAL_DELEGATE_ADDRESS as string) ?? "";
@@ -107,7 +108,7 @@ export function DevGrantTestPage() {
         setCaveats(null); // encoding differs — read the raw response above
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Grant failed (need MetaMask Flask?)");
+      setError(friendlyError(e, "Grant failed (need MetaMask Flask?)"));
     }
   };
 
@@ -131,7 +132,7 @@ export function DevGrantTestPage() {
       const data = await res.json();
       setRedeemResult(JSON.stringify(data, null, 2));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Test redeem request failed");
+      setError(friendlyError(e, "Test redeem request failed"));
     }
   };
 

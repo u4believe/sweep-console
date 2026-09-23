@@ -25,6 +25,7 @@ import {
   verifyOtp,
 } from "@/lib/gateway";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
+import { friendlyError } from "@/lib/errors";
 
 /** An Arc EIP-2612 permit the subscriber has already signed, ready to submit. */
 export interface SignedPermit {
@@ -307,7 +308,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
       await requestOtp(sessionId, email.trim(), otpCaptcha);
       setOtpPhase("sent");
     } catch (e) {
-      setOtpError(e instanceof Error ? e.message : "Could not send the code.");
+      setOtpError(friendlyError(e, "Could not send the code."));
       setOtpPhase("idle");
     } finally {
       // The token is single-use — mint a fresh one so "Resend" works.
@@ -323,7 +324,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
       setEmailToken(email_token);
       setOtpPhase("sent");
     } catch (e) {
-      setOtpError(e instanceof Error ? e.message : "Verification failed.");
+      setOtpError(friendlyError(e, "Verification failed."));
       setOtpPhase("sent");
     }
   };

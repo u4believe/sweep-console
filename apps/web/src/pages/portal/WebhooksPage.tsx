@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/portal/PageHeader";
 import { Dialog, EmptyNote, ErrorNote, Kicker, Mono, StatusTag } from "@/components/portal/primitives";
 import { apiFetch, messageOf, wasCancelled } from "@/lib/stepup";
+import { friendlyError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -163,7 +164,7 @@ export function WebhooksPage() {
       setEventsTouched(false);
       loadEndpoints();
     } catch (e) {
-      setFormError(e instanceof Error ? e.message : "Something went wrong");
+      setFormError(friendlyError(e, "Something went wrong"));
     } finally {
       setSubmitting(false);
     }

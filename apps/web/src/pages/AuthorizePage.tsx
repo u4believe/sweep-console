@@ -4,6 +4,7 @@ import { useAccount } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { formatUnits } from "viem";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
+import { friendlyError } from "@/lib/errors";
 import {
   getAuthorization,
   saveAuthorizationGrant,
@@ -37,12 +38,7 @@ function usdc(micro: number): string {
 }
 
 function describeError(e: unknown): string {
-  const msg = e instanceof Error ? e.message : String(e);
-  if (/rejected|denied|cancell?ed/i.test(msg)) return "You cancelled the signature request.";
-  if (/does not support|unsupported/i.test(msg)) {
-    return "This wallet can't grant spending permissions. MetaMask supports them today.";
-  }
-  return msg || "Something went wrong. Please try again.";
+  return friendlyError(e, "Something went wrong. Please try again.");
 }
 
 function shortAddress(a: string): string {

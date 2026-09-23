@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import type { Response } from "express";
 
 export function ok<T>(res: Response, data: T, status = 200) {
@@ -32,4 +33,38 @@ function httpCodeToSlug(status: number): string {
     500: "internal_error",
   };
   return map[status] ?? "error";
+}
+
+/**
+ * The only way a 5xx should leave this API.
+ *
+ * Two audiences, two different messages. The logs get everything — the scope,
+ * the stack, the original exception — because an error nobody can read is an
+ * error nobody can fix. The caller gets a sentence with no stack trace, no
+ * table name, no RPC URL and no library text in it: a subscriber who could not
+ * pay is owed an explanation, not our internals, and the internals are exactly
+ * what tells an attacker which probe landed.
+ *
+ * The reference is what joins the two. It is printed in the log line and shown
+ * to the user, so "it said reference 4f2a9c" is enough to find the exact
+ * failure in Railway without asking them to reproduce anything.
+ *
+ * `scope` names the call site the way the existing console.error tags do
+ * ("portal/tier", "charges POST"), so log search keeps working.
+ */
+export function serverError(
+  res: Response,
+  scope: string,
+  e: unknown,
+  userMessage = "Something went wrong on our end. Please try again in a moment."
+) {
+  const reference = randomBytes(3).toString("hex");
+  console.error(`[${scope}] ref=${reference}`, e);
+  return res.status(500).json({
+    error: {
+      message: `${userMessage} If it keeps happening, quote reference ${reference}.`,
+      code: "internal_error",
+      reference,
+    },
+  });
 }

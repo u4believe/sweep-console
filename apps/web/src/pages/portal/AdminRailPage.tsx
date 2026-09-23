@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/portal/PageHeader";
 import { EmptyNote, ErrorNote, Mono, Section, TableSkeleton, shortAddress } from "@/components/portal/primitives";
 import { apiFetch, messageOf, wasCancelled } from "@/lib/stepup";
+import { friendlyError, throwApiError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -95,11 +96,11 @@ export function AdminRailPage() {
       });
       if (!res.ok) {
         if (await wasCancelled(res)) return;
-        throw new Error(await messageOf(res, "Couldn't update the entitlement."));
+        await throwApiError(res, "Couldn't update the entitlement.");
       }
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't update the entitlement.");
+      setError(friendlyError(e, "Couldn't update the entitlement."));
     } finally {
       setBusy(null);
     }

@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { verifyApiKey, type AuthedRequest } from "../middleware/auth";
-import { created, ok, err, validationError } from "../lib/response";
+import { created, ok, err, validationError, serverError } from "../lib/response";
 import { createCheckoutSession, SessionCreationError } from "../lib/checkout/session";
 
 export const checkoutRouter = Router();
@@ -85,8 +85,7 @@ checkoutRouter.post("/sessions", verifyApiKey, async (req, res) => {
     });
   } catch (e) {
     if (e instanceof SessionCreationError) return err(res, e.message, e.httpStatus, e.code);
-    console.error("[checkout/sessions]", e);
-    return err(res, "Failed to create checkout session", 500);
+    return serverError(res, "checkout/sessions", e, "We couldn't start your checkout.");
   }
 });
 

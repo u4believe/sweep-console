@@ -10,6 +10,7 @@ import {
 } from "@/lib/gateway";
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
+import { friendlyError } from "@/lib/errors";
 
 /**
  * Does this wallet already hold a renewal mandate on any chain?
@@ -76,13 +77,7 @@ const POLL_MS = 3_000;
 
 /// Map noisier wallet-side ERC-7715 failures to guidance the subscriber can act on.
 function describeError(e: unknown): string {
-  const msg = e instanceof Error ? e.message : String(e);
-  if (/user storage|gator_7715|Failed to fetch/i.test(msg)) {
-    return "MetaMask couldn't reach its permission storage. Turn on Settings → Backup and sync in MetaMask, make sure you're signed in and online, then try again.";
-  }
-  if (/rejected|denied|cancell?ed/i.test(msg)) return "Request cancelled.";
-  if (/not supported/i.test(msg)) return "Your wallet can't authorize on this chain.";
-  return msg || "Could not enable cross-chain payment";
+  return friendlyError(e, "We couldn't set up your cross-chain payment.");
 }
 
 export function GatewaySweepPanel({

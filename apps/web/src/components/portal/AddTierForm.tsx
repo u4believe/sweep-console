@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { friendlyError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -59,7 +60,7 @@ export function AddTierForm({ planId, onAdded }: { planId: string; onAdded: () =
       setOpen(false);
       onAdded();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't add the tier.");
+      setError(friendlyError(e, "Couldn't add the tier."));
     } finally {
       setSaving(false);
     }

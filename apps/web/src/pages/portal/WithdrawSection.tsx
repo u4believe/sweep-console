@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { isStaleBuildError, STALE_BUILD_MESSAGE, recoverFromStaleBuild } from "@/lib/chunk";
 import { Kicker, Section } from "@/components/portal/primitives";
 import { apiFetch, messageOf, wasCancelled } from "@/lib/stepup";
+import { throwApiError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -71,7 +72,7 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
       });
       if (!res.ok) {
         if (await wasCancelled(res)) { setWithdrawing(false); return; }
-        throw new Error(await messageOf(res, "Withdrawal failed"));
+        await throwApiError(res, "Withdrawal failed");
       }
       const data = await res.json() as {
         userToken?: string; encryptionKey?: string; challengeId?: string; appId?: string;

@@ -11,7 +11,7 @@
 import { Router } from "express";
 import type { Hex } from "viem";
 import { prisma } from "../lib/prisma";
-import { ok, err } from "../lib/response";
+import { ok, err, serverError } from "../lib/response";
 import { scanWalletBalances } from "../lib/gateway/balances";
 
 export const gatewayRouter = Router();
@@ -91,7 +91,6 @@ gatewayRouter.get("/checkout/:session_id/sweep/:sweep_id", async (req, res) => {
       redirect_url: redirectUrl,
     });
   } catch (e) {
-    console.error("[checkout/sweep/status]", e);
-    return err(res, "Failed to load activation status", 500);
+    return serverError(res, "checkout/sweep/status", e, "We couldn't check the status of this payment.");
   }
 });

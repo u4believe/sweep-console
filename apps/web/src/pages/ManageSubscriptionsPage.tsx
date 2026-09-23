@@ -7,6 +7,7 @@ import { Logo } from "@/components/ui/Logo";
 import { Turnstile, TURNSTILE_ENABLED } from "@/components/Turnstile";
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
+import { friendlyError } from "@/lib/errors";
 import {
   portalRequestOtp,
   verifyOtp,
@@ -75,12 +76,7 @@ const INTERVAL_LABELS: Record<string, string> = {
 type Phase = "login" | "code" | "list";
 
 function describeError(e: unknown): string {
-  const msg = e instanceof Error ? e.message : String(e);
-  if (/user storage|gator_7715|Failed to fetch/i.test(msg)) {
-    return "MetaMask couldn't reach its permission storage. Turn on Settings → Backup and sync, make sure you're signed in and online, then try again.";
-  }
-  if (/rejected|denied|cancell?ed/i.test(msg)) return "Request cancelled.";
-  return msg || "Something went wrong. Please try again.";
+  return friendlyError(e, "Something went wrong. Please try again.");
 }
 
 export function ManageSubscriptionsPage() {

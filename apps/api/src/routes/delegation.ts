@@ -9,7 +9,7 @@ import { Router } from "express";
 import { z } from "zod";
 import type { Address, Hex } from "viem";
 import { prisma } from "../lib/prisma";
-import { ok, err } from "../lib/response";
+import { ok, err, serverError } from "../lib/response";
 import { supportedSourceChains } from "../lib/gateway/chains";
 import {
   getDelegateAddress,
@@ -125,8 +125,7 @@ delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, re
       already_enabled: alreadyEnabled,
     });
   } catch (e) {
-    console.error("[internal/checkout/grant-plan]", e);
-    return err(res, "Failed to build grant plan", 500);
+    return serverError(res, "internal/checkout/grant-plan", e, "We couldn't work out how to collect this payment.");
   }
 });
 
@@ -239,8 +238,7 @@ delegationRouter.post("/internal/checkout/:session_id/delegation", async (req, r
 
     return ok(res, { delegation_id: delegation.id, status: delegation.status });
   } catch (e) {
-    console.error("[internal/checkout/delegation]", e);
-    return err(res, "Failed to store renewal mandate", 500);
+    return serverError(res, "internal/checkout/delegation", e, "We couldn't save your renewal permission.");
   }
 });
 
@@ -332,8 +330,7 @@ delegationRouter.post("/internal/checkout/:session_id/cross-chain/activate", asy
 
     return ok(res, { sweep_id: sweep.sweepId, status: "depositing" });
   } catch (e) {
-    console.error("[cross-chain/activate]", e);
-    return err(res, e instanceof Error ? e.message : "Failed to start activation", 500);
+    return serverError(res, "cross-chain/activate", e, "We couldn't start your cross-chain payment.");
   }
 });
 
@@ -406,8 +403,7 @@ delegationRouter.post("/internal/checkout/:session_id/cross-chain/enable", async
 
     return ok(res, { enabled: true });
   } catch (e) {
-    console.error("[cross-chain/enable]", e);
-    return err(res, e instanceof Error ? e.message : "Failed to enable cross-chain", 500);
+    return serverError(res, "cross-chain/enable", e, "We couldn't turn on automatic renewals.");
   }
 });
 
@@ -449,7 +445,6 @@ delegationRouter.post("/internal/checkout/:session_id/grant-revoke", async (req,
     });
     return ok(res, { revoked: result.count, chain_id: chain_id ?? null });
   } catch (e) {
-    console.error("[cross-chain/grant-revoke]", e);
-    return err(res, "Failed to revoke grant", 500);
+    return serverError(res, "cross-chain/grant-revoke", e, "We couldn't revoke that permission.");
   }
 });

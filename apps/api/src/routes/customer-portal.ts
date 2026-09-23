@@ -11,7 +11,7 @@ import { Router } from "express";
 import { z } from "zod";
 import type { Address, Hex } from "viem";
 import { prisma } from "../lib/prisma";
-import { ok, err } from "../lib/response";
+import { ok, err, serverError } from "../lib/response";
 import { ids } from "../lib/ids";
 import { verifyEmailToken, normalizeEmail } from "../lib/checkout/identity";
 import { revokeSubscription } from "../lib/subscriptions/revoke";
@@ -164,8 +164,7 @@ customerPortalRouter.post("/subscriptions", async (req, res) => {
       }),
     });
   } catch (e) {
-    console.error("[portal/subscriptions]", e);
-    return err(res, "Failed to load subscriptions", 500);
+    return serverError(res, "portal/subscriptions", e, "We couldn't load your subscriptions.");
   }
 });
 
@@ -193,8 +192,7 @@ customerPortalRouter.post("/subscriptions/:id/cancel", async (req, res) => {
       revoked_delegations: result.revokedDelegations,
     });
   } catch (e) {
-    console.error("[portal/cancel]", e);
-    return err(res, "Failed to cancel subscription", 500);
+    return serverError(res, "portal/cancel", e, "We couldn't cancel that subscription.");
   }
 });
 
@@ -259,8 +257,7 @@ customerPortalRouter.post("/subscriptions/:id/grant-plan", async (req, res) => {
       already_enabled: targets.length > 0 && targets.every((t) => grantedChainIds.includes(t.chain_id)),
     });
   } catch (e) {
-    console.error("[portal/grant-plan]", e);
-    return err(res, "Failed to build grant plan", 500);
+    return serverError(res, "portal/grant-plan", e, "We couldn't work out how to collect this payment.");
   }
 });
 
@@ -354,8 +351,7 @@ customerPortalRouter.post("/subscriptions/:id/grant", async (req, res) => {
 
     return ok(res, { delegation_id: delegation.id, status: delegation.status });
   } catch (e) {
-    console.error("[portal/grant]", e);
-    return err(res, "Failed to store renewal mandate", 500);
+    return serverError(res, "portal/grant", e, "We couldn't save your renewal permission.");
   }
 });
 
@@ -417,7 +413,6 @@ customerPortalRouter.post("/subscriptions/:id/grant-revoke", async (req, res) =>
 
     return ok(res, { revoked: result.count, remaining_chains: remaining, status });
   } catch (e) {
-    console.error("[portal/grant-revoke]", e);
-    return err(res, "Failed to revoke cross-chain grant", 500);
+    return serverError(res, "portal/grant-revoke", e, "We couldn't revoke that permission.");
   }
 });

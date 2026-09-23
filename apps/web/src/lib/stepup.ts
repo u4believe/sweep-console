@@ -6,6 +6,8 @@
 // confirm, retry with the token. `apiFetch` does all four, which means a
 // guarded call site is written exactly like an unguarded one.
 
+import { messageOfResponse, throwApiError } from "@/lib/errors";
+
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
 export type StepUpMethod = "email" | "totp" | "recovery";
@@ -88,7 +90,7 @@ export async function startEmailChallenge(action: string): Promise<Date> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action }),
   });
-  if (!res.ok) throw new Error(await messageOf(res, "Could not send the code."));
+  if (!res.ok) await throwApiError(res, "Could not send the code.");
   const json = (await res.json()) as { expires_at?: string };
   return json.expires_at ? new Date(json.expires_at) : new Date(Date.now() + 120_000);
 }
@@ -105,18 +107,6 @@ export async function verifyStepUp(action: string, method: StepUpMethod, code: s
   return json.token;
 }
 
-export async function messageOf(res: Response, fallback: string): Promise<string> {
-  const body = (await res.json().catch(() => null)) as
-    | { error?: { message?: string; details?: Record<string, string> } }
-    | null;
-  const error = body?.error;
-  if (!error) return fallback;
-
-  // A 422 carries the useful half in `details`; its `message` is the constant
-  // "Validation failed", which tells the reader nothing about which field or
-  // why. Surfacing only that turned a missing reason on the rail-withdrawal
-  // form into an error nobody could act on.
-  const detail = error.details && Object.values(error.details).filter(Boolean);
-  if (detail && detail.length > 0) return detail.join(" ");
-  return error.message ?? fallback;
-}
+// Kept as the name the portal already imports; the decision lives in one place.
+// A 5xx message is never shown on screen — see lib/errors.ts for why.
+export const messageOf = messageOfResponse;

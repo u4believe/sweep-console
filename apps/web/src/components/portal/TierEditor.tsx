@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { featureList, INTERVAL_NOUNS, type Tier } from "@/pages/portal/plan-model";
 import { apiFetch, messageOf, wasCancelled } from "@/lib/stepup";
+import { friendlyError, throwApiError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -115,14 +116,14 @@ export function TierEditor({
         // Closing the dialog is not a failure — say nothing and leave the form
         // as it was, so the merchant can change their mind without an error.
         if (await wasCancelled(res)) return;
-        throw new Error(await messageOf(res, "Couldn't save this tier."));
+        await throwApiError(res, "Couldn't save this tier.");
       }
       setSaved(true);
       setScope("");
       setTimeout(() => setSaved(false), 2000);
       onChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't save this tier.");
+      setError(friendlyError(e, "Couldn't save this tier."));
     } finally {
       setSaving(false);
     }
@@ -140,11 +141,11 @@ export function TierEditor({
           setConfirmRemove(false);
           return;
         }
-        throw new Error(await messageOf(res, "Couldn't remove this tier."));
+        await throwApiError(res, "Couldn't remove this tier.");
       }
       onChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't remove this tier.");
+      setError(friendlyError(e, "Couldn't remove this tier."));
       setRemoving(false);
       setConfirmRemove(false);
     }

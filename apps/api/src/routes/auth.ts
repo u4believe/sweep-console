@@ -6,7 +6,7 @@ import jwt from "jsonwebtoken";
 import type { Response } from "express";
 import { prisma } from "../lib/prisma";
 import { IS_DEV, IS_PRODUCTION } from "../lib/env";
-import { ok, err, validationError } from "../lib/response";
+import { ok, err, validationError, serverError } from "../lib/response";
 import { ids } from "../lib/ids";
 import { hashPassword, verifyPassword } from "../lib/password";
 import { sendEmail, verificationEmailHtml, passwordResetEmailHtml } from "../lib/email";
@@ -120,8 +120,7 @@ authRouter.post("/signup", async (req, res) => {
     }
     return ok(res, { message: "Verification email sent. Check your inbox." });
   } catch (e) {
-    console.error("[auth/signup] Unhandled error:", e);
-    return err(res, "An unexpected error occurred. Please try again.", 500);
+    return serverError(res, "auth/signup", e, "Something went wrong on our end.");
   }
 });
 
@@ -184,8 +183,7 @@ authRouter.post("/verify-email", async (req, res) => {
     console.log(`[auth/verify-email] Account created for ${email} (${merchantId})`);
     return ok(res, { message: "Account created. You can now log in." });
   } catch (e) {
-    console.error("[auth/verify-email] Unhandled error:", e);
-    return err(res, "An unexpected error occurred. Please try again.", 500);
+    return serverError(res, "auth/verify-email", e, "Something went wrong on our end.");
   }
 });
 
@@ -223,8 +221,7 @@ authRouter.post("/login", async (req, res) => {
     issueSession(res, merchant, remember);
     return ok(res, { ok: true });
   } catch (e) {
-    console.error("[auth/login] Unhandled error:", e);
-    return err(res, "An unexpected error occurred. Please try again.", 500);
+    return serverError(res, "auth/login", e, "Something went wrong on our end.");
   }
 });
 
@@ -284,7 +281,11 @@ authRouter.post("/google", async (req, res) => {
     try {
       profile = await verifyGoogleAccessToken(parsed.data.access_token);
     } catch (e) {
-      return err(res, (e as Error).message || "Google sign-in failed.", 401);
+      // Whatever google-auth-library threw goes to the log, not to the page. A
+      // sign-in that failed is one fact to the person trying it; which library
+      // call rejected and why is a map of our verification path to anyone else.
+      console.error("[auth/google] token verification failed:", e);
+      return err(res, "We couldn't verify that Google sign-in. Please try again.", 401);
     }
 
     // Match on the Google subject first, then fall back to email (case-insensitive)
@@ -341,8 +342,7 @@ authRouter.post("/google", async (req, res) => {
     issueSession(res, merchant, parsed.data.remember);
     return ok(res, { ok: true, created });
   } catch (e) {
-    console.error("[auth/google] Unhandled error:", e);
-    return err(res, "An unexpected error occurred. Please try again.", 500);
+    return serverError(res, "auth/google", e, "Something went wrong on our end.");
   }
 });
 
@@ -367,8 +367,7 @@ authRouter.post("/complete-profile", verifyPortalSession, async (req, res) => {
     issueSession(res, merchant, true); // refresh the cookie with the updated name + onboarded
     return ok(res, { ok: true, name: merchant.name });
   } catch (e) {
-    console.error("[auth/complete-profile] Unhandled error:", e);
-    return err(res, "Could not save your profile. Please try again.", 500);
+    return serverError(res, "auth/complete-profile", e, "We couldn't save your profile.");
   }
 });
 
@@ -465,8 +464,7 @@ authRouter.post("/reset-password", async (req, res) => {
     console.log(`[auth/reset-password] Password reset for ${record.email}`);
     return ok(res, { message: "Password updated. You can now sign in." });
   } catch (e) {
-    console.error("[auth/reset-password] Unhandled error:", e);
-    return err(res, "An unexpected error occurred. Please try again.", 500);
+    return serverError(res, "auth/reset-password", e, "Something went wrong on our end.");
   }
 });
 

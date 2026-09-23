@@ -33,6 +33,7 @@ import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import { enableCrossChain, fetchGrantPlan, revokeGrant, saveDelegation } from "@/lib/gateway";
 import type { GrantTarget } from "@/lib/gateway";
+import { friendlyError } from "@/lib/errors";
 
 // Exported so the shell can skip the whole "04 Automatic renewal" step rather
 // than rendering its heading above nothing. VITE_ vars are inlined at BUILD time,
@@ -65,12 +66,7 @@ interface Props {
 type State = "checking" | "ineligible" | "ready" | "fallback";
 
 function describeError(e: unknown): string {
-  const msg = e instanceof Error ? e.message : String(e);
-  if (/user storage|gator_7715|Failed to fetch/i.test(msg)) {
-    return "MetaMask couldn't reach its permission storage. Turn on Settings → Backup and sync in MetaMask, make sure you're signed in and online, then try again.";
-  }
-  if (/rejected|denied|cancell?ed/i.test(msg)) return "Request cancelled. You can enable this anytime.";
-  return msg || "Could not enable cross-chain renewals";
+  return friendlyError(e, "We couldn't turn on automatic renewals.");
 }
 
 /**

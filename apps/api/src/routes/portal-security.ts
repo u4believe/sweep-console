@@ -9,7 +9,7 @@ import type { Response } from "express";
 import { z } from "zod";
 import QRCode from "qrcode";
 import { prisma, isConnectFailure } from "../lib/prisma";
-import { ok, err } from "../lib/response";
+import { ok, err, serverError } from "../lib/response";
 import type { PortalRequest } from "../middleware/portalAuth";
 import {
   STEP_UP_ACTIONS,
@@ -45,7 +45,7 @@ function fail(res: Response, e: unknown, context: string) {
       "database_unavailable"
     );
   }
-  return err(res, "Something went wrong. Try again.", 500);
+  return serverError(res, "portal-security", e);
 }
 
 // ─── GET /portal/security ─────────────────────────────────────────────────────

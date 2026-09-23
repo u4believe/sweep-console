@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { verifyApiKey, type AuthedRequest } from "../middleware/auth";
-import { ok, err } from "../lib/response";
+import { ok, err, serverError } from "../lib/response";
 import { fireWebhook } from "../lib/webhooks/delivery";
 import { ids } from "../lib/ids";
 import { revokeSubscription } from "../lib/subscriptions/revoke";
@@ -123,8 +123,7 @@ subscriptionsRouter.post("/:id/cancel", verifyApiKey, async (req, res) => {
       reason: cancel_reason ?? "cancelled",
     });
   } catch (e) {
-    console.error(`[subscriptions/cancel] failed for ${sub.subscriptionId}:`, e);
-    return err(res, "Failed to cancel subscription. Try again shortly.", 500);
+    return serverError(res, `subscriptions/cancel ${sub.subscriptionId}`, e, "We couldn't cancel that subscription.");
   }
 
   return ok(res, {

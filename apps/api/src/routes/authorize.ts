@@ -18,7 +18,7 @@ import { z } from "zod";
 import type { Address, Hex } from "viem";
 import { prisma } from "../lib/prisma";
 import { ids } from "../lib/ids";
-import { ok, err } from "../lib/response";
+import { ok, err, serverError } from "../lib/response";
 import { decodePeriodTransferTerms, delegationIdentity } from "../lib/chain/delegation";
 import { getRelayerAddress } from "../lib/chain/signers";
 import { supportedSourceChains } from "../lib/gateway/chains";
@@ -251,8 +251,7 @@ authorizeRouter.post("/authorize/:mandate_id/grant", async (req, res) => {
 
     return ok(res, { grant_id: grant.grantId, chain_id: grant.chainId, status: grant.status });
   } catch (e) {
-    console.error("[authorize/grant]", e);
-    return err(res, "Failed to store the authorization", 500);
+    return serverError(res, "authorize/grant", e, "We couldn't save your authorization.");
   }
 });
 
@@ -310,7 +309,6 @@ authorizeRouter.post("/authorize/:mandate_id/complete", async (req, res) => {
 
     return ok(res, { id: updated.mandateId, status: updated.status, chain_ids: grants.map((g) => g.chainId) });
   } catch (e) {
-    console.error("[authorize/complete]", e);
-    return err(res, "Failed to complete the authorization", 500);
+    return serverError(res, "authorize/complete", e, "We couldn't finish your authorization.");
   }
 });

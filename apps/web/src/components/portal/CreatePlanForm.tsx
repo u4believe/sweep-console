@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { friendlyError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -76,7 +77,7 @@ export function CreatePlanForm() {
       // Straight to the plan, where further tiers are added one at a time.
       navigate(`/plans/${data.id}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't create the plan.");
+      setError(friendlyError(e, "Couldn't create the plan."));
     } finally {
       setSaving(false);
     }
