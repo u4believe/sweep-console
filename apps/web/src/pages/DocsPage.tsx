@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ReactNode } from "react";
 import { Logo } from "@/components/ui/Logo";
@@ -113,9 +114,61 @@ const toc = [
   },
 ];
 
+const ALL_IDS = toc.flatMap((g) => g.items.map((i) => i.id));
+
+/**
+ * Which section the reader is currently in.
+ *
+ * Measured from scroll position rather than IntersectionObserver: the question
+ * is "which heading did I last pass", and that has one answer at every scroll
+ * offset. An observer instead reports a set of things that happen to be on
+ * screen, which on a page with short sections is several at once and needs
+ * tie-breaking anyway.
+ *
+ * The last section is special-cased. It is shorter than the viewport, so its
+ * heading never reaches the line and it could otherwise never become active no
+ * matter how far you scroll.
+ */
+function useActiveSection(ids: string[]): string {
+  const [active, setActive] = useState(ids[0] ?? "");
+
+  useEffect(() => {
+    let frame = 0;
+    const measure = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const LINE = 140; // the sticky header, plus enough that a heading reads as "arrived"
+        let current = ids[0] ?? "";
+        for (const id of ids) {
+          const el = document.getElementById(id);
+          if (el && el.getBoundingClientRect().top <= LINE) current = id;
+        }
+        const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+        if (atBottom) current = ids[ids.length - 1] ?? current;
+        setActive(current);
+      });
+    };
+    measure();
+    window.addEventListener("scroll", measure, { passive: true });
+    window.addEventListener("resize", measure);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", measure);
+      window.removeEventListener("resize", measure);
+    };
+  }, [ids]);
+
+  return active;
+}
+
 /* ── page ──────────────────────────────────────────────────────────────── */
 
 export function DocsPage() {
+  const ids = useMemo(() => ALL_IDS, []);
+  const active = useActiveSection(ids);
+  const activeGroup = toc.find((g) => g.items.some((i) => i.id === active));
+  const activeLabel = activeGroup?.items.find((i) => i.id === active)?.label;
+
   return (
     <div className="min-h-screen bg-white text-gray-900">
       {/* Nav */}
@@ -136,20 +189,59 @@ export function DocsPage() {
         </div>
       </header>
 
+      {/* The sidebar is desktop-only, so on a phone this is the only thing that
+          answers "where am I". It sits under the header and says the same two
+          things the sidebar shows: which group, and which section within it. */}
+      <div className="sticky top-[57px] z-40 border-b border-gray-100 bg-white/90 px-6 py-2.5 backdrop-blur-md lg:hidden">
+        <p className="m-0 truncate text-xs text-gray-400">
+          {activeGroup ? (
+            <>
+              <span className="font-semibold uppercase tracking-[0.12em]">{activeGroup.group}</span>
+              {activeLabel ? <span className="text-gray-600"> · {activeLabel}</span> : null}
+            </>
+          ) : (
+            "Documentation"
+          )}
+        </p>
+      </div>
+
       <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 px-6 py-12 lg:grid-cols-[230px_1fr]">
-        {/* TOC */}
+        {/* TOC. The rule runs the full height and each entry owns the slice of
+            it beside them, so the marker reads as a position on the page rather
+            than as a decoration next to a link. */}
         <aside className="hidden lg:block">
-          <nav className="sticky top-24 space-y-5 border-l border-gray-100 pl-4 text-sm">
-            {toc.map((grp) => (
-              <div key={grp.group}>
-                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">{grp.group}</p>
-                {grp.items.map((t) => (
-                  <a key={t.id} href={`#${t.id}`} className="block py-1 text-gray-500 transition hover:text-brand-700">
-                    {t.label}
-                  </a>
-                ))}
-              </div>
-            ))}
+          <nav aria-label="On this page" className="sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto text-sm">
+            {toc.map((grp) => {
+              const isCurrentGroup = grp.group === activeGroup?.group;
+              return (
+                <div key={grp.group} className="mb-6 last:mb-0">
+                  <p
+                    className={`mb-2 text-[11px] font-bold uppercase tracking-[0.12em] transition-colors ${
+                      isCurrentGroup ? "text-gray-900" : "text-gray-400"
+                    }`}
+                  >
+                    {grp.group}
+                  </p>
+                  {grp.items.map((t) => {
+                    const isActive = t.id === active;
+                    return (
+                      <a
+                        key={t.id}
+                        href={`#${t.id}`}
+                        aria-current={isActive ? "true" : undefined}
+                        className={`-ml-px block border-l-2 py-1.5 pl-4 transition-colors ${
+                          isActive
+                            ? "border-brand-600 font-semibold text-brand-700"
+                            : "border-gray-100 text-gray-500 hover:border-gray-300 hover:text-gray-900"
+                        }`}
+                      >
+                        {t.label}
+                      </a>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </nav>
         </aside>
 

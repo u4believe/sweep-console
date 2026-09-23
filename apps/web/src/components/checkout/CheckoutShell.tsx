@@ -376,7 +376,8 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
   /**
    * The chains a subscriber can pay from, in the design's order.
    *
-   * Arc settles directly; the rest are swept to Arc via CCTP. Selecting one is
+   * Arc is deliberately absent: it is where money settles, not where it comes
+   * from. Each of these is swept to Arc via CCTP. Selecting one is
    * JUST a selection — it opens no wallet, signs no delegation, and upgrades no
    * account. All of that happens when the subscriber presses the pay button,
    * which is the only control on this page that should ever reach the wallet.

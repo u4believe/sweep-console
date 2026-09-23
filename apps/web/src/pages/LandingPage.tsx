@@ -275,8 +275,11 @@ function Hero() {
 
 /** The chain rail — where you can pay from, and where it settles. */
 function ChainRail() {
+  // Arc is not a source and cannot be. Recurring authority on Arc would be a
+  // permit to a contract, not the ERC-7715 wallet permission this platform
+  // redeems — so a subscriber pays from a source chain and the money is bridged
+  // to Arc, which is where it settles and only settles.
   const sources = [
-    { label: "Arc", Mark: ArcMark },
     { label: "Base", Mark: BaseMark },
     { label: "Arbitrum", Mark: ArbitrumMark },
     { label: "Optimism", Mark: OptimismMark },

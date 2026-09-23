@@ -22,8 +22,14 @@ const INTERVAL_LABELS: Record<string, string> = {
   daily: "Daily", weekly: "Weekly", monthly: "Monthly", yearly: "Yearly",
 };
 
-/** Chains a subscriber can pay from — mirrors SUPPORTED_SOURCE_CHAINS plus Arc. */
-const ACCEPTED_CHAINS = ["Arc", "Base", "Arbitrum", "Optimism"];
+/**
+ * Chains a subscriber can pay from — mirrors SUPPORTED_SOURCE_CHAINS.
+ *
+ * Arc is not among them and cannot be: it is where money settles, not where it
+ * comes from. Recurring authority there would be a permit to a contract rather
+ * than the ERC-7715 wallet permission this platform redeems.
+ */
+const ACCEPTED_CHAINS = ["Base", "Arbitrum", "Optimism"];
 
 interface Subscription {
   id: string;

@@ -359,8 +359,8 @@ function WalletTab({ profile }: { profile: MerchantProfile }) {
         </div>
         <p className="m-0" style={{ fontSize: 12, color: "var(--color-neutral-700)", marginTop: 10, maxWidth: "64ch", lineHeight: 1.6 }}>
           Every settlement lands on Arc — it isn&apos;t a choice, and there is nothing to configure.
-          Customers pay from Arc, Base, Arbitrum or Optimism and full settlement lands on Arc
-          automatically, so you always reconcile in one place.
+          Customers pay from Base, Arbitrum or Optimism and it is bridged to Arc automatically, so
+          you always reconcile in one place.
         </p>
       </div>
     </section>
