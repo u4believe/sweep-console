@@ -10,6 +10,7 @@
 // enforce. When the key IS set we fail closed: a missing/invalid token, or an
 // unreachable Cloudflare, is rejected.
 import type { Request } from "express";
+import { clientIp as resolveClientIp } from "./client-ip";
 
 const VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
@@ -51,8 +52,15 @@ export function turnstileEnabled(): boolean {
   return !!process.env.TURNSTILE_SECRET_KEY;
 }
 
-/** Best-effort client IP for the optional `remoteip` siteverify field. */
+/**
+ * Best-effort client IP for the optional `remoteip` siteverify field.
+ *
+ * Defers to the shared resolver rather than reading the leftmost X-Forwarded-For
+ * entry itself: that entry is whatever the caller put there on a host we are not
+ * behind a proxy on, and Cloudflare's own header is authoritative on one we are.
+ * Sending Cloudflare a `remoteip` it disagrees with is a good way to have a
+ * legitimate challenge rejected.
+ */
 export function clientIp(req: Request): string | undefined {
-  const fwd = (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim();
-  return fwd || req.socket.remoteAddress || undefined;
+  return resolveClientIp(req) || undefined;
 }

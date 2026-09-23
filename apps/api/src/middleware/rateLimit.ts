@@ -17,6 +17,7 @@
 
 import rateLimit, { ipKeyGenerator, type Options } from "express-rate-limit";
 import type { Request } from "express";
+import { clientIp } from "../lib/client-ip";
 
 /// Callers are told what happened and when to come back, in the same error shape
 /// every other route returns, so a client parses one thing.
@@ -55,7 +56,14 @@ function byApiKeyOrIp(req: Request): string {
     for (let i = 0; i < key.length; i++) h = (Math.imul(31, h) + key.charCodeAt(i)) | 0;
     return `k:${h}`;
   }
-  return `i:${ipKeyGenerator(req.ip ?? "")}`;
+  return ipKey(req);
+}
+
+/// Every limiter that falls back to an address goes through here, so the answer
+/// to "which address" is decided once — see lib/client-ip.ts for why it is not
+/// simply `req.ip`.
+function ipKey(req: Request): string {
+  return `i:${ipKeyGenerator(clientIp(req))}`;
 }
 
 /// The merchant API. Generous — normal integrations poll, and a limit that trips
@@ -79,6 +87,10 @@ export const authLimiter = rateLimit({
   windowMs: 15 * 60_000,
   limit: 20,
   skipSuccessfulRequests: true, // only failures count, so a busy legitimate user is unaffected
+  // Explicit rather than the library's default. The default reads `req.ip`,
+  // which behind Cloudflare is an edge address shared by every visitor — one
+  // bucket for the whole platform on the endpoints that can least afford it.
+  keyGenerator: ipKey,
 });
 
 /**
