@@ -107,13 +107,29 @@ const CHAIN_LOGOS: Record<string, (p: { className?: string }) => JSX.Element> = 
   optimism: OptimismLogo,
 };
 
+/// The design's micro-label: 10px, wide tracking, upper. Used for every column
+/// heading, kicker and stat key on this page, so it is written once.
+const UPPER: React.CSSProperties = {
+  fontSize: 10,
+  letterSpacing: "0.14em",
+  textTransform: "uppercase",
+  color: "var(--color-neutral-600)",
+  margin: 0,
+};
+const HEADING = "var(--font-heading)";
+
 function Kpi({ label, value, unit, accent }: { label: string; value: string; unit?: string; accent?: boolean }) {
   return (
-    <div className="border-r border-gray-200 px-5 py-3 last:border-r-0" style={{ minWidth: 84 }}>
-      <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400">{label}</p>
-      <p className="m-0 mt-0.5 text-2xl font-bold leading-none tracking-tight" style={{ color: accent ? "var(--color-accent)" : undefined }}>
+    <div style={{ padding: "10px 18px", borderLeft: "1px solid var(--color-divider)", minWidth: 110 }}>
+      <p style={{ ...UPPER, marginBottom: 4 }}>{label}</p>
+      <p
+        style={{
+          fontFamily: HEADING, fontWeight: 800, fontSize: 20, lineHeight: 1, margin: 0,
+          color: accent ? "var(--color-accent)" : undefined,
+        }}
+      >
         {value}
-        {unit && <span className="ml-1 text-[11px] font-semibold text-gray-500">{unit}</span>}
+        {unit && <span style={{ fontSize: 12, fontWeight: 400, color: "var(--color-neutral-700)" }}> {unit}</span>}
       </p>
     </div>
   );
@@ -122,34 +138,34 @@ function Kpi({ label, value, unit, accent }: { label: string; value: string; uni
 /// What state this subscription is in, in the subscriber's terms. "Action
 /// needed" outranks the stored status: a past_due row whose cap no longer covers
 /// the price is not a failed payment, it is a price waiting on a signature.
-function StatusChip({ sub }: { sub: PortalSubscription }) {
-  const attention = needsReauthorization(sub);
-  const label = attention
-    ? "Action needed"
-    : sub.status === "trialing"
-      ? "Trial"
-      : sub.status === "past_due"
-        ? "Past due"
-        : "Active";
-  return (
-    <span
-      className="shrink-0 whitespace-nowrap border px-1.5 py-0.5 text-[10px] font-semibold"
-      style={
-        attention || sub.status === "past_due"
-          ? { borderColor: "var(--color-accent)", color: "var(--color-accent)" }
-          : { borderColor: "#bcd6f5", color: "#2359a6" }
-      }
-    >
-      {label}
-    </span>
-  );
+function statusOf(sub: PortalSubscription): { label: string; cls: string } {
+  if (needsReauthorization(sub)) return { label: "Action needed", cls: "tag-accent" };
+  if (sub.status === "trialing") return { label: "Trial", cls: "tag-outline" };
+  if (sub.status === "past_due") return { label: "Past due", cls: "tag-accent" };
+  return { label: "Active", cls: "tag-outline" };
 }
 
-function Stat({ label, value, accent }: { label: string; value: ReactNode; accent?: boolean }) {
+function StatusChip({ sub, style }: { sub: PortalSubscription; style?: React.CSSProperties }) {
+  const { label, cls } = statusOf(sub);
+  return <span className={`tag ${cls}`} style={style}>{label}</span>;
+}
+
+/// One cell of the facts grid. The negative margin is the design's: it collapses
+/// the 1px dividers so an auto-fit grid does not double them at the wrap.
+function Fact({ label, value, mono }: { label: string; value: ReactNode; mono?: boolean }) {
   return (
-    <div className="border-r border-gray-200 px-5 py-3.5 last:border-r-0">
-      <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400">{label}</p>
-      <p className="m-0 mt-1 text-sm" style={{ color: accent ? "var(--color-accent)" : "#111827" }}>{value}</p>
+    <div
+      style={{
+        padding: "16px 22px",
+        borderLeft: "1px solid var(--color-divider)",
+        borderTop: "1px solid var(--color-divider)",
+        margin: "-1px 0 0 -1px",
+      }}
+    >
+      <p style={{ ...UPPER, marginBottom: 6 }}>{label}</p>
+      <p style={{ fontSize: 14, margin: 0, fontFamily: mono ? "ui-monospace, Menlo, monospace" : undefined, wordBreak: "break-all" }}>
+        {value}
+      </p>
     </div>
   );
 }
@@ -180,6 +196,10 @@ export function ManageSubscriptionsPage() {
   /// Which subscription the detail pane shows. Null until the list arrives.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [supportedChains, setSupportedChains] = useState<PortalSupportedChain[]>([]);
+  /// The subscription a cancel has been asked about. window.confirm() was doing
+  /// this job, which on a page that otherwise looks like this read as the
+  /// browser interrupting rather than the product asking.
+  const [confirmCancel, setConfirmCancel] = useState<PortalSubscription | null>(null);
 
   const emailValid = EMAIL_RE.test(email.trim());
 
@@ -232,7 +252,7 @@ export function ManageSubscriptionsPage() {
   };
 
   const onCancel = async (s: PortalSubscription) => {
-    if (!confirm(`Cancel your ${s.plan.name} subscription with ${s.merchant.name}? You won't be charged again. Charges already taken are not reversed.`)) return;
+    setConfirmCancel(null);
     setBusyId(s.id);
     setError("");
     setNotice("");
@@ -426,67 +446,94 @@ export function ManageSubscriptionsPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50">
-      <header className="flex items-center justify-between border-b border-gray-100 bg-white px-6 py-4">
-        <Link to="/" className="flex items-center gap-2.5">
-          <Logo height={28} />
-          <span className="text-lg font-bold tracking-tight text-gray-900">Sweep Console</span>
-          <span className="ml-2 border-l border-gray-200 pl-2.5 text-sm text-gray-500">Customer portal</span>
-        </Link>
-        {phase === "list" ? (
-          <div className="flex items-center gap-4">
-            <span className="hidden text-sm text-gray-500 sm:inline">{email.trim()}</span>
-            {/* Which wallet is connected is the question behind half the
-                controls below — whether a chain can be granted, whether a price
-                can be approved — so it belongs in the chrome, not buried in a
-                row's error text. */}
-            <div className="flex items-center border border-gray-900 text-xs">
-              <span className="flex items-center gap-1.5 px-2.5 py-1.5 font-mono">
-                <span className="h-2 w-2" style={{ background: address ? "var(--color-accent)" : "#9ca3af" }} />
-                {address ? shortAddr(address) : "No wallet"}
+    <div style={{ minHeight: "100vh", fontFamily: "var(--font-body)", display: "flex", flexDirection: "column", background: "var(--color-bg)" }}>
+      <header style={{ borderBottom: "2px solid var(--color-text)" }}>
+        <div
+          style={{
+            maxWidth: 1160, margin: "0 auto", padding: "0 32px", height: 60,
+            display: "flex", alignItems: "center", gap: 16,
+          }}
+        >
+          <Link to="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "inherit" }}>
+            <Logo height={22} />
+            <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 15, letterSpacing: "-0.01em" }}>
+              Sweep Console
+            </span>
+          </Link>
+          <span style={{ width: 1, height: 20, background: "var(--color-divider)" }} />
+          <span style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>Customer portal</span>
+
+          {phase === "list" ? (
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
+              <span className="hidden sm:inline" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
+                {email.trim()}
               </span>
+              {/* Which wallet is connected decides half the controls below —
+                  whether a chain can be granted, whether a price can be
+                  approved — so it belongs in the chrome, not in a row's error
+                  text after the click. */}
               <button
                 onClick={() => openConnectModal?.()}
-                className="border-l border-gray-900 px-2.5 py-1.5 font-semibold text-brand-700 transition hover:bg-gray-900 hover:text-white"
+                title={address ? "Switch wallet" : "Connect wallet"}
+                style={{
+                  display: "flex", alignItems: "center", gap: 9,
+                  border: "2px solid var(--color-text)", background: "var(--color-bg)",
+                  padding: "6px 12px", cursor: "pointer", fontFamily: "var(--font-body)",
+                  color: "var(--color-text)",
+                }}
               >
-                {address ? "Switch" : "Connect"}
+                <span style={{ width: 8, height: 8, background: address ? "var(--color-accent)" : "var(--color-neutral-400)", display: "block" }} />
+                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12 }}>
+                  {address ? shortAddr(address) : "No wallet"}
+                </span>
+                <span style={{ fontSize: 11, color: "var(--color-neutral-600)", borderLeft: "1px solid var(--color-divider)", paddingLeft: 9 }}>
+                  {address ? "Switch" : "Connect"}
+                </span>
               </button>
             </div>
-          </div>
-        ) : (
-          <Link to="/" className="text-sm font-medium text-gray-600 transition hover:text-gray-900">Home</Link>
-        )}
+          ) : (
+            <Link to="/" style={{ marginLeft: "auto", fontSize: 13, color: "var(--color-neutral-700)" }}>
+              Home
+            </Link>
+          )}
+        </div>
       </header>
 
-      <main className={`mx-auto w-full flex-1 px-6 py-12 ${phase === "list" ? "max-w-6xl" : "max-w-2xl"}`}>
+      <main
+        style={
+          phase === "list"
+            ? { flex: 1, maxWidth: 1160, width: "100%", margin: "0 auto", padding: "40px 32px 64px", boxSizing: "border-box" }
+            : { flex: 1, maxWidth: 672, width: "100%", margin: "0 auto", padding: "48px 24px" }
+        }
+      >
         {phase !== "list" && (
-          <div className="mx-auto max-w-md rounded-2xl border border-gray-100 bg-white p-8 shadow-xl">
-            <h1 className="text-xl font-bold text-gray-900">Manage your subscriptions</h1>
-            <p className="mt-1 text-sm text-gray-500">
+          <div className="mx-auto max-w-md" style={{ border: "2px solid var(--color-text)", background: "var(--color-bg)", padding: 32 }}>
+            <h1 style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 26, letterSpacing: "-0.02em", margin: 0 }}>Manage your subscriptions</h1>
+            <p style={{ fontSize: 13.5, color: "var(--color-neutral-700)", margin: "8px 0 0", lineHeight: 1.6 }}>
               Enter your email and we&apos;ll send a 6-digit code. You&apos;ll see every subscription
               tied to that email.
             </p>
 
-            {error && <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">{error}</p>}
+            {error && <p style={{ marginTop: 16, padding: "12px 16px", background: "var(--color-accent-100)", borderLeft: "3px solid var(--color-accent)", fontSize: 13 }}>{error}</p>}
 
             {phase === "login" ? (
               <div className="mt-5 space-y-4">
                 <div>
-                  <label htmlFor="email" className="mb-1 block text-sm font-medium text-gray-700">Email address</label>
+                  <label htmlFor="email" className="block" style={{ ...UPPER, marginBottom: 6 }}>Email address</label>
                   <input
                     id="email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="input" style={{ width: "100%" }}
                   />
                 </div>
                 <Turnstile onVerify={setCaptcha} onExpire={() => setCaptcha("")} resetSignal={captchaReset} />
                 <button
                   onClick={sendCode}
                   disabled={loading || !emailValid || (TURNSTILE_ENABLED && !captcha)}
-                  className="w-full rounded-lg bg-gray-900 py-2.5 font-medium text-white transition hover:bg-black disabled:opacity-50"
+                  className="btn btn-primary" style={{ width: "100%" }}
                 >
                   {loading ? "Sending…" : "Send code"}
                 </button>
@@ -494,7 +541,7 @@ export function ManageSubscriptionsPage() {
             ) : (
               <div className="mt-5 space-y-4">
                 <div>
-                  <label htmlFor="code" className="mb-1 block text-sm font-medium text-gray-700">6-digit code</label>
+                  <label htmlFor="code" className="block" style={{ ...UPPER, marginBottom: 6 }}>6-digit code</label>
                   <input
                     id="code"
                     inputMode="numeric"
@@ -502,17 +549,17 @@ export function ManageSubscriptionsPage() {
                     value={code}
                     onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
                     placeholder="123456"
-                    className="w-40 rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="input" style={{ width: 160, fontVariantNumeric: "tabular-nums" }}
                   />
                 </div>
                 <button
                   onClick={verify}
                   disabled={loading || code.trim().length !== 6}
-                  className="w-full rounded-lg bg-gray-900 py-2.5 font-medium text-white transition hover:bg-black disabled:opacity-50"
+                  className="btn btn-primary" style={{ width: "100%" }}
                 >
                   {loading ? "Verifying…" : "View my subscriptions"}
                 </button>
-                <button onClick={() => { setPhase("login"); setCode(""); setError(""); }} className="text-sm font-medium text-brand-700 hover:underline">
+                <button onClick={() => { setPhase("login"); setCode(""); setError(""); }} className="btn btn-ghost" style={{ padding: 0, fontSize: 13 }}>
                   Use a different email
                 </button>
               </div>
@@ -528,21 +575,23 @@ export function ManageSubscriptionsPage() {
           const uniform = intervals.size === 1 ? [...intervals][0] : null;
           const maxTotal = subs.reduce((n, x) => n + x.plan.amount, 0);
           const merchants = new Set(subs.map((x) => x.merchant.name)).size;
+          const first = needing[0];
 
           return (
-          <div>
-            <div className="flex flex-wrap items-end justify-between gap-6">
+          <>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 24, flexWrap: "wrap", marginBottom: 24 }}>
               <div>
-                <h1 className="m-0 text-4xl font-bold tracking-tight text-gray-900">Subscriptions</h1>
-                <p className="m-0 mt-1.5 text-sm text-gray-500">
+                <h1 style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 44, lineHeight: 1, letterSpacing: "-0.035em", margin: "0 0 8px" }}>
+                  Subscriptions
+                </h1>
+                <p style={{ fontSize: 14, color: "var(--color-neutral-700)", margin: 0 }}>
                   {subs.length === 0
                     ? "Nothing active on this email."
                     : `${subs.length} subscription${subs.length === 1 ? "" : "s"} with ${merchants} merchant${merchants === 1 ? "" : "s"}, paid in USDC from your own wallets.`}
                 </p>
               </div>
-
               {subs.length > 0 && (
-                <div className="flex border border-gray-900">
+                <div style={{ marginLeft: "auto", display: "flex", border: "2px solid var(--color-text)" }}>
                   <Kpi label="Active" value={String(activeCount)} />
                   <Kpi label="Needs you" value={String(needing.length)} accent={needing.length > 0} />
                   <Kpi
@@ -554,39 +603,62 @@ export function ManageSubscriptionsPage() {
               )}
             </div>
 
-            {/* One line, above everything, naming the subscription that is not
+            {/* One strip, above everything, naming the subscription that is not
                 being collected. A paused subscription is invisible otherwise:
                 nothing fails, no payment is declined, it simply stops. */}
-            {needing.length > 0 && (
-              <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 border-l-[3px] border-brand-600 bg-brand-50 px-4 py-3">
-                <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-700">Action needed</span>
-                <p className="m-0 flex-1 text-sm text-gray-700">
+            {first && (
+              <div
+                style={{
+                  display: "flex", alignItems: "center", gap: 14, padding: "14px 20px",
+                  background: "var(--color-accent-100)", borderTop: "2px solid var(--color-accent)",
+                  borderBottom: "1px solid var(--color-accent-300)", marginBottom: 28, flexWrap: "wrap",
+                }}
+              >
+                <span className="tag tag-accent">Action needed</span>
+                <span style={{ fontSize: 13.5, color: "var(--color-accent-900)" }}>
                   {needing.length === 1
-                    ? `${needing[0]!.merchant.name} raised ${needing[0]!.plan.name} to ${fmtUsdc(needing[0]!.plan.amount)} USDC ${INTERVAL_LABELS[needing[0]!.plan.interval] ?? ""}. Charges are paused until you approve.`
+                    ? `${first.merchant.name} raised ${first.plan.name} to ${fmtUsdc(first.plan.amount)} ${first.plan.currency} / ${PER_NOUN[first.plan.interval] ?? first.plan.interval}. Charges are paused until you approve.`
                     : `${needing.length} subscriptions are paused until you approve a new price.`}
-                </p>
-                {needing.length === 1 && needing[0]!.id !== selected?.id && (
-                  <button onClick={() => setSelectedId(needing[0]!.id)} className="text-sm font-semibold text-brand-700 hover:underline">
+                </span>
+                {first.id !== selected?.id && (
+                  <button
+                    className="btn btn-ghost"
+                    style={{ marginLeft: "auto", fontSize: 13, padding: 0, color: "var(--color-accent-700)" }}
+                    onClick={() => { setSelectedId(first.id); setError(""); setNotice(""); }}
+                  >
                     Review &rarr;
                   </button>
                 )}
               </div>
             )}
 
-            {notice && <p className="mt-6 border-l-[3px] border-brand-600 bg-brand-50 px-4 py-3 text-sm text-brand-800">{notice}</p>}
-            {error && <p className="mt-6 border-l-[3px] border-red-500 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+            {notice && (
+              <div style={{ padding: "12px 18px", background: "var(--color-accent-100)", borderLeft: "3px solid var(--color-accent)", marginBottom: 20, fontSize: 13 }}>
+                {notice}
+              </div>
+            )}
+            {error && (
+              <div style={{ padding: "12px 18px", background: "var(--color-neutral-100)", borderLeft: "3px solid var(--color-accent)", marginBottom: 20, fontSize: 13 }}>
+                {error}
+              </div>
+            )}
 
             {subs.length === 0 ? (
-              <div className="mt-6 border border-gray-200 bg-white p-10 text-center">
-                <p className="m-0 text-sm text-gray-500">No active subscriptions found for this email.</p>
+              <div style={{ border: "2px solid var(--color-text)", padding: 40, textAlign: "center" }}>
+                <p style={{ fontSize: 13, color: "var(--color-neutral-700)", margin: 0 }}>
+                  No active subscriptions found for this email.
+                </p>
               </div>
             ) : (
-              <div className="mt-6 grid grid-cols-1 border border-gray-200 bg-white lg:grid-cols-[260px_1fr]">
+              <div style={{ display: "flex", flexWrap: "wrap", border: "2px solid var(--color-text)" }}>
                 {/* The list. Every subscription stays one click away, which is
-                    the whole reason for a two-pane layout: someone paying three
-                    merchants should not scroll past two to reach the third. */}
-                <aside className="border-b border-gray-200 bg-gray-50 lg:border-b-0 lg:border-r">
-                  <p className="m-0 border-b border-gray-200 px-4 py-3 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400">
+                    the point of two panes: someone paying three merchants should
+                    not scroll past two to reach the third. */}
+                <nav
+                  aria-label="Your subscriptions"
+                  style={{ flex: "1 1 280px", maxWidth: "100%", borderRight: "1px solid var(--color-divider)", background: "var(--color-surface)" }}
+                >
+                  <p style={{ ...UPPER, padding: "14px 20px", borderBottom: "2px solid var(--color-text)" }}>
                     All subscriptions · {subs.length}
                   </p>
                   {subs.map((x) => {
@@ -596,27 +668,36 @@ export function ManageSubscriptionsPage() {
                         key={x.id}
                         onClick={() => { setSelectedId(x.id); setError(""); setNotice(""); }}
                         aria-current={on ? "true" : undefined}
-                        className={`block w-full border-b border-gray-200 px-4 py-3 text-left transition ${
-                          on ? "border-l-[3px] border-l-brand-600 bg-white" : "border-l-[3px] border-l-transparent hover:bg-white"
-                        }`}
+                        style={{
+                          display: "block", width: "100%", textAlign: "left",
+                          background: on ? "var(--color-bg)" : "transparent",
+                          border: 0, borderBottom: "1px solid var(--color-divider)",
+                          borderLeft: `4px solid ${on ? "var(--color-accent)" : "transparent"}`,
+                          padding: "16px 20px 16px 16px", cursor: "pointer",
+                          fontFamily: "var(--font-body)", color: "var(--color-text)",
+                        }}
                       >
-                        <span className="flex items-baseline justify-between gap-2">
-                          <span className="truncate text-[10.5px] font-bold uppercase tracking-[0.12em] text-gray-400">
+                        <span style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                          <span style={{ ...UPPER, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {x.merchant.name}
                           </span>
-                          <StatusChip sub={x} />
+                          <StatusChip sub={x} style={{ marginLeft: "auto" }} />
                         </span>
-                        <span className="mt-1 flex items-baseline justify-between gap-2">
-                          <span className="truncate font-bold text-gray-900">{x.plan.name}</span>
-                          <span className="shrink-0 text-sm text-gray-500">
-                            <strong className="text-gray-900">{fmtUsdc(x.plan.amount)}</strong>{" "}
-                            {INTERVAL_LABELS[x.plan.interval] ?? ""}
+                        <span style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                          <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 16, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {x.plan.name}
+                          </span>
+                          <span style={{ marginLeft: "auto", fontFamily: HEADING, fontWeight: 800, fontSize: 15, whiteSpace: "nowrap" }}>
+                            {fmtUsdc(x.plan.amount)}
+                            <span style={{ fontSize: 11.5, fontWeight: 400, color: "var(--color-neutral-700)" }}>
+                              {" "}/{PER_NOUN[x.plan.interval] ?? x.plan.interval}
+                            </span>
                           </span>
                         </span>
                       </button>
                     );
                   })}
-                </aside>
+                </nav>
 
                 {selected && (
                   <SubscriptionDetail
@@ -628,23 +709,46 @@ export function ManageSubscriptionsPage() {
                     onGrantChain={onGrantChain}
                     onRevokeGrant={onRevokeGrant}
                     onApprovePrice={onEnableGrant}
-                    onCancel={onCancel}
+                    onAskCancel={(x) => setConfirmCancel(x)}
                     onConnect={() => openConnectModal?.()}
                   />
                 )}
               </div>
             )}
 
-            <p className="mx-auto mt-6 max-w-xl text-center text-[11px] leading-relaxed text-gray-400">
+            <p style={{ fontSize: 12, lineHeight: 1.65, color: "var(--color-neutral-700)", margin: "22px 0 0", maxWidth: "80ch" }}>
               Cancelling and turning chains off cost no gas — Sweep Console covers it. Either one stops future
               charges immediately. The permission you signed stays in your wallet until you remove it there.
               Sweep Console never holds your funds.
             </p>
-          </div>
+          </>
           );
         })()}
 
       </main>
+
+      {/* Asking before an irreversible thing, in the product's own voice. */}
+      {confirmCancel && (
+        <div className="dialog-backdrop" onClick={() => setConfirmCancel(null)}>
+          <div
+            className="dialog"
+            style={{ border: "2px solid var(--color-text)", maxWidth: 460 }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <p className="dialog-title" style={{ margin: 0 }}>Cancel {confirmCancel.plan.name}?</p>
+            <p className="dialog-body" style={{ margin: 0 }}>
+              {confirmCancel.merchant.name} won&apos;t be able to charge you again. You keep access until{" "}
+              {fmtDate(confirmCancel.current_period_end)}. Charges already taken are not reversed.
+            </p>
+            <div className="dialog-actions">
+              <button className="btn btn-secondary" onClick={() => setConfirmCancel(null)}>Keep subscription</button>
+              <button className="btn btn-primary" onClick={() => void onCancel(confirmCancel)}>Cancel subscription</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -658,7 +762,7 @@ export function ManageSubscriptionsPage() {
  */
 function SubscriptionDetail({
   sub, supportedChains, connected, busyId,
-  onGrantChain, onRevokeGrant, onApprovePrice, onCancel, onConnect,
+  onGrantChain, onRevokeGrant, onApprovePrice, onAskCancel, onConnect,
 }: {
   sub: PortalSubscription;
   supportedChains: PortalSupportedChain[];
@@ -667,7 +771,7 @@ function SubscriptionDetail({
   onGrantChain: (s: PortalSubscription, chainId: number) => void | Promise<void>;
   onRevokeGrant: (s: PortalSubscription, chainId?: number, isLast?: boolean) => void | Promise<void>;
   onApprovePrice: (s: PortalSubscription) => void | Promise<void>;
-  onCancel: (s: PortalSubscription) => void | Promise<void>;
+  onAskCancel: (s: PortalSubscription) => void;
   onConnect: () => void;
 }) {
   const per = PER_NOUN[sub.plan.interval] ?? sub.plan.interval;
@@ -676,247 +780,281 @@ function SubscriptionDetail({
   const cap = sub.grants.reduce((m, g) => (g.period_amount > m ? g.period_amount : m), 0);
   const granted = new Map(sub.grants.map((g) => [g.chain_id, g]));
   const busyWhole = busyId === sub.id;
+  const trialing = !!sub.trial_end && new Date(sub.trial_end) > new Date();
 
-  // Only chains this subscription could actually use. Falls back to whatever it
-  // already has grants on, so a chain dropped from SUPPORTED_SOURCE_CHAINS after
-  // someone authorized it still appears — they are still carrying it.
-  const rows = supportedChains.length > 0
+  // Only chains this subscription could use. Falls back to whatever it already
+  // has grants on, so a chain dropped from SUPPORTED_SOURCE_CHAINS after someone
+  // authorized it still appears — they are still carrying it.
+  const rows: PortalSupportedChain[] = supportedChains.length > 0
     ? supportedChains
     : sub.grants.map((g) => ({ chain_id: g.chain_id, chain_key: g.chain, name: CHAIN_NAMES[g.chain] ?? g.chain }));
 
   return (
-    <div className="min-w-0">
-      {/* Identity and price. The number is the largest thing here because it is
-          the one fact a subscriber opens this page to check. */}
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-gray-200 px-6 py-5">
-        <div className="min-w-0">
-          <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.12em] text-gray-400">{sub.merchant.name}</p>
-          <h2 className="m-0 mt-1 truncate text-3xl font-bold tracking-tight text-gray-900">{sub.plan.name}</h2>
-          <span className="mt-2 inline-block"><StatusChip sub={sub} /></span>
+    <section style={{ flex: "999 1 520px", minWidth: 0, animation: "swp-in .2s ease" }}>
+      <div
+        style={{
+          padding: "26px 30px 22px", display: "flex", alignItems: "flex-start", gap: 20,
+          flexWrap: "wrap", borderBottom: "2px solid var(--color-text)",
+        }}
+      >
+        <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+          <p style={{ ...UPPER, letterSpacing: "0.16em", color: "var(--color-accent-700)", marginBottom: 8 }}>
+            {sub.merchant.name}
+          </p>
+          <h2 style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 32, lineHeight: 1, letterSpacing: "-0.03em", margin: "0 0 10px" }}>
+            {sub.plan.name}
+          </h2>
+          <StatusChip sub={sub} />
         </div>
-        <div className="shrink-0 text-right">
-          <p className="m-0 text-4xl font-bold leading-none tracking-tight text-gray-900">{fmtUsdc(sub.plan.amount)}</p>
-          <p className="m-0 mt-1 text-xs text-gray-500">{sub.plan.currency} per {per}</p>
+        <div style={{ textAlign: "right" }}>
+          <p style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 40, lineHeight: 1, letterSpacing: "-0.035em", margin: 0 }}>
+            {fmtUsdc(sub.plan.amount)}
+          </p>
+          <p style={{ fontSize: 12.5, color: "var(--color-neutral-700)", margin: "4px 0 0" }}>
+            {sub.plan.currency} per {per}
+          </p>
         </div>
       </div>
 
-      {/* The block that explains a paused subscription. It leads with the two
-          numbers, because "5 → 12" is the whole story and the paragraph is only
-          there to say what to do about it. */}
+      {/* The block that explains a paused subscription. The struck-through cap
+          beside the new price is the whole story; the paragraph only says what
+          to do about it. */}
       {attention && (
-        <div className="border-b border-gray-200 bg-brand-50 px-6 py-5">
-          <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.12em] text-brand-700">
-            Price change · approval required
-          </p>
-          <p className="m-0 mt-2 text-2xl font-bold tracking-tight text-gray-900">
-            <span className="text-gray-400">{fmtUsdc(cap)}</span>
-            <span className="mx-2 text-gray-400">&rarr;</span>
-            {fmtUsdc(sub.plan.amount)} {sub.plan.currency} / {per}
-          </p>
-          <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
-            <p className="m-0 max-w-md text-sm leading-relaxed text-gray-700">
-              You authorized up to {fmtUsdc(cap)} {sub.plan.currency}, so charges are paused and you
-              haven&apos;t been billed the new price. Approve to continue, or cancel.
-            </p>
-            <div className="shrink-0">
-              {mine ? (
-                <button
-                  onClick={() => void onApprovePrice(sub)}
-                  disabled={busyWhole}
-                  className="flex items-center gap-2 bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-60"
-                >
-                  {busyWhole && <Spinner size={14} tone="onAccent" />}
-                  {busyWhole ? "Approving…" : `Approve ${fmtUsdc(sub.plan.amount)} ${sub.plan.currency} / ${per}`}
-                </button>
-              ) : (
-                <>
-                  <button
-                    onClick={onConnect}
-                    className="bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700"
-                  >
-                    Switch to {shortAddr(sub.wallet_address)}
-                  </button>
-                  <p className="m-0 mt-2 max-w-xs text-[11px] text-gray-500">
-                    {connected
-                      ? `You're connected as ${shortAddr(connected)}. Only the paying wallet can approve.`
-                      : "Connect the paying wallet to approve."}
-                  </p>
-                </>
-              )}
+        <div style={{ padding: "22px 30px", background: "var(--color-accent-100)", borderBottom: "1px solid var(--color-accent-300)" }}>
+          <div
+            style={{
+              display: "grid", gap: 20, alignItems: "end",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))",
+            }}
+          >
+            <div>
+              <p style={{ ...UPPER, letterSpacing: "0.16em", color: "var(--color-accent-700)", marginBottom: 10 }}>
+                Price change · approval required
+              </p>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 10 }}>
+                <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 22, color: "var(--color-neutral-600)", textDecoration: "line-through" }}>
+                  {fmtUsdc(cap)}
+                </span>
+                <span style={{ fontSize: 14, color: "var(--color-neutral-700)" }}>&rarr;</span>
+                <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 22 }}>
+                  {fmtUsdc(sub.plan.amount)} {sub.plan.currency} / {per}
+                </span>
+              </div>
+              <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--color-accent-900)", margin: 0, maxWidth: "52ch" }}>
+                You authorized up to {fmtUsdc(cap)} {sub.plan.currency}, so charges are paused and you haven&apos;t been
+                billed the new price. Approve to continue, or cancel.
+              </p>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
+              <button
+                className="btn btn-primary"
+                style={{ padding: "12px 20px", display: "flex", alignItems: "center", gap: 10 }}
+                disabled={busyWhole}
+                onClick={() => (mine ? void onApprovePrice(sub) : onConnect())}
+              >
+                {busyWhole && <Spinner size={14} tone="onAccent" />}
+                {busyWhole
+                  ? "Approving…"
+                  : mine
+                    ? `Approve ${fmtUsdc(sub.plan.amount)} ${sub.plan.currency} / ${per}`
+                    : `Switch to ${shortAddr(sub.wallet_address)}`}
+              </button>
+              <span style={{ fontSize: 11.5, color: "var(--color-accent-800)", lineHeight: 1.5 }}>
+                {mine
+                  ? "One signature. Gas is covered."
+                  : connected
+                    ? `You're connected as ${shortAddr(connected)}. Only the paying wallet can approve.`
+                    : "Connect the paying wallet to approve."}
+              </span>
             </div>
           </div>
           {busyWhole && <ActivityBar className="mt-4" />}
         </div>
       )}
 
-      <div className="grid grid-cols-2 border-b border-gray-200 sm:grid-cols-4">
-        <Stat
+      <div
+        style={{
+          display: "grid", borderBottom: "2px solid var(--color-text)",
+          gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+        }}
+      >
+        <Fact
           label="Next charge"
-          value={attention ? "Paused" : sub.trial_end && new Date(sub.trial_end) > new Date() ? `Trial ends ${fmtDate(sub.trial_end)}` : fmtDate(sub.current_period_end)}
-          accent={attention}
+          value={attention ? <span style={{ color: "var(--color-accent)" }}>Paused</span>
+            : trialing ? `Trial ends ${fmtDate(sub.trial_end!)}`
+            : fmtDate(sub.current_period_end)}
         />
-        <Stat label={`${INTERVAL_NOUN[sub.plan.interval] ?? ""} limit`} value={cap > 0 ? `${fmtUsdc(cap)} ${sub.plan.currency}` : "None authorized"} />
-        <Stat label="Pays from" value={<span className="font-mono text-[12.5px]">{shortAddr(sub.wallet_address)}</span>} />
-        <Stat label="Started" value={fmtDate(sub.created_at)} />
+        <Fact label={`${INTERVAL_NOUN[sub.plan.interval] ?? ""} limit`} value={cap > 0 ? `${fmtUsdc(cap)} ${sub.plan.currency}` : "None authorized"} />
+        <Fact label="Pays from" value={shortAddr(sub.wallet_address)} mono />
+        <Fact label="Started" value={fmtDate(sub.created_at)} />
       </div>
 
       {/* Per chain, not one switch. Renewals try each authorized chain in turn,
-          so which ones are on is a real choice with a real consequence, and the
-          old all-or-nothing toggle hid it. */}
-      {TIER2_ENABLED && (
-        <div className="border-b border-gray-200 px-6 py-5">
-          <p className="m-0">
-            <strong className="text-[15px] text-gray-900">Charge from</strong>{" "}
-            <span className="text-xs text-gray-500">If one chain is short, we try the next. Changes are free.</span>
-          </p>
-
-          <div className="mt-3">
-            {rows.map((c) => {
-              const g = granted.get(c.chain_id);
-              const Logo = CHAIN_LOGOS[c.chain_key];
-              const rowBusy = busyId === `${sub.id}:${c.chain_id}`;
-              const isLast = !!g && sub.grants.length === 1;
-              return (
-                <div key={c.chain_id} className="relative flex items-center gap-3 border-t border-gray-100 py-3">
-                  {Logo ? <Logo className="h-5 w-5 shrink-0" /> : <span className="h-5 w-5 shrink-0 rounded-full bg-gray-200" />}
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-bold text-gray-900">{c.name}</span>
-                    <span className="block text-xs text-gray-500">
-                      {g ? `up to ${fmtUsdc(g.period_amount)} ${sub.plan.currency} a period` : "Not used for this subscription"}
-                    </span>
-                  </span>
-
-                  {rowBusy ? (
-                    <span className="flex items-center gap-2 text-xs text-gray-500">
-                      <Spinner size={13} />
-                      Confirm in your wallet…
-                    </span>
-                  ) : g ? (
-                    <button
-                      onClick={() => void onRevokeGrant(sub, c.chain_id, isLast)}
-                      className="flex shrink-0 items-center gap-2 text-xs text-gray-500 hover:text-gray-900"
-                      aria-label={`Turn off ${c.name}`}
-                    >
-                      On
-                      <span className="relative block h-5 w-9 bg-gray-900 transition">
-                        <span className="absolute right-0.5 top-0.5 block h-4 w-4 bg-white" />
-                      </span>
-                    </button>
-                  ) : (
-                    <span className="flex shrink-0 items-center gap-3">
-                      <span className="text-[11px] text-gray-400">Not granted</span>
-                      <button
-                        onClick={() => (mine ? void onGrantChain(sub, c.chain_id) : onConnect())}
-                        className="border border-gray-900 px-3 py-1.5 text-xs font-semibold text-gray-900 transition hover:bg-gray-900 hover:text-white"
-                      >
-                        {mine ? "Grant · 1 signature" : "Switch wallet to grant"}
-                      </button>
-                    </span>
-                  )}
-                  {rowBusy && <ActivityBar className="absolute inset-x-0 bottom-0" />}
-                </div>
-              );
-            })}
-          </div>
-
-          <p className="m-0 mt-3 max-w-lg text-[11px] leading-relaxed text-gray-500">
-            {mine
-              ? "Granting a new chain takes one signature from your wallet, with gas covered. Turning a granted chain off or on afterwards is free."
-              : `Granting a chain needs one signature from ${shortAddr(sub.wallet_address)}${connected ? ` — you're connected as ${shortAddr(connected)}` : ""}.`}
-          </p>
+          so which ones are on is a real choice with a real consequence. */}
+      <div style={{ padding: "22px 30px", borderBottom: "1px solid var(--color-divider)" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+          <h3 style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 17, margin: 0, letterSpacing: "-0.01em" }}>Charge from</h3>
+          <span style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>
+            If one chain is short, we try the next. Changes are free.
+          </span>
         </div>
-      )}
 
-      {/* What has actually been taken.
-          The chain column is the one honest difficulty here. Payment.chain holds
-          the SOURCE chain for a first payment and the literal "arc" for a
-          renewal, so the stored value answers two different questions depending
-          on the row. txHash, by contrast, is always the Arc settlement — checked
-          against both chains — so the receipt link is reliable even where the
-          chain label is thin. Hence "Chain", and a caption rather than a claim. */}
-      <div className="border-b border-gray-200 px-6 py-5">
-        <p className="m-0 text-[15px] font-bold text-gray-900">Payment history</p>
-        {sub.payments.length === 0 ? (
-          <p className="m-0 mt-2 text-sm text-gray-500">Nothing charged yet.</p>
-        ) : (
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400">
-                  <th className="border-b border-gray-200 py-2 pr-4 text-left font-bold">Date</th>
-                  <th className="border-b border-gray-200 px-4 py-2 text-left font-bold">Amount</th>
-                  <th className="border-b border-gray-200 px-4 py-2 text-left font-bold">Chain</th>
-                  <th className="border-b border-gray-200 px-4 py-2 text-left font-bold">Status</th>
-                  <th className="border-b border-gray-200 py-2 pl-4 text-right font-bold">Receipt</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sub.payments.map((pay) => (
-                  <tr key={pay.id}>
-                    <td className="border-b border-gray-100 py-2.5 pr-4 text-gray-600">{fmtDate(pay.created_at)}</td>
-                    <td className="border-b border-gray-100 px-4 py-2.5 font-bold text-gray-900">
-                      {formatUnits(BigInt(pay.amount), 6)} {pay.currency}
-                    </td>
-                    <td className="border-b border-gray-100 px-4 py-2.5 text-gray-600">
-                      {CHAIN_NAMES[pay.settled_on] ?? pay.settled_on}
-                    </td>
-                    <td className="border-b border-gray-100 px-4 py-2.5">
-                      <PaymentStatus payment={pay} />
-                    </td>
-                    <td className="border-b border-gray-100 py-2.5 pl-4 text-right">
-                      {pay.tx_hash ? (
-                        <a
-                          href={`${EXPLORER}/tx/${pay.tx_hash}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-brand-700 underline underline-offset-2 hover:no-underline"
-                        >
-                          ArcScan &#8599;
-                        </a>
-                      ) : (
-                        <span className="text-gray-400">&mdash;</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="m-0 mt-3 text-[11px] text-gray-500">
-              Every payment settles on Arc whichever chain it came from — each receipt opens the Arc transaction.
-            </p>
-          </div>
+        <div style={{ borderTop: "1px solid var(--color-divider)" }}>
+          {rows.map((c) => {
+            const g = granted.get(c.chain_id);
+            const Logo = CHAIN_LOGOS[c.chain_key];
+            const rowBusy = busyId === `${sub.id}:${c.chain_id}`;
+            const isLast = !!g && sub.grants.length === 1;
+            return (
+              <div
+                key={c.chain_id}
+                style={{
+                  position: "relative", display: "flex", alignItems: "center", gap: 14,
+                  padding: "13px 0", borderBottom: "1px solid var(--color-divider)", flexWrap: "wrap",
+                }}
+              >
+                {Logo
+                  ? <Logo className="h-[22px] w-[22px] shrink-0" />
+                  : <span style={{ width: 22, height: 22, flex: "none", background: "var(--color-neutral-200)" }} />}
+                <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 14.5, color: g ? undefined : "var(--color-neutral-700)" }}>
+                  {c.name}
+                </span>
+                <span style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>
+                  {g ? `up to ${fmtUsdc(g.period_amount)} ${sub.plan.currency} a period` : "Not used for this subscription"}
+                </span>
+
+                {rowBusy ? (
+                  <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, fontSize: 12.5, color: "var(--color-neutral-700)" }}>
+                    <Spinner size={13} />
+                    Confirm in your wallet…
+                  </span>
+                ) : g ? (
+                  <button
+                    onClick={() => void onRevokeGrant(sub, c.chain_id, isLast)}
+                    aria-label={`Turn off ${c.name}`}
+                    style={{
+                      marginLeft: "auto", display: "flex", alignItems: "center", gap: 10,
+                      background: "transparent", border: 0, padding: 0, cursor: "pointer",
+                      fontFamily: "var(--font-body)", fontSize: 12.5, color: "var(--color-text)",
+                    }}
+                  >
+                    <span style={{ minWidth: 22, textAlign: "right" }}>On</span>
+                    <span
+                      style={{
+                        width: 40, height: 22, border: "2px solid var(--color-text)",
+                        background: "var(--color-text)", display: "flex", justifyContent: "flex-end",
+                        boxSizing: "border-box", padding: 3,
+                      }}
+                    >
+                      <span style={{ width: 12, height: 12, background: "var(--color-bg)", display: "block" }} />
+                    </span>
+                  </button>
+                ) : (
+                  <>
+                    <span className="tag tag-neutral" style={{ marginLeft: "auto" }}>Not granted</span>
+                    <button
+                      className="btn btn-secondary"
+                      style={{ padding: "7px 12px", fontSize: 12.5 }}
+                      onClick={() => (mine ? void onGrantChain(sub, c.chain_id) : onConnect())}
+                    >
+                      {mine ? "Grant · 1 signature" : "Switch wallet to grant"}
+                    </button>
+                  </>
+                )}
+                {rowBusy && <ActivityBar className="absolute inset-x-0 bottom-0" />}
+              </div>
+            );
+          })}
+        </div>
+
+        <p style={{ fontSize: 12, lineHeight: 1.6, color: "var(--color-neutral-700)", margin: "10px 0 0", maxWidth: "70ch" }}>
+          {mine
+            ? "Granting a new chain takes one signature from your wallet, with gas covered. Turning a granted chain off or on afterwards is free."
+            : `Granting a chain needs one signature from ${shortAddr(sub.wallet_address)}${connected ? ` — you're connected as ${shortAddr(connected)}` : ""}.`}
+        </p>
+
+        {sub.grants.length === 0 && (
+          <p style={{ fontSize: 12.5, color: "var(--color-accent-800)", margin: "10px 0 0" }}>
+            No chains are on, so renewals are paused until you turn one back on.
+          </p>
         )}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-5">
-        <div className="min-w-0">
-          <p className="m-0 text-[15px] font-bold text-gray-900">Cancel subscription</p>
-          <p className="m-0 mt-1 text-xs text-gray-500">
+      {/* The chain column is the one honest difficulty here. Payment.chain holds
+          the SOURCE chain for a first payment and the literal "arc" for a
+          renewal, so the stored value answers two different questions depending
+          on the row. txHash, by contrast, is always the Arc settlement — checked
+          against both chains — so the receipt link is reliable regardless. */}
+      <div style={{ padding: "22px 30px", borderBottom: "1px solid var(--color-divider)" }}>
+        <h3 style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 17, margin: "0 0 12px", letterSpacing: "-0.01em" }}>
+          Payment history
+        </h3>
+        {sub.payments.length === 0 ? (
+          <p style={{ fontSize: 13, color: "var(--color-neutral-700)", margin: 0 }}>Nothing charged yet.</p>
+        ) : (
+          <>
+            <div style={{ overflowX: "auto", maxWidth: "100%" }}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Date</th><th>Amount</th><th>Chain</th><th>Status</th>
+                    <th style={{ textAlign: "right" }}>Receipt</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sub.payments.map((pay) => (
+                    <tr key={pay.id}>
+                      <td style={{ whiteSpace: "nowrap" }}>{fmtDate(pay.created_at)}</td>
+                      <td style={{ fontFamily: HEADING, fontWeight: 800, whiteSpace: "nowrap" }}>
+                        {formatUnits(BigInt(pay.amount), 6)} {pay.currency}
+                      </td>
+                      <td style={{ color: "var(--color-neutral-700)" }}>{CHAIN_NAMES[pay.settled_on] ?? pay.settled_on}</td>
+                      <td><PaymentStatus payment={pay} /></td>
+                      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                        {pay.tx_hash ? (
+                          <a href={`${EXPLORER}/tx/${pay.tx_hash}`} target="_blank" rel="noreferrer">ArcScan &#8599;</a>
+                        ) : (
+                          <span style={{ color: "var(--color-neutral-600)" }}>&mdash;</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p style={{ fontSize: 12, color: "var(--color-neutral-700)", margin: "10px 0 0" }}>
+              Every payment settles on Arc whichever chain it came from — each receipt opens the Arc transaction.
+            </p>
+          </>
+        )}
+      </div>
+
+      <div style={{ padding: "20px 30px 24px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 300px" }}>
+          <p style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 15, margin: "0 0 4px" }}>Cancel subscription</p>
+          <p style={{ fontSize: 12.5, lineHeight: 1.6, color: "var(--color-neutral-700)", margin: 0, maxWidth: "60ch" }}>
             Stops all future charges right away. You keep access until {fmtDate(sub.current_period_end)}.
           </p>
         </div>
         <button
-          onClick={() => void onCancel(sub)}
+          className="btn btn-secondary"
+          style={{ padding: "10px 16px", display: "flex", alignItems: "center", gap: 10 }}
           disabled={busyWhole}
-          className="flex shrink-0 items-center gap-2 border border-gray-900 px-4 py-2.5 text-sm font-semibold text-gray-900 transition hover:bg-gray-900 hover:text-white disabled:opacity-60"
+          onClick={() => onAskCancel(sub)}
         >
           {busyWhole && <Spinner size={14} tone="muted" />}
           {busyWhole ? "Cancelling…" : "Cancel subscription"}
         </button>
       </div>
-    </div>
+    </section>
   );
 }
 
 function PaymentStatus({ payment }: { payment: PortalPayment }) {
-  if (payment.status === "succeeded") {
-    return <span className="border border-brand-300 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700">Paid</span>;
-  }
-  if (payment.status === "pending") {
-    return <span className="text-[11px] text-gray-500">In flight</span>;
-  }
+  if (payment.status === "succeeded") return <span className="tag tag-outline">Paid</span>;
+  if (payment.status === "pending") return <span className="tag tag-neutral">In flight</span>;
   return (
-    <span className="text-[11px]" style={{ color: "var(--color-accent)" }} title={payment.failure_reason ?? undefined}>
+    <span className="tag tag-accent" title={payment.failure_reason ?? undefined}>
       {payment.status === "failed" ? "Failed" : payment.status}
     </span>
   );
