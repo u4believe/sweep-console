@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { friendlyError } from "@/lib/errors";
+import { Spinner } from "@/components/ui/Spinner";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -50,7 +51,7 @@ export function PaymentLinkPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50">
       <div className="flex items-center gap-3 text-sm text-gray-500">
-        <span className="h-4 w-4 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
+        <Spinner size={16} />
         Preparing your checkout…
       </div>
     </div>

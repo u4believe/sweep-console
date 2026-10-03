@@ -11,6 +11,7 @@ import {
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import { friendlyError } from "@/lib/errors";
+import { Spinner } from "@/components/ui/Spinner";
 
 /**
  * Does this wallet already hold a renewal mandate on any chain?
@@ -261,7 +262,7 @@ export function GatewaySweepPanel({
           <p className="text-xs text-gray-400">One gasless signature (the Arc approval).</p>
           {autoStart ? (
             <div className="flex items-center gap-2 text-sm text-gray-600">
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
+              <Spinner size={16} />
               <span>Confirm in your wallet…</span>
             </div>
           ) : (
@@ -287,7 +288,7 @@ export function GatewaySweepPanel({
           </p>
           {autoStart ? (
             <div className="flex items-center gap-2 text-sm text-gray-600">
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
+              <Spinner size={16} />
               <span>Confirm in your wallet…</span>
             </div>
           ) : (
@@ -300,7 +301,7 @@ export function GatewaySweepPanel({
 
       {phase === "signing" && (
         <div className="flex items-center gap-2 text-sm text-gray-600">
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
+          <Spinner size={16} />
           <span>Processing your payment…</span>
         </div>
       )}
@@ -308,7 +309,7 @@ export function GatewaySweepPanel({
       {phase === "executing" && (
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-sm text-gray-700">
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
+            <Spinner size={16} />
             <span>Processing your payment…</span>
           </div>
           <p className="text-xs text-gray-400">This can take up to a minute — please keep this page open.</p>

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/auth";
 import { requestGoogleAccessToken } from "@/lib/google";
+import { Spinner } from "@/components/ui/Spinner";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -66,7 +67,7 @@ export function GoogleButton({ label, next = "/dashboard", remember, onError }: 
       className="flex w-full items-center justify-center gap-3 rounded-lg border border-gray-200 bg-white py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-60"
     >
       {loading ? (
-        <span className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+        <Spinner size={20} tone="muted" />
       ) : (
         <GoogleGlyph />
       )}

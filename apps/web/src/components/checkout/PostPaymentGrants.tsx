@@ -4,6 +4,7 @@ import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import { fetchSubscriptionGrantPlan, saveSubscriptionDelegation } from "@/lib/gateway";
 import type { GrantProof, GrantTarget } from "@/lib/gateway";
+import { Spinner, ActivityBar } from "@/components/ui/Spinner";
 
 /**
  * Confirmation-page authorization.
@@ -151,13 +152,29 @@ export function PostPaymentGrants({
                     onClick={() => void authorize([t], t.chain_key)}
                     disabled={busy !== null}
                   >
-                    {busy === t.chain_key ? "Authorizing…" : "Authorize"}
+                    {busy === t.chain_key ? (
+                      <span className="flex items-center gap-2">
+                        <Spinner size={12} />
+                        Authorizing…
+                      </span>
+                    ) : (
+                      "Authorize"
+                    )}
                   </button>
                 )}
               </div>
             );
           })}
         </div>
+
+        {busy !== null && (
+          <div style={{ marginTop: 10 }}>
+            <ActivityBar />
+            <p className="m-0" style={{ fontSize: 12, color: "var(--color-neutral-700)", marginTop: 8 }}>
+              Confirm in your wallet — one prompt per network.
+            </p>
+          </div>
+        )}
 
         {error && (
           <p className="m-0" style={{ fontSize: 12, color: "var(--color-accent-700)", marginTop: 10 }}>
@@ -173,7 +190,14 @@ export function PostPaymentGrants({
             onClick={() => void authorize(remaining, "all")}
             disabled={busy !== null}
           >
-            {busy === "all" ? "Authorizing…" : "Authorize grant permission for all chains"}
+            {busy === "all" ? (
+              <span className="flex items-center justify-center gap-2">
+                <Spinner size={13} tone="onAccent" />
+                Authorizing…
+              </span>
+            ) : (
+              "Authorize grant permission for all chains"
+            )}
           </button>
         )}
       </div>

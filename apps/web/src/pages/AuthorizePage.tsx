@@ -4,6 +4,7 @@ import { useAccount } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { formatUnits } from "viem";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
+import { Spinner, ActivityBar } from "@/components/ui/Spinner";
 import { friendlyError } from "@/lib/errors";
 import {
   getAuthorization,
@@ -152,6 +153,15 @@ export function AuthorizePage() {
   }
 
   const noun = INTERVAL_NOUN[view.interval] ?? view.interval;
+  // `progress.done` counts completed signatures, so it indexes the one in flight
+  // within the same `todo` list `authorize` built — the unsigned targets, in order.
+  const signingTarget = progress
+    ? (() => {
+        const todo = view.targets.filter((t) => !signedChains.includes(t.chain_id));
+        const t = todo[progress.done];
+        return t ? CHAIN_BLURB[t.chain_key] ?? t.name : null;
+      })()
+    : null;
   const chainNames = view.targets.map((t) => CHAIN_BLURB[t.chain_key] ?? t.name);
   const remaining = view.targets.filter((t) => !signedChains.includes(t.chain_id));
 
@@ -279,18 +289,42 @@ export function AuthorizePage() {
               <button
                 onClick={authorize}
                 disabled={phase === "signing" || remaining.length === 0}
-                className="w-full bg-brand-600 py-3 font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-2.5 bg-brand-600 py-3 font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
               >
+                {phase === "signing" && <Spinner size={16} tone="onAccent" />}
                 {phase === "signing"
                   ? progress
                     ? `Authorizing ${progress.done + 1} of ${progress.total}…`
                     : "Authorizing…"
                   : `Authorize ${usdc(view.max_amount)} per ${noun}`}
               </button>
-              <p className="mt-3 text-center text-xs text-gray-400">
-                Signing as {shortAddress(address)}
-                {view.targets.length > 1 && ` · ${view.targets.length} signatures, one per network`}
-              </p>
+
+              {/* The longest wait on this rail, and the one most likely to be
+                  read as "nothing happened": each chain needs its own wallet
+                  prompt, and between dismissing one and the next appearing there
+                  is a gap with no browser chrome to explain it. So the page says
+                  which network it is asking about, and keeps moving while it
+                  waits. */}
+              {phase === "signing" ? (
+                <div className="mt-3">
+                  <ActivityBar />
+                  <p className="mt-2 text-center text-xs text-gray-500">
+                    {signingTarget
+                      ? <>Confirm in your wallet to authorize on <strong>{signingTarget}</strong>.</>
+                      : "Confirm in your wallet."}
+                    {progress && progress.total > 1 && (
+                      <> {progress.total - progress.done - 1 > 0
+                        ? `${progress.total - progress.done - 1} more after this one.`
+                        : "This is the last one."}</>
+                    )}
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-3 text-center text-xs text-gray-400">
+                  Signing as {shortAddress(address)}
+                  {view.targets.length > 1 && ` · ${view.targets.length} signatures, one per network`}
+                </p>
+              )}
             </>
           )}
         </div>

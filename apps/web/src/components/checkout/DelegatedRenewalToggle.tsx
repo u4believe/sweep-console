@@ -31,6 +31,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAccount, useChainId, useConnectorClient } from "wagmi";
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
+import { Spinner, ActivityBar } from "@/components/ui/Spinner";
 import { enableCrossChain, fetchGrantPlan, revokeGrant, saveDelegation } from "@/lib/gateway";
 import type { GrantTarget } from "@/lib/gateway";
 import { friendlyError } from "@/lib/errors";
@@ -336,10 +337,18 @@ export function DelegatedRenewalToggle({
                 : "One signature now to automate renewal on any of the supported chains that holds enough liquidity. We submit each one and pay the gas. Revoke anytime from your wallet."}
       </p>
 
-      {progress.total > 1 && busy !== null && (
-        <p className="m-0" style={{ fontSize: 12, color: "var(--color-neutral-700)", marginTop: 10 }}>
-          Signing {progress.done + 1} of {progress.total} — approve each in your wallet.
-        </p>
+      {(busy !== null || probing) && (
+        <div style={{ marginTop: 10 }}>
+          <ActivityBar />
+          <p className="m-0 flex items-center gap-2" style={{ fontSize: 12, color: "var(--color-neutral-700)", marginTop: 8 }}>
+            <Spinner size={13} />
+            {probing
+              ? "Checking your wallet…"
+              : progress.total > 1
+                ? `Signing ${progress.done + 1} of ${progress.total} — approve each in your wallet.`
+                : "Approve in your wallet to authorize."}
+          </p>
+        </div>
       )}
 
       {error && (

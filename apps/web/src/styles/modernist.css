@@ -126,8 +126,37 @@ figcaption {
 }
 .swp-in { animation: swp-in 0.24s ease; }
 
+/* The system's second motion: work in progress. Unlike the entrance above,
+   these are not decoration — they are the only thing on screen saying a wallet
+   is being waited on, so reduced motion slows them rather than stopping them.
+   A still spinner reads as frozen, which on a payment screen is the one
+   impression worth avoiding. */
+@keyframes swp-spin {
+  to { transform: rotate(360deg); }
+}
+.swp-spin {
+  animation: swp-spin 0.7s linear infinite;
+}
+
+/* An indeterminate sweep for the row that is working. */
+@keyframes swp-activity {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+.swp-activity {
+  height: 2px;
+  background: var(--color-neutral-300);
+}
+.swp-activity-fill {
+  width: 33%;
+  background: var(--color-accent);
+  animation: swp-activity 1.1s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .swp-in { animation: none; }
+  .swp-spin { animation-duration: 2.4s; }
+  .swp-activity-fill { animation-duration: 3s; }
 }
 
 /* — rules — */

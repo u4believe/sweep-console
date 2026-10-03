@@ -11,6 +11,7 @@ import { DelegatedRenewalToggle, TIER2_ENABLED } from "./DelegatedRenewalToggle"
 import { ManageSubscriptionsPanel } from "./ManageSubscriptionsPanel";
 import { PostPaymentGrants } from "./PostPaymentGrants";
 import { BaseLogo, ArbitrumLogo, OptimismLogo } from "./ChainBadge";
+import { Spinner, ActivityBar } from "@/components/ui/Spinner";
 import { CheckoutFrame, RULE, HAIRLINE } from "./CheckoutFrame";
 import { PlanShowcase } from "./PlanShowcase";
 import { Turnstile, TURNSTILE_ENABLED } from "@/components/Turnstile";
@@ -181,6 +182,8 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
   const walletPresent = isConnected || (!!lastAccount && accountStatus !== "disconnected");
 
   const [step, setStep] = useState<Step>("idle");
+  /** Which wait the selected chain row is in: reading a balance, or the wallet. */
+  const [chainStage, setChainStage] = useState<"checking" | "wallet" | null>(null);
   const [txHashDisplay, setTxHashDisplay] = useState<string | undefined>();
   /**
    * The chain the subscriber's USDC actually came from, for the receipt. Arc on
@@ -377,10 +380,13 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
    * The chains a subscriber can pay from, in the design's order.
    *
    * Arc is deliberately absent: it is where money settles, not where it comes
-   * from. Each of these is swept to Arc via CCTP. Selecting one is
-   * JUST a selection — it opens no wallet, signs no delegation, and upgrades no
-   * account. All of that happens when the subscriber presses the pay button,
-   * which is the only control on this page that should ever reach the wallet.
+   * from. Each of these is swept to Arc via CCTP.
+   *
+   * Picking one PAYS. There is no separate pay button on this step: pickChain
+   * reads the balance, requests the renewal permission and hands off to the
+   * sweep. An earlier note here claimed selection was inert and that a pay
+   * button did all of that — neither is true, and believing it is how you end
+   * up with a row that shows no sign of the wallet prompt it just triggered.
    */
   const PAY_CHAINS = [
     { key: "base", name: "USDC on Base", note: "Settled on Arc · ~20s", Logo: BaseLogo },
@@ -437,6 +443,10 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
    */
   const pickChain = async (key: string) => {
     if (grantingChain || isPending) return;
+    // Three different waits live under `grantingChain`, and only one of them is
+    // the wallet. Saying "confirm in your wallet" while reading a balance tells
+    // the subscriber to look for a prompt that is not coming yet.
+    setChainStage("checking");
     setPayChain(key);
     setGrantError("");
     setErrorMsg("");
@@ -452,6 +462,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
 
       // Authorize this chain only, unless it is already covered.
       if (!grantedChains.includes(key)) {
+        setChainStage("wallet");
         const plan = await fetchGrantPlan(sessionId, payAddress);
         const target = plan.targets.find((t) => t.chain_key === key);
         if (!target) throw new Error("That chain isn't available for this plan.");
@@ -486,6 +497,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
       );
     } finally {
       setGrantingChain(null);
+      setChainStage(null);
     }
   };
 
@@ -899,17 +911,25 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                   </StepRow>
                 )}
 
-                {/* 03 — pay from. One row per chain, exactly as the design
-                    has it. These are radio rows: picking one records a choice
-                    and nothing else. The previous version collapsed the three
-                    source chains into a single row whose click jumped straight
-                    into the grant-all flow, so a subscriber curious about Base
-                    was immediately asked to authorize every chain. */}
+                {/* 03 — pay from. One row per chain, exactly as the design has
+                    it. Picking one starts that chain's payment, so each row
+                    carries its own progress: a spinner where the price was, a
+                    bar along its bottom edge, and a sub-label naming the wait.
+                    The previous version collapsed the three source chains into a
+                    single row whose click jumped straight into the grant-all
+                    flow, so a subscriber curious about Base was immediately
+                    asked to authorize every chain. */}
                 {verified && walletPresent && !walletBlocked && (
                   <StepRow n="03" label="Pay from">
                     <div className="flex flex-col" role="radiogroup" aria-label="Pay from">
                       {PAY_CHAINS.map(({ key, name, note, Logo }) => {
                         const on = payChain === key;
+                        // Two different waits, one appearance: the wallet has the
+                        // prompt (grantingChain), or the platform is settling
+                        // (isPending on the selected row). The subscriber cannot
+                        // act on the difference, so the row does not make them
+                        // learn it — only the sub-label distinguishes them.
+                        const busyHere = grantingChain === key || (isPending && on);
                         return (
                           <button
                             key={key}
@@ -918,7 +938,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                             aria-checked={on}
                             onClick={() => void pickChain(key)}
                             disabled={isPending || grantingChain !== null}
-                            className="flex items-center gap-3.5 text-left"
+                            className="relative flex items-center gap-3.5 text-left"
                             style={{
                               background: on ? "var(--color-surface)" : "transparent",
                               border: 0,
@@ -944,12 +964,14 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                                 {isPending && on
                                   ? "Processing payment…"
                                   : grantingChain === key
-                                    // Just say the wallet has the ball. Naming the
+                                    // Just say who has the ball. Naming the
                                     // account upgrade and the permission step
                                     // described our plumbing, not the subscriber's
                                     // task, and read as if something extra were
                                     // being asked of them.
-                                    ? "Confirm in your wallet…"
+                                    ? chainStage === "checking"
+                                      ? "Checking your balance…"
+                                      : "Confirm in your wallet…"
                                     : grantedChains.includes(key)
                                       ? "Authorized · renewals can charge from here"
                                       : note}
@@ -959,7 +981,14 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                               className="shrink-0"
                               style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 14 }}
                             >
-                              {hasTrial ? (
+                              {/* While this chain is working, the price is the
+                                  least useful thing in the row — it has not
+                                  changed and it is not what the subscriber is
+                                  waiting on. The spinner takes its place so the
+                                  movement sits where the eye already is. */}
+                              {busyHere ? (
+                                <Spinner size={16} />
+                              ) : hasTrial ? (
                                 "Free"
                               ) : (
                                 <>
@@ -973,6 +1002,11 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                                 </>
                               )}
                             </span>
+                            {/* Pinned to this row's bottom edge. The spinner
+                                says "busy"; on a list of three chains the
+                                subscriber's actual question is "which one", and
+                                this answers it without a second sentence. */}
+                            {busyHere && <ActivityBar className="absolute inset-x-0 bottom-0" />}
                           </button>
                         );
                       })}
