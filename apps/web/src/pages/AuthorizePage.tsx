@@ -66,7 +66,16 @@ export function AuthorizePage() {
       const v = await getAuthorization(mandateId);
       setView(v);
       setSignedChains(v.granted_chain_ids);
-      if (v.status === "active") setPhase("done");
+      // Active does not mean finished. A payer who skipped a chain can come back
+      // and add it while the link lives: POST /grant accepts an active mandate,
+      // and /complete explicitly handles "the subscriber adding a chain later".
+      // This page was the only thing that did not — it sent every active mandate
+      // straight to the success card, so the sentence that card prints, "you can
+      // open this link again to add them", was not true of the page printing it.
+      if (v.status === "active") {
+        const left = v.targets.filter((t) => !v.granted_chain_ids.includes(t.chain_id));
+        setPhase(left.length > 0 && !v.link_expired ? "review" : "done");
+      }
       else if (v.status === "revoked" || v.status === "expired" || v.link_expired) setPhase("gone");
       else setPhase("review");
     } catch (e) {
@@ -187,10 +196,19 @@ export function AuthorizePage() {
           </p>
         )}
         {skipped.length > 0 && (
-          <p className="mt-3 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            {skipped.join(" and ")} {skipped.length === 1 ? "was" : "were"} skipped — you can open this link again to
-            add {skipped.length === 1 ? "it" : "them"}.
-          </p>
+          <div className="mt-3 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <p className="m-0">
+              {skipped.join(" and ")} {skipped.length === 1 ? "was" : "were"} skipped.
+            </p>
+            {remaining.length > 0 && !view.link_expired && (
+              <button
+                onClick={() => { setSkipped([]); setError(""); setPhase("review"); }}
+                className="mt-2 font-semibold underline underline-offset-2 hover:no-underline"
+              >
+                Add {skipped.length === 1 ? "it" : "them"} now
+              </button>
+            )}
+          </div>
         )}
         <p className="mt-4 text-sm text-gray-500">
           To stop it, remove the permission in your wallet, or ask {view.merchant_name} to cancel.
