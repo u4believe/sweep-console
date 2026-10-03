@@ -120,6 +120,17 @@ customerPortalRouter.post("/subscriptions", async (req, res) => {
         plan: true,
         merchant: { select: { name: true } },
         renewalDelegations: { where: { status: "active" } },
+        // What a subscriber actually came here to check: was I charged, when,
+        // and can I verify it. Capped — the portal shows a history, not a ledger,
+        // and a yearly subscriber five years in does not need all of it on load.
+        payments: {
+          orderBy: { createdAt: "desc" },
+          take: 12,
+          select: {
+            paymentId: true, amount: true, currency: true, status: true,
+            type: true, chain: true, txHash: true, createdAt: true, failureReason: true,
+          },
+        },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -127,6 +138,14 @@ customerPortalRouter.post("/subscriptions", async (req, res) => {
     return ok(res, {
       proven: true,
       email: normalized,
+      // Every chain a subscription COULD be authorized on. The portal lists all
+      // of them with their state; without this it could only render the ones
+      // already granted, which is the half that needs no action.
+      supported_chains: supportedSourceChains().map((c) => ({
+        chain_id: c.chain.id,
+        chain_key: c.key,
+        name: c.name,
+      })),
       subscriptions: subs.map((s) => {
         const amount = Number(s.amount ?? s.plan.amount);
         const interval = s.interval ?? s.plan.interval;
@@ -138,6 +157,7 @@ customerPortalRouter.post("/subscriptions", async (req, res) => {
           status: s.status,
           wallet_address: s.walletAddress,
           plan: { name: s.plan.name, amount, interval, currency: s.plan.currency },
+          created_at: s.createdAt.toISOString(),
           current_period_end: s.currentPeriodEnd.toISOString(),
           trial_end: s.trialEnd ? s.trialEnd.toISOString() : null,
           escrow_refundable: refundable,
@@ -160,6 +180,21 @@ customerPortalRouter.post("/subscriptions", async (req, res) => {
           })),
           cross_chain_enabled: s.renewalDelegations.length > 0,
           revocable: !!s.onChainSubId || s.renewalDelegations.length > 0,
+          // `chain` is where the payment SETTLED, which for every renewal is Arc.
+          // It is not where the money came from — that is decided per charge and
+          // is not recorded on the row — so the portal labels this column for
+          // what it holds rather than implying a source.
+          payments: s.payments.map((p) => ({
+            id: p.paymentId,
+            amount: Number(p.amount),
+            currency: p.currency,
+            status: p.status,
+            type: p.type,
+            settled_on: p.chain,
+            tx_hash: p.txHash,
+            failure_reason: p.failureReason,
+            created_at: p.createdAt.toISOString(),
+          })),
         };
       }),
     });

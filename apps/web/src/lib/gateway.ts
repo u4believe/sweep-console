@@ -286,6 +286,7 @@ export interface PortalSubscription {
   status: string;
   wallet_address: string;
   plan: { name: string; amount: number; interval: string; currency: string };
+  created_at: string;
   current_period_end: string;
   trial_end: string | null;
   escrow_refundable: boolean;
@@ -297,6 +298,28 @@ export interface PortalSubscription {
   grants: PortalGrant[];
   cross_chain_enabled: boolean;
   revocable: boolean;
+  /// Most recent first, capped server-side. `settled_on` is where the payment
+  /// LANDED (always Arc for a renewal), not where the money came from — the
+  /// source chain is chosen per charge and is not recorded on the row.
+  payments: PortalPayment[];
+}
+
+export interface PortalPayment {
+  id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  type: string;
+  settled_on: string;
+  tx_hash: string | null;
+  failure_reason: string | null;
+  created_at: string;
+}
+
+export interface PortalSupportedChain {
+  chain_id: number;
+  chain_key: string;
+  name: string;
 }
 
 export interface PortalGrant {
@@ -318,7 +341,12 @@ export function portalRequestOtp(email: string, turnstileToken?: string): Promis
 export function portalListSubscriptions(
   email: string,
   emailToken: string
-): Promise<{ proven: boolean; email?: string; subscriptions: PortalSubscription[] }> {
+): Promise<{
+  proven: boolean;
+  email?: string;
+  supported_chains?: PortalSupportedChain[];
+  subscriptions: PortalSubscription[];
+}> {
   return request(`/customer/portal/subscriptions`, {
     method: "POST",
     body: JSON.stringify({ email, email_token: emailToken }),
