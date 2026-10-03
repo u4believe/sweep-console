@@ -1,7 +1,6 @@
 import { useState, type JSX, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useAccount, useConnectorClient } from "wagmi";
-import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { formatUnits } from "viem";
 import { Logo } from "@/components/ui/Logo";
 import { BaseLogo, ArbitrumLogo, OptimismLogo } from "@/components/checkout/ChainBadge";
@@ -10,6 +9,7 @@ import { Turnstile, TURNSTILE_ENABLED } from "@/components/Turnstile";
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import { friendlyError } from "@/lib/errors";
+import { useWalletPicker } from "@/lib/useWalletPicker";
 import {
   portalRequestOtp,
   verifyOtp,
@@ -179,7 +179,9 @@ function describeError(e: unknown): string {
 export function ManageSubscriptionsPage() {
   const { address } = useAccount();
   const { data: connectorClient } = useConnectorClient();
-  const { openConnectModal } = useConnectModal();
+  /// Not useConnectModal directly: that opener is undefined once a wallet is
+  /// connected, which is precisely when this page needs it. See useWalletPicker.
+  const pickWallet = useWalletPicker();
 
   const [phase, setPhase] = useState<Phase>("login");
   const [email, setEmail] = useState("");
@@ -272,7 +274,7 @@ export function ManageSubscriptionsPage() {
 
   const onEnableGrant = async (s: PortalSubscription) => {
     if (!address || !connectorClient) {
-      openConnectModal?.();
+      pickWallet();
       return;
     }
     // Checked before anything is signed. Granting from the wrong wallet costs
@@ -285,7 +287,7 @@ export function ManageSubscriptionsPage() {
       );
       // Open the picker rather than leaving them to find it: a button that says
       // "Switch to 0x…" and only prints an error is a dead end.
-      openConnectModal?.();
+      pickWallet();
       return;
     }
     // Captured before the grant lands, since afterwards the caps cover the price
@@ -354,14 +356,14 @@ export function ManageSubscriptionsPage() {
    * granting Arbitrum should not also prompt for Optimism.
    */
   const onGrantChain = async (s: PortalSubscription, chainId: number) => {
-    if (!address || !connectorClient) return openConnectModal?.();
+    if (!address || !connectorClient) return pickWallet();
     if (!walletMatches(address, s.wallet_address)) {
       setError(
         `This subscription pays from ${shortAddr(s.wallet_address)}. You're connected as ` +
           `${shortAddr(address)} — switch to that wallet, because only the wallet that signed up can ` +
           `approve charges for it.`
       );
-      openConnectModal?.();
+      pickWallet();
       return;
     }
     setBusyId(`${s.id}:${chainId}`);
@@ -473,7 +475,7 @@ export function ManageSubscriptionsPage() {
                   approved — so it belongs in the chrome, not in a row's error
                   text after the click. */}
               <button
-                onClick={() => openConnectModal?.()}
+                onClick={() => pickWallet()}
                 title={address ? "Switch wallet" : "Connect wallet"}
                 style={{
                   display: "flex", alignItems: "center", gap: 9,
@@ -710,7 +712,7 @@ export function ManageSubscriptionsPage() {
                     onRevokeGrant={onRevokeGrant}
                     onApprovePrice={onEnableGrant}
                     onAskCancel={(x) => setConfirmCancel(x)}
-                    onConnect={() => openConnectModal?.()}
+                    onConnect={() => pickWallet()}
                   />
                 )}
               </div>
