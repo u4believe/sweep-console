@@ -9,18 +9,27 @@
 // decoded caveats → 2 · Test redeem (server simulates the single transfer to the
 // relayer; `ok:true` = the mandate redeems). Nothing here moves funds.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useChainId, useConnectorClient } from "wagmi";
 import { erc7715ProviderActions } from "@metamask/smart-accounts-kit/actions";
 import { decodeAbiParameters, type Hex } from "viem";
 import { grantRenewalMandate } from "@/lib/delegation/grant";
+import { ensureSmartAccount } from "@/lib/delegation/upgrade";
 import { friendlyError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 const DEFAULT_DELEGATE = (import.meta.env.VITE_RENEWAL_DELEGATE_ADDRESS as string) ?? "";
-// Base Sepolia USDC by default — change to match your connected chain.
-const DEFAULT_TOKEN = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
+// USDC per chain, so switching the wallet's network does not silently leave the
+// token pointing at another chain's address — a grant against a token that does
+// not exist there fails in a way that looks like the chain is unsupported.
+const USDC_BY_CHAIN: Record<number, string> = {
+  84532: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",   // Base Sepolia
+  421614: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",  // Arbitrum Sepolia
+  11155420: "0x5fd84259d66Cd46123540766Be93DFE6D43130D7", // OP Sepolia
+  5042002: "0x3600000000000000000000000000000000000000",  // Arc testnet
+};
+const DEFAULT_TOKEN = USDC_BY_CHAIN[84532]!;
 
 // ERC-7710 Delegation[] — MetaMask's permissionsContext encoding.
 const DELEGATION_TUPLE = [
@@ -51,6 +60,7 @@ export function DevGrantTestPage() {
   const { data: connectorClient } = useConnectorClient();
 
   const [token, setToken] = useState(DEFAULT_TOKEN);
+  const [tokenTouched, setTokenTouched] = useState(false);
   const [delegate, setDelegate] = useState(DEFAULT_DELEGATE);
   const [amount, setAmount] = useState("1000000"); // 1 USDC
   const [period, setPeriod] = useState("2592000"); // 30 days
@@ -124,9 +134,29 @@ export function DevGrantTestPage() {
     }
   };
 
+  // Keep the token in step with the wallet's network until someone types their
+  // own. Without this, testing Arc while the field still holds Base's USDC fails
+  // on a missing token and reads as "Arc does not support permissions".
+  useEffect(() => {
+    if (tokenTouched) return;
+    const t = USDC_BY_CHAIN[chainId];
+    if (t) setToken(t);
+  }, [chainId, tokenTouched]);
+
   const onGrant = async () => {
     setError(""); setRawGrant(""); setCaveats(null); setContext(null); setRedeemResult("");
     if (!address || !connectorClient) { setError("Connect a wallet first"); return; }
+
+    // The real grant flow upgrades the account on this chain first (grantMandates.ts).
+    // Skipping it here would make a wallet refusal look like "this chain cannot host
+    // an ERC-7715 permission", which is exactly the question this harness is used to
+    // answer. No-op when the account is already a smart account on this chain.
+    try {
+      await ensureSmartAccount(connectorClient, address, chainId);
+    } catch (e) {
+      setError(`EIP-7702 upgrade failed on chain ${chainId}: ${friendlyError(e, "the wallet refused the upgrade")}`);
+      return;
+    }
     try {
       const now = Math.floor(Date.now() / 1000);
       const mandate = await grantRenewalMandate(connectorClient, {
