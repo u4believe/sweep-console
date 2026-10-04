@@ -30,44 +30,36 @@ type ConfiguredChainId = (typeof wagmiConfig)["chains"][number]["id"];
 /// same contract on every 7702-enabled chain, but sourced from the SDK's own
 /// deployment registry (not hardcoded) so it tracks MetaMask's rollout as-is.
 /// Returns null if this chain isn't in MetaMask's registry (can't upgrade here).
+/**
+ * Whether MetaMask's delegation framework exists on this chain.
+ *
+ * The registry is the authority, and it is accurate: Base, Arbitrum and OP
+ * Sepolia are registered and grants succeed there; Arc (5042002) is not, and
+ * MetaMask refuses with "External signature requests cannot sign delegations for
+ * internal accounts" — it does not recognise the upgraded account as a smart
+ * account on a chain whose framework it has no deployment for.
+ *
+ * Do NOT infer support from the wallet's getSupportedExecutionPermissions()
+ * chain list. It returns the same 43 chains for every permission type, including
+ * ones where signing is refused, so it describes chains MetaMask knows rather
+ * than chains where a delegation can be signed.
+ */
+export function supportsDelegation(chainId: number): boolean {
+  try {
+    getSmartAccountsEnvironment(chainId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function statelessImpl(chainId: number): Address | null {
   try {
     const env = getSmartAccountsEnvironment(chainId);
     return env.implementations.EIP7702StatelessDeleGatorImpl as Address;
   } catch {
-    // The registry has no entry for every chain MetaMask will actually upgrade
-    // on. Arc (5042002) throws "No contracts found for version 1.3.0" while
-    // MetaMask upgrades there happily — and to the SAME stateless implementation
-    // it uses everywhere, verified on Base, Arbitrum, OP and Arc as
-    // 0x63c0c19a…E32B.
-    //
-    // Returning null here made isSmartAccount() answer false no matter what the
-    // chain said, so a genuine, confirmed upgrade was never recognised: the
-    // upgrade prompt fired, the transaction succeeded, the poll ran its full
-    // minute against a function that could only return false, and the grant was
-    // abandoned before the permission was ever requested. Pressing the button
-    // again just repeated it.
-    return registryImplFromAnyKnownChain();
+    return null;
   }
-}
-
-/// The implementation address the registry reports for any chain it does know.
-/// Read rather than hardcoded, so it still tracks MetaMask's rollout — this is
-/// the same value on every 7702-enabled chain.
-let cachedImpl: Address | null | undefined;
-function registryImplFromAnyKnownChain(): Address | null {
-  if (cachedImpl !== undefined) return cachedImpl;
-  for (const chain of wagmiConfig.chains) {
-    try {
-      const env = getSmartAccountsEnvironment(chain.id);
-      cachedImpl = env.implementations.EIP7702StatelessDeleGatorImpl as Address;
-      return cachedImpl;
-    } catch {
-      // try the next configured chain
-    }
-  }
-  cachedImpl = null;
-  return cachedImpl;
 }
 
 /// Reads the account's code straight off the chain the client is bound to and
@@ -91,6 +83,17 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /// No-ops if already upgraded on this chain. `client` must already be on `chainId`
 /// (grantMandates.ts's connectorClientOnChain guarantees this).
 export async function ensureSmartAccount(client: Client, address: Address, chainId: number): Promise<void> {
+  // Checked BEFORE prompting. The upgrade is the only gas a subscriber ever pays
+  // on this platform, and on a chain the framework is missing from they would pay
+  // it and then be refused the permission anyway — charged for nothing. Ask the
+  // registry first and say so instead.
+  if (!supportsDelegation(chainId)) {
+    throw new Error(
+      `Spending permissions aren't available on chain ${chainId} yet — MetaMask's delegation ` +
+        `framework isn't deployed there. Nothing was signed and no gas was spent.`
+    );
+  }
+
   if (await isSmartAccount(client, address, chainId)) return;
 
   console.info(`[upgrade] chain ${chainId} — prompting EIP-7702 smart-account upgrade for ${address}`);
