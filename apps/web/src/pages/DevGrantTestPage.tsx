@@ -12,6 +12,7 @@
 import { useState } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useChainId, useConnectorClient } from "wagmi";
+import { erc7715ProviderActions } from "@metamask/smart-accounts-kit/actions";
 import { decodeAbiParameters, type Hex } from "viem";
 import { grantRenewalMandate } from "@/lib/delegation/grant";
 import { friendlyError } from "@/lib/errors";
@@ -59,6 +60,8 @@ export function DevGrantTestPage() {
   const [context, setContext] = useState<Hex | null>(null);
   const [delegationManager, setDelegationManager] = useState<string | null>(null);
   const [redeemResult, setRedeemResult] = useState("");
+  /// What the wallet says it supports — see onProbeRules.
+  const [ruleProbe, setRuleProbe] = useState("");
   const [error, setError] = useState("");
 
   // Real CCTP bridge (moves funds).
@@ -73,6 +76,53 @@ export function DevGrantTestPage() {
   const [intgMsg, setIntgMsg] = useState("");
   const [runResult, setRunResult] = useState("");
   const [intgErr, setIntgErr] = useState("");
+
+  /**
+   * Ask the wallet which permission types and RULE types it supports.
+   *
+   * The rule we care about is "payee". The periodic permission's own data pins
+   * the token, the amount and the period — and nothing about where the money
+   * goes, so a stolen delegate key can redeem to any address it likes. A payee
+   * rule is the only thing in ERC-7715 that would bound the destination, and
+   * the kit maps it to an AllowedCalldataEnforcer caveat that pins the
+   * recipient bytes of the transfer.
+   *
+   * Worth probing rather than assuming, because the failure is silent: the kit
+   * will happily send a payee rule to a wallet that ignores it, and the grant
+   * comes back looking fine while constraining nothing.
+   */
+  const onProbeRules = async () => {
+    setError("");
+    setRuleProbe("");
+    if (!connectorClient) {
+      setError("Connect a wallet first.");
+      return;
+    }
+    try {
+      const provider = connectorClient.extend(erc7715ProviderActions());
+      const supported = await provider.getSupportedExecutionPermissions();
+      const lines: string[] = [];
+      for (const [type, info] of Object.entries(supported ?? {})) {
+        const i = info as { chainIds?: number[]; ruleTypes?: string[] };
+        const rules = i.ruleTypes ?? [];
+        lines.push(
+          `${type}\n  chains: ${(i.chainIds ?? []).join(", ") || "—"}\n  rules:  ${rules.join(", ") || "(none)"}`
+        );
+      }
+      const periodic = (supported as Record<string, { ruleTypes?: string[] }>)?.["erc20-token-periodic"];
+      const payee = periodic?.ruleTypes?.includes("payee");
+      lines.push(
+        payee === undefined
+          ? "\nVERDICT: this wallet did not report erc20-token-periodic at all."
+          : payee
+            ? "\nVERDICT: payee IS supported — the recipient can be pinned on new grants."
+            : "\nVERDICT: payee is NOT supported — a payee rule would be sent and silently ignored."
+      );
+      setRuleProbe(lines.join("\n\n"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const onGrant = async () => {
     setError(""); setRawGrant(""); setCaveats(null); setContext(null); setRedeemResult("");
@@ -249,6 +299,26 @@ export function DevGrantTestPage() {
         <div><label className={label}>Period (seconds)</label><input className={field} value={period} onChange={(e) => setPeriod(e.target.value)} /></div>
       </div>
       <p className="text-xs text-gray-400">Connected chain id: {chainId}</p>
+
+      <div className="mb-6 rounded border border-gray-200 p-4">
+        <p className="m-0 text-sm font-semibold text-gray-900">Wallet capability probe</p>
+        <p className="m-0 mt-1 text-xs text-gray-500">
+          Read-only. Asks the wallet which permission and rule types it supports — nothing is signed
+          and no permission is requested.
+        </p>
+        <button
+          onClick={() => void onProbeRules()}
+          disabled={!connectorClient}
+          className="mt-3 rounded bg-gray-800 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+        >
+          Probe supported rules
+        </button>
+        {ruleProbe && (
+          <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded bg-gray-900 p-3 text-xs text-gray-100">
+            {ruleProbe}
+          </pre>
+        )}
+      </div>
 
       <button onClick={onGrant} disabled={!address} className="rounded bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
         1 · Grant (wallet_requestExecutionPermissions)
