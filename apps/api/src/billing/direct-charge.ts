@@ -32,6 +32,7 @@ import { redeemPeriodicTransfer, decodePeriodTransferTerms } from "../lib/chain/
 import { getRelayerAddress } from "../lib/chain/signers";
 import { mandateGrantsWhere, periodConsumed, mandatePeriodStart, periodCommitted } from "../lib/rail";
 import { advanceBridge } from "./bridge";
+import { payFeeToTreasury } from "../lib/chain/fee-payout";
 import { fireWebhook } from "../lib/webhooks/delivery";
 import { sendRailChargeReceipt } from "../lib/email/rail-receipt";
 
@@ -276,7 +277,10 @@ export async function executeCharge(chargeDbId: string): Promise<void> {
       delegate: plan.grant.delegateAddress as Address,
       token: source.usdc,
       recipient: getRelayerAddress("external"),
-      amount: c.amount, // full amount; the fee stays behind on the source chain
+      // One redemption for the whole amount: splitting it would double the
+      // redeem gas and the enforcer counts both halves against the same period
+      // cap regardless. The fee moves on below.
+      amount: c.amount,
     });
   } catch (e) {
     // Nothing moved, so this is safe to record as a plain failure and safe for the
@@ -305,6 +309,20 @@ export async function executeCharge(chargeDbId: string): Promise<void> {
       status: "pulled",
     },
   });
+
+  // The merchant's share is the bridge's problem now and resumes on its own. The
+  // fee is sitting in the relayer on this chain, so it goes to the treasury here
+  // while the chain and amount are known. Non-fatal: the payer has been charged
+  // and the merchant is being paid, and a fee left behind is a reconciliation
+  // chore rather than a failed charge.
+  if (fee > 0n) {
+    await payFeeToTreasury({
+      chainId: plan.grant.chainId,
+      token: source.usdc,
+      from: plan.grant.delegateAddress as Address,
+      amount: fee,
+    });
+  }
 
   try {
     const outcome = await advanceBridge(bridge, (tx) =>

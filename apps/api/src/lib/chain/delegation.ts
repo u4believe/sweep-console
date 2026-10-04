@@ -88,7 +88,7 @@ const ERC20_TRANSFER_ABI = [
   },
 ] as const;
 
-function rpcUrlForChain(chainId: number): string {
+export function rpcUrlForChain(chainId: number): string {
   const url = process.env[`DELEGATION_RPC_${chainId}`];
   if (!url) {
     throw new Error(`No RPC for chain ${chainId} — set DELEGATION_RPC_${chainId}`);

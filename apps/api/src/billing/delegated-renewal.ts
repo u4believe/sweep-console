@@ -29,6 +29,7 @@ import {
 } from "../lib/chain/delegation";
 import { periodConsumed } from "../lib/rail";
 import { advanceBridge } from "./bridge";
+import { payFeeToTreasury } from "../lib/chain/fee-payout";
 import { claimPeriod, releaseClaim, periodKeyFor } from "./claims";
 import { getUsdcAddress } from "../lib/chain/contract";
 import { fireWebhook } from "../lib/webhooks/delivery";
@@ -468,7 +469,10 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
           delegate: chosenMandate.delegateAddress as Address,
           token: source.usdc,
           recipient: getDelegateAddress(),
-          amount, // pull the full period; fee remains in the relayer's source balance
+          // Still the full period in one redemption: splitting it into two would
+          // double the redeem gas, and the enforcer counts both against the same
+          // period cap anyway. The fee moves on in the next step instead.
+          amount,
         });
         movedFunds = true; // from here the bridge owns the period; failures resume, don't re-pull
         const bridge = await prisma.bridgeTransfer.create({
@@ -483,6 +487,20 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
             status: "pulled",
           },
         });
+        // The merchant's share is now the bridge's problem and resumes on its own.
+        // The fee is not: it is sitting in the relayer on this chain, so it goes
+        // to the treasury here, while we know the chain and the amount. Non-fatal
+        // — the subscriber has been charged and the merchant is being paid, and a
+        // fee left behind is a reconciliation chore rather than a billing fault.
+        if (fee > 0n) {
+          await payFeeToTreasury({
+            chainId: chosenMandate.chainId,
+            token: source.usdc,
+            from: chosenMandate.delegateAddress as Address,
+            amount: fee,
+          });
+        }
+
         const outcome = await advanceBridge(bridge, (tx) =>
           recordRenewalSettled(sub, bridge.mandateId, bridge.grossAmount, tx, undefined,
             chosenKey, periodDur, bridge.id)
