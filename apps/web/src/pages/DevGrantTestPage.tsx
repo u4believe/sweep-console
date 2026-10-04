@@ -154,7 +154,11 @@ export function DevGrantTestPage() {
     try {
       await ensureSmartAccount(connectorClient, address, chainId);
     } catch (e) {
-      setError(`EIP-7702 upgrade failed on chain ${chainId}: ${friendlyError(e, "the wallet refused the upgrade")}`);
+      // Raw, not friendlyError: this harness exists to diagnose, and the
+      // fallback text ("the wallet refused the upgrade") described the one thing
+      // that had not happened — the wallet had upgraded fine; our own check
+      // could not see it.
+      setError(`EIP-7702 upgrade failed on chain ${chainId}: ${e instanceof Error ? e.message : String(e)}`);
       return;
     }
     try {

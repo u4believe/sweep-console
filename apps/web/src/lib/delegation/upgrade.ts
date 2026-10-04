@@ -35,8 +35,39 @@ function statelessImpl(chainId: number): Address | null {
     const env = getSmartAccountsEnvironment(chainId);
     return env.implementations.EIP7702StatelessDeleGatorImpl as Address;
   } catch {
-    return null;
+    // The registry has no entry for every chain MetaMask will actually upgrade
+    // on. Arc (5042002) throws "No contracts found for version 1.3.0" while
+    // MetaMask upgrades there happily — and to the SAME stateless implementation
+    // it uses everywhere, verified on Base, Arbitrum, OP and Arc as
+    // 0x63c0c19a…E32B.
+    //
+    // Returning null here made isSmartAccount() answer false no matter what the
+    // chain said, so a genuine, confirmed upgrade was never recognised: the
+    // upgrade prompt fired, the transaction succeeded, the poll ran its full
+    // minute against a function that could only return false, and the grant was
+    // abandoned before the permission was ever requested. Pressing the button
+    // again just repeated it.
+    return registryImplFromAnyKnownChain();
   }
+}
+
+/// The implementation address the registry reports for any chain it does know.
+/// Read rather than hardcoded, so it still tracks MetaMask's rollout — this is
+/// the same value on every 7702-enabled chain.
+let cachedImpl: Address | null | undefined;
+function registryImplFromAnyKnownChain(): Address | null {
+  if (cachedImpl !== undefined) return cachedImpl;
+  for (const chain of wagmiConfig.chains) {
+    try {
+      const env = getSmartAccountsEnvironment(chain.id);
+      cachedImpl = env.implementations.EIP7702StatelessDeleGatorImpl as Address;
+      return cachedImpl;
+    } catch {
+      // try the next configured chain
+    }
+  }
+  cachedImpl = null;
+  return cachedImpl;
 }
 
 /// Reads the account's code straight off the chain the client is bound to and
