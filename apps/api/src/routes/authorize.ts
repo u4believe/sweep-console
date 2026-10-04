@@ -50,19 +50,44 @@ interface MandateForPage {
 /// The chains this mandate can actually be granted on, as the grant loop wants
 /// them.
 ///
-/// ARC IS NOT ONE OF THEM, and cannot be. Arc holds the SubscriptionManager, so
-/// recurring authority there is an ERC-2612 permit granting a USDC allowance TO
-/// THAT CONTRACT, which the platform draws against as the arbiter — see
-/// lib/subscriptions/allowance.ts and the header of DelegatedRenewalToggle
-/// ("Arc needs no grant at all; it rides the ERC-2612 permit"). ERC-7715
-/// delegation is the off-Arc mechanism: a 7702 smart account per source chain,
-/// redeemed by the relayer and bridged over. A wallet asked for a 7715
-/// permission on Arc simply refuses, which is correct behaviour and not a bug to
-/// route around.
+/// ARC IS NOT ONE OF THEM — but not for the reason this comment used to give.
 ///
-/// The rail therefore cannot charge on Arc today: the manager's charge path is
-/// shaped around a Subscription, and a mandate has none. Arc mandates are
-/// rejected at creation; this stays defensive for rows created before that.
+/// The old reason was the SubscriptionManager: recurring authority on Arc was an
+/// ERC-2612 permit to that contract, drawn by the platform as arbiter. That
+/// contract is retired and paused, lib/subscriptions/allowance.ts is gone, and
+/// nothing of ours is called on any chain. The conclusion outlived its reasons.
+///
+/// The real reason, established by attempting it on 2026-10-05:
+///
+///   MetaMask will not sign a delegation for an account on Arc. The request is
+///   refused with "External signature requests cannot sign delegations for
+///   internal accounts" — it does not treat the account as a smart account on
+///   that chain, so there is no delegator to sign.
+///
+/// Everything else is in place, which is why this is worth revisiting rather
+/// than assuming settled. Arc accepts EIP-7702 and the account upgrades to the
+/// SAME implementation as every source chain (0x63c0c19a…E32B). The
+/// DelegationManager and all four enforcers ARE deployed on Arc at the canonical
+/// addresses. The blocker is wallet-side support, not the chain and not us.
+///
+/// The reliable predictor is the kit's own registry: getSmartAccountsEnvironment
+/// throws "No contracts found for version 1.3.0 chain 5042002" for Arc, and
+/// returns an environment for Base, Arbitrum and OP Sepolia — which is exactly
+/// the set where granting works. apps/web/src/lib/delegation/upgrade.ts exports
+/// supportsDelegation() for that check; it now runs BEFORE the 7702 prompt, so a
+/// subscriber on an unsupported chain is told rather than charged gas for an
+/// upgrade whose grant is then refused.
+///
+/// Do NOT read support off the wallet's getSupportedExecutionPermissions() chain
+/// list. It returns the same 43 chains for every permission type, Arc included,
+/// and so describes chains MetaMask knows rather than chains where a delegation
+/// can be signed. That list is what first suggested Arc would work.
+///
+/// If MetaMask ships the framework for Arc, the settlement path already exists:
+/// delegated-renewal.ts handles chosenKey === "arc" by transferring the merchant
+/// share to the creator and the fee to the treasury directly — no bridge, and no
+/// relayer custody at all. Arc mandates are rejected at creation; this stays
+/// defensive for rows created before that.
 function targetsFor(m: MandateForPage) {
   const sources = supportedSourceChains();
   const delegate = getRelayerAddress("external");
