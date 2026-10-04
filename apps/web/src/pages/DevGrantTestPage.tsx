@@ -14,9 +14,8 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useChainId, useConnectorClient } from "wagmi";
 import { erc7715ProviderActions } from "@metamask/smart-accounts-kit/actions";
 import { decodeAbiParameters, type Hex } from "viem";
-import { grantRenewalMandate } from "@/lib/delegation/grant";
+import { buildPeriodicPermission } from "@/lib/delegation/scopes";
 import { ensureSmartAccount } from "@/lib/delegation/upgrade";
-import { friendlyError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 const DEFAULT_DELEGATE = (import.meta.env.VITE_RENEWAL_DELEGATE_ADDRESS as string) ?? "";
@@ -161,39 +160,59 @@ export function DevGrantTestPage() {
       setError(`EIP-7702 upgrade failed on chain ${chainId}: ${e instanceof Error ? e.message : String(e)}`);
       return;
     }
+    // Ask the wallet directly first, purely so the raw response is captured
+    // before grantRenewalMandate's normalize() can throw on it. When a grant is
+    // approved and the call still fails, what the wallet actually returned is
+    // the only thing worth seeing, and routing straight through the normaliser
+    // discards it.
     try {
-      const now = Math.floor(Date.now() / 1000);
-      const mandate = await grantRenewalMandate(connectorClient, {
-        chainId,
-        token: token as `0x${string}`,
-        delegate: delegate as `0x${string}`,
-        periodAmountMicro: BigInt(amount),
-        periodDurationSec: Number(period),
-        startTimeSec: now,
-        expirySec: now + 31_536_000,
-        justification: "Grant-test harness — verifying periodic-transfer redeem.",
-      });
-
-      setRawGrant(
-        JSON.stringify(mandate.raw, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2)
-      );
-      setContext(mandate.context);
-      setDelegationManager(mandate.delegationManager);
-      setGrantedAmount(amount); // the period cap baked into this grant — seed must match it
-
-      // Decode caveats from the context (which enforcer is attached?).
+      const probeNow = Math.floor(Date.now() / 1000);
+      const provider = connectorClient.extend(erc7715ProviderActions());
+      const granted = await provider.requestExecutionPermissions([
+        buildPeriodicPermission({
+          chainId,
+          token: token as `0x${string}`,
+          delegate: delegate as `0x${string}`,
+          periodAmountMicro: BigInt(amount),
+          periodDurationSec: Number(period),
+          startTimeSec: probeNow,
+          expirySec: probeNow + 31_536_000,
+          justification: "Grant-test harness — verifying periodic-transfer redeem.",
+        }),
+      ]);
+      setRawGrant(JSON.stringify(granted, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2));
+      const entry: any = Array.isArray(granted) ? granted[0] : granted;
+      const ctx = entry?.context ?? entry?.permissionsContext;
+      const mgr = entry?.delegationManager ?? entry?.signerMeta?.delegationManager;
+      if (!ctx || !mgr) {
+        setError(
+          `The wallet granted the permission but the response is missing ` +
+            `${!ctx ? "`context`" : ""}${!ctx && !mgr ? " and " : ""}${!mgr ? "`delegationManager`" : ""}. ` +
+            `The raw response is below — that is the shape to work from.`
+        );
+        return;
+      }
+      setContext(ctx as `0x${string}`);
+      setDelegationManager(mgr as string);
+      setGrantedAmount(amount);
       try {
-        const [delegations] = decodeAbiParameters(DELEGATION_TUPLE, mandate.context);
+        const [delegations] = decodeAbiParameters(DELEGATION_TUPLE, ctx as `0x${string}`);
         const cs = (delegations as readonly { caveats: readonly { enforcer: string; terms: string }[] }[])
           .flatMap((d) => d.caveats)
           .map((c) => ({ enforcer: c.enforcer, terms: c.terms }));
         setCaveats(cs);
       } catch {
-        setCaveats(null); // encoding differs — read the raw response above
+        setCaveats(null);
       }
+      return;
     } catch (e) {
-      setError(friendlyError(e, "Grant failed (need MetaMask Flask?)"));
+      // Raw: a diagnostic surface prints what it got. friendlyError's fallback
+      // here read "need MetaMask Flask?", which described neither the wallet nor
+      // the failure.
+      setError(e instanceof Error ? e.message : String(e));
+      return;
     }
+
   };
 
   // Simulate the C1 redeem: relayer redeems the mandate as transfer(relayer, amount).
@@ -216,7 +235,7 @@ export function DevGrantTestPage() {
       const data = await res.json();
       setRedeemResult(JSON.stringify(data, null, 2));
     } catch (e) {
-      setError(friendlyError(e, "Test redeem request failed"));
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
