@@ -30,20 +30,12 @@ export interface FeePayoutInput {
   token: Address;
   /** The account holding the fee — settlement, after the burn has taken its share. */
   from: Address;
-  /** Leave this much behind as working capital for the next burn's maxFee. */
-  float: bigint;
-}
-
-/// What settlement keeps back, in USDC micro-units. Not a share of each payment:
-/// a share would compound, since the fee is 300 bps and the bridge costs 10, and
-/// settlement would quietly fill up instead of holding steady. An absolute target
-/// does what a float is supposed to do.
-export function settlementFloat(): bigint {
-  return BigInt(process.env.SETTLEMENT_FLOAT ?? "1000000"); // 1 USDC
+  /** Exactly what this payment earned, net of what its burn cost. */
+  amount: bigint;
 }
 
 /**
- * Sweep everything above the float from settlement to the treasury.
+ * Send one payment's net fee from settlement to the treasury.
  *
  * Returns the tx hash, or null when there is nothing to do or the transfer
  * failed. Callers treat a null as non-fatal on purpose: the payment has already
@@ -52,6 +44,8 @@ export function settlementFloat(): bigint {
  * turn an accounting inconvenience into a billing incident.
  */
 export async function payFeeToTreasury(input: FeePayoutInput): Promise<Hex | null> {
+  if (input.amount <= 0n) return null;
+
   const treasury = treasuryAddress();
   if (!treasury) {
     console.warn("[fee] PLATFORM_TREASURY_ADDRESS is not set — fee stays in the relayer");
@@ -71,25 +65,33 @@ export async function payFeeToTreasury(input: FeePayoutInput): Promise<Hex | nul
     const publicClient = createPublicClient({ chain, transport: http() });
     const walletClient = createWalletClient({ account, chain, transport: http() });
 
-    // Swept from the balance rather than computed per payment. Several
-    // collections can be in flight at once, so no single payment owns what is
-    // sitting here — and the balance is the honest answer either way: it is
-    // whatever the fees brought in, less what the burns have already spent.
+    // An exact amount, not a sweep of the balance. Several collections can be in
+    // flight at once, and a balance sweep would hand the treasury USDC that a
+    // concurrent payment had redeemed and not yet burned — taking money out from
+    // under its own bridge. Remitting precisely what this payment earned leaves
+    // every other payment's funds untouched, and settlement holds nothing between
+    // them rather than carrying a float to absorb the race.
     const held = (await publicClient.readContract({
       address: input.token,
       abi: ERC20_ABI,
       functionName: "balanceOf",
       args: [account.address],
     })) as bigint;
-
-    const excess = held - input.float;
-    if (excess <= 0n) return null; // still building the float back up
+    if (held < input.amount) {
+      // Can only mean a burn consumed more than planned. Leave it: the shortfall
+      // stays as working capital and the next payment's remittance is unaffected.
+      console.warn(
+        `[fee] settlement holds ${held} on chain ${input.chainId}, this payment earned ` +
+          `${input.amount} — leaving it in place`
+      );
+      return null;
+    }
 
     const hash = await walletClient.writeContract({
       address: input.token,
       abi: ERC20_ABI,
       functionName: "transfer",
-      args: [treasury, excess],
+      args: [treasury, input.amount],
       chain,
     });
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
@@ -97,7 +99,7 @@ export async function payFeeToTreasury(input: FeePayoutInput): Promise<Hex | nul
       console.error(`[fee] transfer reverted on chain ${input.chainId}: ${hash}`);
       return null;
     }
-    console.log(`[fee] swept ${excess} → treasury on chain ${input.chainId}, float ${input.float} retained (${hash})`);
+    console.log(`[fee] ${input.amount} → treasury on chain ${input.chainId} (${hash})`);
     return hash;
   } catch (e) {
     console.error(`[fee] payout failed on chain ${input.chainId}:`, e instanceof Error ? e.message : e);

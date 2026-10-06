@@ -26,9 +26,9 @@ import type { BridgeTransfer } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { chainKeyForId, getSourceChain, ARC_DOMAIN } from "../lib/gateway/chains";
 import { relayerBridgeToArc } from "../lib/chain/delegation";
-import { payFeeToTreasury, settlementFloat } from "../lib/chain/fee-payout";
+import { payFeeToTreasury } from "../lib/chain/fee-payout";
 import { getSettlementAddress } from "../lib/chain/signers";
-import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../lib/gateway/cctp";
+import { burnParams, fetchAttestation, getTokenMessenger, receiveOnArc } from "../lib/gateway/cctp";
 
 /// Called once the mint lands on Arc. Must record whatever the caller considers
 /// settlement AND mark the bridge row minted, atomically.
@@ -81,6 +81,11 @@ export async function advanceBridge(bridge: BridgeTransfer, settle: SettleBridge
     const chainKey = chainKeyForId(b.chainId);
     if (!chainKey || chainKey === "arc") throw new Error(`bridge ${b.id} has a non-source chain ${b.chainId}`);
     const source = getSourceChain(chainKey);
+    // Fast (soft finality, small maxFee) so a collection settles in seconds
+    // rather than minutes. CCTP_RENEWAL_SPEED=standard trades that for the free
+    // hard-finality path. Read once: the remittance below has to net off the
+    // same maxFee the burn actually paid.
+    const speed = process.env.CCTP_RENEWAL_SPEED === "standard" ? "standard" : "fast";
     const burn = await relayerBridgeToArc({
       chainId: b.chainId,
       token: source.usdc,
@@ -88,10 +93,7 @@ export async function advanceBridge(bridge: BridgeTransfer, settle: SettleBridge
       amount: b.bridgedAmount,
       destinationDomain: ARC_DOMAIN,
       mintRecipient: b.mintRecipient as Address,
-      // Fast (soft finality, small maxFee) so a collection settles in seconds
-      // rather than minutes. CCTP_RENEWAL_SPEED=standard trades that for the
-      // free hard-finality path.
-      speed: process.env.CCTP_RENEWAL_SPEED === "standard" ? "standard" : "fast",
+      speed,
     });
     b = await prisma.bridgeTransfer.update({
       where: { id: b.id },
@@ -100,18 +102,22 @@ export async function advanceBridge(bridge: BridgeTransfer, settle: SettleBridge
 
     // The platform's share, after the platform's costs — which is what "the
     // platform absorbs the bridge fee out of its share" has always meant, now
-    // expressed in the money flow rather than only in the docs. Swept here
-    // because the burn has just taken maxFee: before it, settlement would be
-    // remitting money it is about to need.
+    // expressed in the money flow rather than only in the docs.
     //
-    // Non-fatal and deliberately after the status update: the merchant's share
-    // is burned and on its way, and a sweep that fails is a balance left in an
-    // account we own, which the next payment's sweep collects anyway.
+    // Exact, not a balance sweep: gross less what the merchant gets is the fee,
+    // less what the burn just spent on maxFee. Settlement is therefore left at
+    // zero by each payment rather than carrying a float, and a concurrent
+    // payment's funds are never touched.
+    //
+    // Non-fatal and after the status update: the merchant's share is burned and
+    // on its way, and a remittance that fails leaves the amount in an account we
+    // own rather than losing it.
+    const { maxFee } = burnParams(speed, b.bridgedAmount);
     await payFeeToTreasury({
       chainId: b.chainId,
       token: source.usdc,
       from: getSettlementAddress(),
-      float: settlementFloat(),
+      amount: b.grossAmount - b.bridgedAmount - maxFee,
     });
   }
   return mintAndSettle(b, settle);
