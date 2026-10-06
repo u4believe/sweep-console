@@ -492,20 +492,6 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
             status: "pulled",
           },
         });
-        // The merchant's share is now the bridge's problem and resumes on its own.
-        // The fee is not: it is sitting in the relayer on this chain, so it goes
-        // to the treasury here, while we know the chain and the amount. Non-fatal
-        // — the subscriber has been charged and the merchant is being paid, and a
-        // fee left behind is a reconciliation chore rather than a billing fault.
-        if (fee > 0n) {
-          await payFeeToTreasury({
-            chainId: chosenMandate.chainId,
-            token: source.usdc,
-            // The fee is in settlement now — that is where the redemption put it.
-            from: getSettlementAddress(),
-            amount: fee,
-          });
-        }
 
         const outcome = await advanceBridge(bridge, (tx) =>
           recordRenewalSettled(sub, bridge.mandateId, bridge.grossAmount, tx, undefined,

@@ -28,13 +28,22 @@ function treasuryAddress(): Address | null {
 export interface FeePayoutInput {
   chainId: number;
   token: Address;
-  /** The relayer that holds the fee — the same delegate the pull was redeemed by. */
+  /** The account holding the fee — settlement, after the burn has taken its share. */
   from: Address;
-  amount: bigint;
+  /** Leave this much behind as working capital for the next burn's maxFee. */
+  float: bigint;
+}
+
+/// What settlement keeps back, in USDC micro-units. Not a share of each payment:
+/// a share would compound, since the fee is 300 bps and the bridge costs 10, and
+/// settlement would quietly fill up instead of holding steady. An absolute target
+/// does what a float is supposed to do.
+export function settlementFloat(): bigint {
+  return BigInt(process.env.SETTLEMENT_FLOAT ?? "1000000"); // 1 USDC
 }
 
 /**
- * Send `amount` of `token` from the relayer to the treasury.
+ * Sweep everything above the float from settlement to the treasury.
  *
  * Returns the tx hash, or null when there is nothing to do or the transfer
  * failed. Callers treat a null as non-fatal on purpose: the payment has already
@@ -43,8 +52,6 @@ export interface FeePayoutInput {
  * turn an accounting inconvenience into a billing incident.
  */
 export async function payFeeToTreasury(input: FeePayoutInput): Promise<Hex | null> {
-  if (input.amount <= 0n) return null;
-
   const treasury = treasuryAddress();
   if (!treasury) {
     console.warn("[fee] PLATFORM_TREASURY_ADDRESS is not set — fee stays in the relayer");
@@ -64,27 +71,25 @@ export async function payFeeToTreasury(input: FeePayoutInput): Promise<Hex | nul
     const publicClient = createPublicClient({ chain, transport: http() });
     const walletClient = createWalletClient({ account, chain, transport: http() });
 
-    // The pull landed moments ago, but an RPC that is behind can still report the
-    // old balance. Checking first turns a confusing revert into a clear log line.
+    // Swept from the balance rather than computed per payment. Several
+    // collections can be in flight at once, so no single payment owns what is
+    // sitting here — and the balance is the honest answer either way: it is
+    // whatever the fees brought in, less what the burns have already spent.
     const held = (await publicClient.readContract({
       address: input.token,
       abi: ERC20_ABI,
       functionName: "balanceOf",
       args: [account.address],
     })) as bigint;
-    if (held < input.amount) {
-      console.warn(
-        `[fee] relayer ${account.address} holds ${held} on chain ${input.chainId}, ` +
-          `needs ${input.amount} — leaving the fee in place`
-      );
-      return null;
-    }
+
+    const excess = held - input.float;
+    if (excess <= 0n) return null; // still building the float back up
 
     const hash = await walletClient.writeContract({
       address: input.token,
       abi: ERC20_ABI,
       functionName: "transfer",
-      args: [treasury, input.amount],
+      args: [treasury, excess],
       chain,
     });
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
@@ -92,7 +97,7 @@ export async function payFeeToTreasury(input: FeePayoutInput): Promise<Hex | nul
       console.error(`[fee] transfer reverted on chain ${input.chainId}: ${hash}`);
       return null;
     }
-    console.log(`[fee] ${input.amount} → treasury on chain ${input.chainId} (${hash})`);
+    console.log(`[fee] swept ${excess} → treasury on chain ${input.chainId}, float ${input.float} retained (${hash})`);
     return hash;
   } catch (e) {
     console.error(`[fee] payout failed on chain ${input.chainId}:`, e instanceof Error ? e.message : e);

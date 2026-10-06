@@ -312,19 +312,6 @@ export async function executeCharge(chargeDbId: string): Promise<void> {
     },
   });
 
-  // The merchant's share is the bridge's problem now and resumes on its own. The
-  // fee is sitting in the relayer on this chain, so it goes to the treasury here
-  // while the chain and amount are known. Non-fatal: the payer has been charged
-  // and the merchant is being paid, and a fee left behind is a reconciliation
-  // chore rather than a failed charge.
-  if (fee > 0n) {
-    await payFeeToTreasury({
-      chainId: plan.grant.chainId,
-      token: source.usdc,
-      from: getSettlementAddress(),
-      amount: fee,
-    });
-  }
 
   try {
     const outcome = await advanceBridge(bridge, (tx) =>

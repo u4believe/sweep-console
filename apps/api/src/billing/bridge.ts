@@ -26,7 +26,8 @@ import type { BridgeTransfer } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { chainKeyForId, getSourceChain, ARC_DOMAIN } from "../lib/gateway/chains";
 import { relayerBridgeToArc } from "../lib/chain/delegation";
-import { ensureSettlementFloat } from "../lib/chain/settlement-float";
+import { payFeeToTreasury, settlementFloat } from "../lib/chain/fee-payout";
+import { getSettlementAddress } from "../lib/chain/signers";
 import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../lib/gateway/cctp";
 
 /// Called once the mint lands on Arc. Must record whatever the caller considers
@@ -80,10 +81,6 @@ export async function advanceBridge(bridge: BridgeTransfer, settle: SettleBridge
     const chainKey = chainKeyForId(b.chainId);
     if (!chainKey || chainKey === "arc") throw new Error(`bridge ${b.id} has a non-source chain ${b.chainId}`);
     const source = getSourceChain(chainKey);
-    // Checked here rather than at the start of the pass: this is the step that
-    // spends the float, and by now the subscriber's funds are already pulled, so
-    // a shortfall discovered later costs a retry on money that has moved.
-    await ensureSettlementFloat(b.chainId, source.usdc);
     const burn = await relayerBridgeToArc({
       chainId: b.chainId,
       token: source.usdc,
@@ -99,6 +96,22 @@ export async function advanceBridge(bridge: BridgeTransfer, settle: SettleBridge
     b = await prisma.bridgeTransfer.update({
       where: { id: b.id },
       data: { status: "burned", burnTxHash: burn.burnTxHash },
+    });
+
+    // The platform's share, after the platform's costs — which is what "the
+    // platform absorbs the bridge fee out of its share" has always meant, now
+    // expressed in the money flow rather than only in the docs. Swept here
+    // because the burn has just taken maxFee: before it, settlement would be
+    // remitting money it is about to need.
+    //
+    // Non-fatal and deliberately after the status update: the merchant's share
+    // is burned and on its way, and a sweep that fails is a balance left in an
+    // account we own, which the next payment's sweep collects anyway.
+    await payFeeToTreasury({
+      chainId: b.chainId,
+      token: source.usdc,
+      from: getSettlementAddress(),
+      float: settlementFloat(),
     });
   }
   return mintAndSettle(b, settle);
