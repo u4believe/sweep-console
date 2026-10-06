@@ -1097,10 +1097,6 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                       <span style={{ fontSize: 15, color: "var(--color-neutral-700)" }}>{plan.currency}</span>
                     </span>
                   </div>
-
-                  <p className="m-0" style={{ fontSize: 11, color: "var(--color-neutral-700)", marginTop: 8 }}>
-                    Pick a chain above to pay.
-                  </p>
                 </div>
               )}
 
@@ -1118,33 +1114,12 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
             </>
           )}
 
-          {/* The column runs long — email, wallet, four chains, renewal, totals —
-              and previously just stopped, leaving the subscriber unsure whether
-              anything else was below. This closes it the way the plan column
-              closes on its own rule. marginTop:auto pins it to the bottom of the
-              stretched column when the content is short, and sits directly under
-              the content when it isn't. */}
-          <div style={{ borderTop: RULE, marginTop: "auto", paddingTop: 10 }}>
-            <p
-              className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1"
-              style={{ fontSize: 11, color: "var(--color-neutral-600)", lineHeight: 1.6 }}
-            >
-              <span
-                style={{
-                  fontFamily: "var(--font-heading)", fontWeight: 800,
-                  color: "var(--color-text)",
-                }}
-              >
-                Sweep Console
-              </span>
-              <span aria-hidden="true">·</span>
-              <span>Settled on Arc in {plan.currency}</span>
-              <span aria-hidden="true">·</span>
-              <span>Gas and bridge fees covered</span>
-              <span aria-hidden="true">·</span>
-              <span>Non-custodial — funds go straight to {merchant.name}</span>
-            </p>
-          </div>
+          {/* Deliberately nothing after the Due today rule. That rule is the
+              column's close: everything below it was reassurance the subscriber
+              has already been given — the chain rows say where it settles, the
+              network-fee line says who pays, and "Pick a chain above" restates a
+              step the rows themselves make obvious. A payment screen ends at the
+              amount. */}
         </main>
       </div>
     </CheckoutFrame>
