@@ -26,6 +26,7 @@ import type { BridgeTransfer } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { chainKeyForId, getSourceChain, ARC_DOMAIN } from "../lib/gateway/chains";
 import { relayerBridgeToArc } from "../lib/chain/delegation";
+import { ensureSettlementFloat } from "../lib/chain/settlement-float";
 import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../lib/gateway/cctp";
 
 /// Called once the mint lands on Arc. Must record whatever the caller considers
@@ -79,6 +80,10 @@ export async function advanceBridge(bridge: BridgeTransfer, settle: SettleBridge
     const chainKey = chainKeyForId(b.chainId);
     if (!chainKey || chainKey === "arc") throw new Error(`bridge ${b.id} has a non-source chain ${b.chainId}`);
     const source = getSourceChain(chainKey);
+    // Checked here rather than at the start of the pass: this is the step that
+    // spends the float, and by now the subscriber's funds are already pulled, so
+    // a shortfall discovered later costs a retry on money that has moved.
+    await ensureSettlementFloat(b.chainId, source.usdc);
     const burn = await relayerBridgeToArc({
       chainId: b.chainId,
       token: source.usdc,
