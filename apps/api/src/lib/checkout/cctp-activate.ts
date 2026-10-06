@@ -33,12 +33,10 @@ import {
   getPublicClient,
   getUsdcAddress,
 } from "../chain/contract";
-import {
-  getDelegateAddress,
-  redeemPeriodicTransfer,
-  relayerBridgeToArc,
-} from "../chain/delegation";
-import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../gateway/cctp";
+import { redeemPeriodicTransfer, relayerBridgeToArc } from "../chain/delegation";
+import { burnParams, fetchAttestation, getTokenMessenger, receiveOnArc } from "../gateway/cctp";
+import { getSettlementAddress } from "../chain/signers";
+import { payFeeToTreasury } from "../chain/fee-payout";
 import { ARC_DOMAIN, chainKeyForId, getSourceChain } from "../gateway/chains";
 import { selectPaymentChain } from "../gateway/selector";
 
@@ -184,21 +182,28 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
     }
 
     // The merchant's share and the platform's, split here rather than on-chain.
-    // The full amount is pulled from the subscriber; only the share is bridged, so
-    // the fee stays behind as source-chain USDC in the relayer's balance.
+    // The full amount is pulled; only the share is bridged, and the fee is remitted
+    // to the treasury after the burn — see the same sequence in billing/bridge.ts.
     const fee = (amount * platformFeeBps()) / 10_000n;
     const merchantShare = amount - fee;
     const payout = session.merchant.walletAddress as Hex;
     if (!payout) throw new Error("merchant has no payout wallet");
 
-    // 1. Redeem the delegation — pull EXACTLY `amount` to the relayer.
+    // 1. Redeem the delegation — pull EXACTLY `amount` to settlement.
+    //
+    // Settlement, not the delegate. A grant signed with a payee rule pins the
+    // recipient into the caveat, and redeeming to anything else reverts with
+    // AllowedCalldataEnforcer:invalid-calldata — which is what this path did
+    // after the split moved the other two redemption sites and left this one
+    // behind. Grants without a payee accept either, so both generations work.
     await setSweepStatus(sweepDbId, "depositing");
     await redeemPeriodicTransfer({
       chainId: mandate.chainId,
       delegationManager: mandate.delegationManager as Address,
       context: mandate.context as Hex,
+      delegate: mandate.delegateAddress as Address,
       token: source.usdc,
-      recipient: getDelegateAddress(),
+      recipient: getSettlementAddress(),
       amount,
     });
 
@@ -214,8 +219,8 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
     );
 
     // 2. CCTP Fast burn → mint the merchant's share DIRECTLY to their Arc payout
-    //    wallet. The relayer absorbs the bridge fee from its float, so the
-    //    merchant receives the full share.
+    //    wallet. Settlement absorbs the bridge fee out of the platform's own cut,
+    //    so the merchant receives the full share.
     await setSweepStatus(sweepDbId, "bridging");
     const { burnTxHash } = await relayerBridgeToArc({
       chainId: source.chain.id,
@@ -226,6 +231,16 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
       mintRecipient: payout,
       speed: "fast",
     });
+    // The platform's share, net of what the burn just cost. Exact rather than a
+    // balance sweep, so a concurrent collection's funds are never touched and
+    // settlement is left holding nothing.
+    await payFeeToTreasury({
+      chainId: source.chain.id,
+      token: source.usdc,
+      from: getSettlementAddress(),
+      amount: fee - burnParams("fast", merchantShare).maxFee,
+    });
+
     const att = await fetchAttestation(source.domain, burnTxHash, { timeoutMs: 180_000, pollMs: 6_000 });
 
     // 3. The mint IS the settlement. There is no third step any more.

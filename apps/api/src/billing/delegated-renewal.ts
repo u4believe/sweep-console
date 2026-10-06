@@ -433,7 +433,13 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
       claimed = true;
 
       if (chosenKey === "arc") {
-        // Settle on Arc: transfer the merchant share (and fee) straight to creator/treasury.
+        // Settle on Arc: transfer the merchant share (and fee) straight to
+        // creator/treasury. Unreachable today — MetaMask will not sign a
+        // delegation on Arc, so no Arc grant exists (see routes/authorize.ts).
+        // Worth knowing if that changes: these two redemptions pay the creator
+        // and the treasury directly, which a payee rule would have to permit —
+        // pin [creator, treasury] there rather than settlement, since no bridge
+        // is involved and nothing needs to be held.
         const settle = await redeemPeriodicTransfer({
           chainId: chosenMandate.chainId,
           delegationManager: chosenMandate.delegationManager as Address,
