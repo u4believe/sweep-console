@@ -47,7 +47,7 @@ For decades, developers have billed a global audience in US dollars over card an
 ### For developers
 
 **1. Unpredictable, eroding revenue.** Card processors take ~2.9% + a fixed fee, climbing to 4–6% on international cards, before VAT/tax obligations.
-→ **A flat 3% platform fee** — creators keep **97%** of every payment, the same every time, with no per-card surcharge, FX margin, or climbing "international" rate. The platform absorbs gas and bridge costs out of its share, so a cross-chain payment nets the creator the same amount as a same-chain one.
+→ **A flat 2% platform fee** — creators keep **98%** of every payment, the same every time, with no per-card surcharge, FX margin, or climbing "international" rate. The platform absorbs gas and bridge costs out of its share, so a cross-chain payment nets the creator the same amount as a same-chain one.
 
 **2. Exposure to crypto volatility.** Accepting volatile crypto means $100 paid can settle as $90 by the time it lands.
 → **Everything settles in USDC** — $100 settles as 100 USDC, with no drift between payment and settlement. Dollar-denominated, forecastable revenue.

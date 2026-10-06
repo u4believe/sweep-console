@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { feePercent } from "@/lib/fee";
 import { useAuth } from "@/context/auth";
 import { Logo } from "@/components/ui/Logo";
 import { ArcMark, ArbitrumMark, BaseMark, OptimismMark } from "@/components/landing/ChainMarks";
@@ -50,7 +51,9 @@ const STEPS = [
 
 /**
  * Pricing must match PLATFORM_FEE_BPS in the API environment: 300, i.e. a flat
- * 3% of every settled charge. Nothing on-chain enforces that rate any more — the
+ * The platform fee of every settled charge, quoted from VITE_PLATFORM_FEE_BPS
+ * so it cannot drift from what the API charges. Nothing on-chain enforces that
+ * rate any more — the
  * split is computed off-chain when a charge settles — so this page is the only
  * place the promise lives. Do not quote a rate the platform does not charge.
  */
@@ -68,7 +71,7 @@ const PRICING = [
   },
   {
     name: "Standard",
-    price: "3%",
+    price: feePercent(),
     unit: " per renewal",
     blurb: "Pay only when a charge settles. Gas is on us.",
     filled: true,

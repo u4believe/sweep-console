@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { feePercent, creatorKeepsPercent } from "@/lib/fee";
 import { Link } from "react-router-dom";
 import type { ReactNode } from "react";
 import { Logo } from "@/components/ui/Logo";
@@ -387,7 +388,7 @@ export function DocsPage() {
                 ]}
               />
               <p>
-                Everything else is the same: the same payout wallet on Arc, the same <strong>3%</strong>, gasless for
+                Everything else is the same: the same payout wallet on Arc, the same <strong>{feePercent()}</strong>, gasless for
                 the payer, funded from Base / Arbitrum / Optimism, and an ERC-7715 wallet (MetaMask today) either way.
                 One account can run both — mandates are invisible to the renewal engine, so the two never collide.
               </p>
@@ -513,8 +514,8 @@ export function DocsPage() {
 
             <Section id="revenue-split" title="Creator revenue & settlement">
               <p>
-                <strong>Revenue allocation.</strong> The platform fee is <strong>3%</strong> — so{" "}
-                <strong>creators keep 97%</strong> of every charge. The split
+                <strong>Revenue allocation.</strong> The platform fee is <strong>{feePercent()}</strong> — so{" "}
+                <strong>creators keep {creatorKeepsPercent()}</strong> of every charge. The split
                 is <Code>fee = amount × platformFeeBps / 10000</Code>: the creator receives <Code>amount − fee</Code> to their payout
                 wallet on Arc, and the fee goes to the platform treasury. The split is computed off-chain when the charge settles
                 and paid out in the same bridge, so the creator's share never sits in a contract. The platform absorbs gas and
