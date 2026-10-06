@@ -11,12 +11,8 @@ import type { Address, Hex } from "viem";
 import { prisma } from "../lib/prisma";
 import { ok, err, serverError } from "../lib/response";
 import { supportedSourceChains } from "../lib/gateway/chains";
-import {
-  getDelegateAddress,
-  decodePeriodTransferTerms,
-  delegationIdentity,
-  mandateCovers,
-} from "../lib/chain/delegation";
+import { getDelegateAddress, decodePeriodTransferTerms, delegationIdentity, mandateCovers } from "../lib/chain/delegation";
+import { getSettlementAddress, settlementIsSeparate } from "../lib/chain/signers";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
 import { executeCrossChainActivation } from "../lib/checkout/cctp-activate";
 import { resolveCheckoutCustomer, verifyEmailToken } from "../lib/checkout/identity";
@@ -59,6 +55,11 @@ delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, re
     const amount = tier.amount;
     const periodDuration = INTERVAL_SECONDS[tier.interval] ?? INTERVAL_SECONDS.monthly;
     const delegate = getDelegateAddress();
+  // Only pin a payee when settlement is genuinely a different key. Pinning it to
+  // an address the delegate already controls constrains nothing — a thief redeems
+  // into it and spends from it with the same key — and would leave a caveat in the
+  // signed context implying a protection that is not there.
+  const payee = settlementIsSeparate() ? getSettlementAddress() : undefined;
 
     const target = (chainId: number, key: string, name: string, token: string) => ({
       chain_id: chainId,
@@ -68,6 +69,7 @@ delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, re
       period_amount: amount.toString(),
       period_duration: periodDuration,
       delegate,
+      payee,
     });
 
     // Every supported source chain, regardless of current USDC balance — the

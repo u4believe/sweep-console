@@ -18,6 +18,18 @@ export interface PeriodicErc20MandateInput {
   chainId: number;
   token: Address;
   delegate: Address;
+  /**
+   * The only address this permission may transfer to.
+   *
+   * The periodic permission's own data bounds the token, the amount and the
+   * period — and says nothing about the destination, so a delegate key on its
+   * own can redeem to any address it chooses. `payee` is the one ERC-7715 control
+   * that closes that: the kit maps it to an AllowedCalldataEnforcer caveat
+   * pinning the recipient bytes of the transfer.
+   *
+   * Omit and the grant is unconstrained in exactly the old way.
+   */
+  payee?: Address;
   periodAmountMicro: bigint;
   periodDurationSec: number;
   startTimeSec: number;
@@ -37,6 +49,11 @@ export function buildPeriodicPermission(
     chainId: input.chainId,
     to: input.delegate,
     expiry: input.expirySec,
+    // Only the delegate may redeem, and only settlement may be paid. Together
+    // these mean a stolen delegate key can move a subscriber's USDC into an
+    // account it cannot spend from, and nowhere else.
+    redeemer: [input.delegate],
+    ...(input.payee ? { payee: [input.payee] } : {}),
     permission: {
       type: "erc20-token-periodic",
       isAdjustmentAllowed: false,

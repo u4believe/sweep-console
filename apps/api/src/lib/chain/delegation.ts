@@ -28,7 +28,7 @@ import {
   type Address,
   type Hex,
 } from "viem";
-import { accountForDelegate, getRelayerAccount, getRelayerAddress } from "./signers";
+import { accountForDelegate, getRelayerAccount, getRelayerAddress, getSettlementAddress } from "./signers";
 import { withNonce } from "./nonce";
 import { TOKEN_MESSENGER_ABI, burnParams, type BurnSpeed } from "../gateway/cctp";
 
@@ -561,7 +561,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /// "pulled" bridge), (2) confirm the approve is actually readable before burning,
 /// and (3) retry the burn a few times on that specific stale-read revert.
 export async function relayerBridgeToArc(input: RelayerBridgeInput): Promise<{ burnTxHash: Hex }> {
-  const { account, publicClient, walletClient } = clientsFor(input.chainId);
+  // Signed by the settlement account, because that is what holds the USDC: the
+  // redemption pays out to settlement, and depositForBurn burns from msg.sender's
+  // own balance. Signing as the delegate here would burn from an address with
+  // nothing in it.
+  const { account, publicClient, walletClient } = clientsFor(input.chainId, getSettlementAddress());
   const { approve: approveCall, burn: burnCall, burnAmount } = burnCalls(input);
 
   const readAllowance = () =>

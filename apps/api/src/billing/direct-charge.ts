@@ -29,7 +29,7 @@ import { prisma } from "../lib/prisma";
 import { selectPaymentChain } from "../lib/gateway/selector";
 import { chainKeyForId, getSourceChain } from "../lib/gateway/chains";
 import { redeemPeriodicTransfer, decodePeriodTransferTerms } from "../lib/chain/delegation";
-import { getRelayerAddress } from "../lib/chain/signers";
+import { getRelayerAddress, getSettlementAddress } from "../lib/chain/signers";
 import { mandateGrantsWhere, periodConsumed, mandatePeriodStart, periodCommitted } from "../lib/rail";
 import { advanceBridge } from "./bridge";
 import { payFeeToTreasury } from "../lib/chain/fee-payout";
@@ -276,7 +276,9 @@ export async function executeCharge(chargeDbId: string): Promise<void> {
       context: plan.grant.context as Hex,
       delegate: plan.grant.delegateAddress as Address,
       token: source.usdc,
-      recipient: getRelayerAddress("external"),
+      // Settlement, not the rail delegate. Same reasoning as the renewal pass:
+      // new grants pin `payee` here, old ones accept it.
+      recipient: getSettlementAddress(),
       // One redemption for the whole amount: splitting it would double the
       // redeem gas and the enforcer counts both halves against the same period
       // cap regardless. The fee moves on below.
@@ -319,7 +321,7 @@ export async function executeCharge(chargeDbId: string): Promise<void> {
     await payFeeToTreasury({
       chainId: plan.grant.chainId,
       token: source.usdc,
-      from: plan.grant.delegateAddress as Address,
+      from: getSettlementAddress(),
       amount: fee,
     });
   }

@@ -16,12 +16,8 @@ import { ids } from "../lib/ids";
 import { verifyEmailToken, normalizeEmail } from "../lib/checkout/identity";
 import { revokeSubscription } from "../lib/subscriptions/revoke";
 import { supportedSourceChains, chainKeyForId } from "../lib/gateway/chains";
-import {
-  getDelegateAddress,
-  decodePeriodTransferTerms,
-  delegationIdentity,
-  mandateCovers,
-} from "../lib/chain/delegation";
+import { getDelegateAddress, decodePeriodTransferTerms, delegationIdentity, mandateCovers } from "../lib/chain/delegation";
+import { getSettlementAddress, settlementIsSeparate } from "../lib/chain/signers";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
 
 export const customerPortalRouter = Router();
@@ -249,6 +245,11 @@ customerPortalRouter.post("/subscriptions/:id/grant-plan", async (req, res) => {
     const interval = sub.interval ?? sub.plan.interval;
     const periodDuration = INTERVAL_SECONDS[interval] ?? INTERVAL_SECONDS.monthly;
     const delegate = getDelegateAddress();
+  // Only pin a payee when settlement is genuinely a different key. Pinning it to
+  // an address the delegate already controls constrains nothing — a thief redeems
+  // into it and spends from it with the same key — and would leave a caveat in the
+  // signed context implying a protection that is not there.
+  const payee = settlementIsSeparate() ? getSettlementAddress() : undefined;
 
     // Every supported source chain, regardless of current USDC balance — see
     // the equivalent checkout-side grant-plan in routes/delegation.ts.
@@ -260,6 +261,7 @@ customerPortalRouter.post("/subscriptions/:id/grant-plan", async (req, res) => {
       period_amount: amount.toString(),
       period_duration: periodDuration,
       delegate,
+      payee,
     }));
 
     // Chains this subscription is already covered on. The checkout side has done

@@ -82,6 +82,41 @@ export function getRelayerAddress(mode: RelayerMode = "hosted"): Address {
   return getRelayerAccount(mode).address;
 }
 
+/**
+ * Where redeemed funds land, and the key that then spends them.
+ *
+ * Separate from the delegate on purpose. The delegate signs redeemDelegations and
+ * nothing else; this account receives the pull, burns it for CCTP and pays the
+ * platform fee onward. New grants pin `payee` to this address, so a delegate key
+ * on its own can move a subscriber's USDC only into here — an account the holder
+ * of that key cannot spend from.
+ *
+ * Falls back to the hosted relayer when unset, which is the pre-split behaviour:
+ * one key doing both jobs. That keeps an unconfigured deployment working rather
+ * than failing at the first redemption, but it also means the split is not in
+ * effect until SETTLEMENT_PRIVATE_KEY is set — see settlementIsSeparate().
+ */
+export function getSettlementAccount(): PrivateKeyAccount {
+  const key = process.env.SETTLEMENT_PRIVATE_KEY;
+  return key ? accountFor(key, "SETTLEMENT_PRIVATE_KEY") : getRelayerAccount("hosted");
+}
+
+export function getSettlementAddress(): Address {
+  return getSettlementAccount().address;
+}
+
+/**
+ * True when settlement really is a different key from every delegate.
+ *
+ * Pinning `payee` to an address the delegate key also controls buys nothing — a
+ * thief redeems into it and spends from it with the same key. Callers use this to
+ * avoid claiming a protection that is not there.
+ */
+export function settlementIsSeparate(): boolean {
+  const settlement = getSettlementAddress().toLowerCase();
+  return !knownDelegates().some((d) => d.toLowerCase() === settlement);
+}
+
 /// Every delegate address this deployment currently holds a key for.
 export function knownDelegates(): Address[] {
   const seen = new Map<string, Address>();
@@ -101,7 +136,12 @@ export function knownDelegates(): Address[] {
  */
 export function accountForDelegate(delegate: Address): PrivateKeyAccount {
   const want = delegate.toLowerCase();
-  for (const account of [getPlatformAccount(), getRelayerAccount("hosted"), getRelayerAccount("external")]) {
+  for (const account of [
+    getPlatformAccount(),
+    getRelayerAccount("hosted"),
+    getRelayerAccount("external"),
+    getSettlementAccount(),
+  ]) {
     if (account.address.toLowerCase() === want) return account;
   }
   throw new Error(

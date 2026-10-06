@@ -35,6 +35,7 @@ import { getUsdcAddress } from "../lib/chain/contract";
 import { fireWebhook } from "../lib/webhooks/delivery";
 import { sendPaymentReceipt } from "../lib/email/receipt";
 import { ids } from "../lib/ids";
+import { getSettlementAddress } from "../lib/chain/signers";
 
 function platformFeeBps(): bigint {
   return BigInt(process.env.PLATFORM_FEE_BPS ?? "0");
@@ -468,7 +469,11 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
           context: chosenMandate.context as Hex,
           delegate: chosenMandate.delegateAddress as Address,
           token: source.usdc,
-          recipient: getDelegateAddress(),
+          // Settlement, not the delegate. New grants pin `payee` here, so this is
+          // the only address they will pay out to; older grants carry no payee
+          // caveat and accept it just the same, which is what lets both run side
+          // by side while the old ones age out.
+          recipient: getSettlementAddress(),
           // Still the full period in one redemption: splitting it into two would
           // double the redeem gas, and the enforcer counts both against the same
           // period cap anyway. The fee moves on in the next step instead.
@@ -496,7 +501,8 @@ export async function runDelegatedRenewalsOnce(): Promise<RenewalOutcome[]> {
           await payFeeToTreasury({
             chainId: chosenMandate.chainId,
             token: source.usdc,
-            from: chosenMandate.delegateAddress as Address,
+            // The fee is in settlement now — that is where the redemption put it.
+            from: getSettlementAddress(),
             amount: fee,
           });
         }

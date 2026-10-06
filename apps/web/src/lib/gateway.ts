@@ -23,6 +23,11 @@ export interface GrantTarget {
   period_amount: string;
   period_duration: number;
   delegate: `0x${string}`;
+  /// The only address a redemption of this grant may pay out to. Pinned into the
+  /// signed context as an ERC-7715 `payee` rule, so the delegate key alone cannot
+  /// send a subscriber's USDC anywhere else. Absent on grants issued before the
+  /// split, which carry no such constraint.
+  payee?: `0x${string}`;
 }
 
 export interface GrantPlan {

@@ -20,7 +20,7 @@ import { prisma } from "../lib/prisma";
 import { ids } from "../lib/ids";
 import { ok, err, serverError } from "../lib/response";
 import { decodePeriodTransferTerms, delegationIdentity } from "../lib/chain/delegation";
-import { getRelayerAddress } from "../lib/chain/signers";
+import { getRelayerAddress, getSettlementAddress, settlementIsSeparate } from "../lib/chain/signers";
 import { supportedSourceChains } from "../lib/gateway/chains";
 import { fireWebhook } from "../lib/webhooks/delivery";
 
@@ -91,6 +91,14 @@ interface MandateForPage {
 function targetsFor(m: MandateForPage) {
   const sources = supportedSourceChains();
   const delegate = getRelayerAddress("external");
+  // Where a redemption may pay out. Pinned into the signed context as a
+  // payee rule, so a delegate key alone cannot send a subscriber\'s USDC
+  // anywhere else — see lib/chain/signers.ts settlementIsSeparate().
+  // Only pin a payee when settlement is genuinely a different key. Pinning it to
+  // an address the delegate already controls constrains nothing — a thief redeems
+  // into it and spends from it with the same key — and would leave a caveat in the
+  // signed context implying a protection that is not there.
+  const payee = settlementIsSeparate() ? getSettlementAddress() : undefined;
   const targets: {
     chain_id: number;
     chain_key: string;
@@ -99,6 +107,7 @@ function targetsFor(m: MandateForPage) {
     period_amount: string;
     period_duration: number;
     delegate: string;
+    payee?: string;
   }[] = [];
   // A chain the developer asked for that this deployment can no longer offer.
   // Returned rather than quietly dropped: a mandate created for three chains and
@@ -120,6 +129,7 @@ function targetsFor(m: MandateForPage) {
       period_amount: m.maxAmount.toString(),
       period_duration: m.periodDuration,
       delegate,
+      payee,
     });
   }
   return { targets, unavailable };
