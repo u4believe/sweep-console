@@ -161,7 +161,7 @@ export function getSourceChain(key: string): SourceChain {
 
 /// Arc's chain id (destination/settlement chain).
 export function arcChainId(): number {
-  return isMainnet() ? 5042001 : 5042002;
+  return isMainnet() ? 5042 : 5042002;
 }
 
 /// Map an EVM chain id to its chain key ("arc" or a source key), or undefined

@@ -27,7 +27,8 @@ import { createPublicClient, http, defineChain, type Address } from "viem";
 import { prisma } from "../src/lib/prisma";
 
 function rpcFor(chainId: number): string | null {
-  if (chainId === 5042002 || chainId === 5042001) return process.env.ARC_TESTNET_RPC_URL ?? null;
+  if (chainId === 5042002) return process.env.ARC_TESTNET_RPC_URL ?? null;
+  if (chainId === 5042) return process.env.ARC_MAINNET_RPC_URL ?? null;
   return process.env[`DELEGATION_RPC_${chainId}`] ?? null;
 }
 

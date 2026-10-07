@@ -16,7 +16,7 @@ export const arcTestnet = defineChain({
 });
 
 export const arcMainnet = defineChain({
-  id: 5042001,
+  id: 5042,
   name: "Arc",
   nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 18 },
   rpcUrls: {
