@@ -28,7 +28,7 @@ import { chainKeyForId, getSourceChain, ARC_DOMAIN } from "../lib/gateway/chains
 import { relayerBridgeToArc } from "../lib/chain/delegation";
 import { payFeeToTreasury } from "../lib/chain/fee-payout";
 import { getSettlementAddress } from "../lib/chain/signers";
-import { burnParams, fetchAttestation, getTokenMessenger, receiveOnArc } from "../lib/gateway/cctp";
+import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../lib/gateway/cctp";
 
 /// Called once the mint lands on Arc. Must record whatever the caller considers
 /// settlement AND mark the bridge row minted, atomically.
@@ -83,8 +83,7 @@ export async function advanceBridge(bridge: BridgeTransfer, settle: SettleBridge
     const source = getSourceChain(chainKey);
     // Fast (soft finality, small maxFee) so a collection settles in seconds
     // rather than minutes. CCTP_RENEWAL_SPEED=standard trades that for the free
-    // hard-finality path. Read once: the remittance below has to net off the
-    // same maxFee the burn actually paid.
+    // hard-finality path.
     const speed = process.env.CCTP_RENEWAL_SPEED === "standard" ? "standard" : "fast";
     const burn = await relayerBridgeToArc({
       chainId: b.chainId,
@@ -107,17 +106,18 @@ export async function advanceBridge(bridge: BridgeTransfer, settle: SettleBridge
     // Exact, not a balance sweep: gross less what the merchant gets is the fee,
     // less what the burn just spent on maxFee. Settlement is therefore left at
     // zero by each payment rather than carrying a float, and a concurrent
-    // payment's funds are never touched.
+    // payment's funds are never touched. The burn reports the maxFee it used,
+    // so this nets off that exact number — recomputing it would silently
+    // mis-settle the moment the quote moved between the two calls.
     //
     // Non-fatal and after the status update: the merchant's share is burned and
     // on its way, and a remittance that fails leaves the amount in an account we
     // own rather than losing it.
-    const { maxFee } = burnParams(speed, b.bridgedAmount);
     await payFeeToTreasury({
       chainId: b.chainId,
       token: source.usdc,
       from: getSettlementAddress(),
-      amount: b.grossAmount - b.bridgedAmount - maxFee,
+      amount: b.grossAmount - b.bridgedAmount - burn.maxFee,
     });
   }
   return mintAndSettle(b, settle);

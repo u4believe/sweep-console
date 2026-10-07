@@ -31,6 +31,7 @@ import {
 import { accountForDelegate, getRelayerAccount, getRelayerAddress, getSettlementAddress } from "./signers";
 import { withNonce } from "./nonce";
 import { TOKEN_MESSENGER_ABI, burnParams, type BurnSpeed } from "../gateway/cctp";
+import { chainKeyForId, getSourceChain } from "../gateway/chains";
 
 const ZERO_BYTES32 = "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex;
 
@@ -512,8 +513,26 @@ type Call = { target: Address; value: bigint; callData: Hex };
 /// CCTP deducts the fee from the burned amount, so to land the FULL `input.amount`
 /// on Arc we burn `amount + maxFee` (the relayer funds the maxFee from its float).
 /// Since the actual fee is ≤ maxFee, the recipient receives at least `amount`.
-function burnCalls(input: BurnCallParams): { approve: Call; burn: Call; burnAmount: bigint } {
-  const { maxFee, minFinalityThreshold } = burnParams(input.speed, input.amount);
+/// The CCTP source domain for a chain, or undefined when it is not a source
+/// chain we know — in which case the fee cannot be quoted and burnParams falls
+/// back to its configured ceiling.
+function sourceDomainFor(chainId: number): number | undefined {
+  const key = chainKeyForId(chainId);
+  if (!key || key === "arc") return undefined;
+  try {
+    return getSourceChain(key).domain;
+  } catch {
+    return undefined;
+  }
+}
+
+/// Takes the resolved fee rather than computing it, so the caller holds the one
+/// maxFee this burn used and the fee remittance can net off that exact number
+/// instead of recomputing it and hoping the two agree.
+function burnCalls(
+  input: BurnCallParams,
+  { maxFee, minFinalityThreshold }: { maxFee: bigint; minFinalityThreshold: number }
+): { approve: Call; burn: Call; burnAmount: bigint } {
   const burnAmount = input.amount + maxFee;
   const approveCall = encodeFunctionData({
     abi: ERC20_APPROVE_ABI,
@@ -560,13 +579,23 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /// approve when the allowance already covers `amount` (idempotent on a resumed
 /// "pulled" bridge), (2) confirm the approve is actually readable before burning,
 /// and (3) retry the burn a few times on that specific stale-read revert.
-export async function relayerBridgeToArc(input: RelayerBridgeInput): Promise<{ burnTxHash: Hex }> {
+export async function relayerBridgeToArc(
+  input: RelayerBridgeInput
+): Promise<{ burnTxHash: Hex; maxFee: bigint }> {
   // Signed by the settlement account, because that is what holds the USDC: the
   // redemption pays out to settlement, and depositForBurn burns from msg.sender's
   // own balance. Signing as the delegate here would burn from an address with
   // nothing in it.
   const { account, publicClient, walletClient } = clientsFor(input.chainId, getSettlementAddress());
-  const { approve: approveCall, burn: burnCall, burnAmount } = burnCalls(input);
+  const sourceDomain = sourceDomainFor(input.chainId);
+  const fee = await burnParams(
+    input.speed,
+    input.amount,
+    sourceDomain === undefined
+      ? undefined
+      : { sourceDomain, destinationDomain: input.destinationDomain }
+  );
+  const { approve: approveCall, burn: burnCall, burnAmount } = burnCalls(input, fee);
 
   const readAllowance = () =>
     publicClient.readContract({
@@ -624,7 +653,7 @@ export async function relayerBridgeToArc(input: RelayerBridgeInput): Promise<{ b
       );
       const receipt = await publicClient.waitForTransactionReceipt({ hash: burnHash });
       if (receipt.status !== "success") throw new Error(`relayer depositForBurn reverted: ${burnHash}`);
-      return { burnTxHash: burnHash };
+      return { burnTxHash: burnHash, maxFee: fee.maxFee };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (attempt < 4 && msg.includes("transfer amount exceeds allowance")) {

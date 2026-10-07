@@ -23,7 +23,7 @@ import {
   type Address,
   type Hex,
 } from "viem";
-import { arcChainId } from "./chains";
+import { arcChainId, isMainnet } from "./chains";
 import { getRelayerAccount } from "../chain/signers";
 import { withNonce } from "../chain/nonce";
 
@@ -59,27 +59,66 @@ const FINALITY_STANDARD = 2000;
 ///
 /// maxFee is a CEILING, and the burn is `amount + maxFee` — so whatever Circle
 /// does not charge is still minted, to the RECIPIENT, not returned to the relayer.
-/// The default was 1%, which on a measured 1.3bps quote meant the relayer spent
-/// ~0.98% of every merchant share to deliver it: on a 5 USDC charge the platform
-/// retained 0.10 and gave back 0.048, netting 1.03% against the 2% fee charged at
-/// the time. Half the revenue, invisible, scaling with the amount.
+/// Every basis point of headroom is therefore money given away, scaling with the
+/// amount and invisible in the books: at a fixed 10 bps against the 0.325 bps
+/// Circle actually quotes mainnet→Arc, ~9.7 bps of each merchant share leaked,
+/// about 4.8% of a 200 bps platform fee.
 ///
-/// 10 bps clears the observed quote roughly eightfold while cutting that waste by
-/// 90%. It is still a guess at a number Circle publishes — sizing maxFee from the
-/// live quote plus a margin is the real fix, and this default is the stopgap.
-/// Override via CCTP_FAST_MAX_FEE_BPS.
-export function burnParams(
+/// So size it from the live quote instead of guessing. CCTP_FAST_MAX_FEE_BPS is
+/// now a CEILING rather than the value, and a route that cannot be quoted falls
+/// back to it — the pre-quote behaviour, so a Circle outage costs margin but
+/// never a payment. CCTP_FAST_FEE_MARGIN (default 3x) absorbs a fee that moves
+/// between the quote and the burn; too low and the transfer silently degrades to
+/// Standard, which is slow rather than broken.
+export async function burnParams(
   speed: BurnSpeed,
-  amount: bigint
-): { maxFee: bigint; minFinalityThreshold: number } {
-  if (speed === "fast") {
-    const bps = BigInt(process.env.CCTP_FAST_MAX_FEE_BPS ?? "10"); // 0.1%
-    let maxFee = (amount * bps) / 10_000n;
-    if (maxFee < 1n) maxFee = 1n;
-    if (maxFee >= amount) maxFee = amount > 1n ? amount - 1n : 0n; // CCTP requires maxFee < amount
-    return { maxFee, minFinalityThreshold: FINALITY_FAST };
+  amount: bigint,
+  route?: { sourceDomain: number; destinationDomain: number }
+): Promise<{ maxFee: bigint; minFinalityThreshold: number }> {
+  if (speed !== "fast") return { maxFee: 0n, minFinalityThreshold: FINALITY_STANDARD };
+
+  const ceilingBps = Number(process.env.CCTP_FAST_MAX_FEE_BPS ?? "10");
+  const margin = Number(process.env.CCTP_FAST_FEE_MARGIN ?? "3");
+  const quoted = route
+    ? await quoteFastFeeBps(route.sourceDomain, route.destinationDomain)
+    : null;
+  const bps = quoted === null ? ceilingBps : Math.min(quoted * margin, ceilingBps);
+
+  // The quote is fractional (0.325), so scale to micro-bps before dividing.
+  let maxFee = (amount * BigInt(Math.ceil(bps * 1e6))) / 10_000_000_000n;
+  if (maxFee < 1n) maxFee = 1n;
+  if (maxFee >= amount) maxFee = amount > 1n ? amount - 1n : 0n; // CCTP requires maxFee < amount
+  return { maxFee, minFinalityThreshold: FINALITY_FAST };
+}
+
+/// Circle's published Fast-transfer fee for one route, in basis points, or null
+/// when it cannot be read.
+///
+/// Basis points is confirmed, not assumed: the sandbox quotes 1.3 for Base→Arc,
+/// which is the ~1.25 the old fixed default was sized against. Cached, because a
+/// burn sits on the payment's critical path and a published fee moves on the
+/// order of days.
+const feeQuotes = new Map<string, { bps: number; at: number }>();
+const FEE_QUOTE_TTL_MS = 5 * 60_000;
+
+export async function quoteFastFeeBps(
+  sourceDomain: number,
+  destinationDomain: number
+): Promise<number | null> {
+  const key = `${sourceDomain}->${destinationDomain}`;
+  const hit = feeQuotes.get(key);
+  if (hit && Date.now() - hit.at < FEE_QUOTE_TTL_MS) return hit.bps;
+  try {
+    const res = await fetch(`${irisUrl()}/v2/burn/USDC/fees/${sourceDomain}/${destinationDomain}`);
+    if (!res.ok) return null;
+    const rows = (await res.json()) as { finalityThreshold?: number; minimumFee?: number }[];
+    const fast = rows?.find((r) => r.finalityThreshold === FINALITY_FAST);
+    if (typeof fast?.minimumFee !== "number" || !Number.isFinite(fast.minimumFee)) return null;
+    feeQuotes.set(key, { bps: fast.minimumFee, at: Date.now() });
+    return fast.minimumFee;
+  } catch {
+    return null;
   }
-  return { maxFee: 0n, minFinalityThreshold: FINALITY_STANDARD };
 }
 
 const MESSAGE_TRANSMITTER_ABI = [
@@ -147,8 +186,12 @@ function getArcMessageTransmitter(): Address {
   return (process.env.CCTP_MESSAGE_TRANSMITTER_ARC ?? CCTP_V2_TESTNET_MESSAGE_TRANSMITTER) as Address;
 }
 
+// Circle's attestation + fee service. The default follows the network: pointing
+// mainnet at the sandbox would fetch attestations that never complete, and quote
+// the sandbox's fee (1.3 bps) for a mainnet route that costs 0.325.
 function irisUrl(): string {
-  return process.env.CCTP_IRIS_URL ?? "https://iris-api-sandbox.circle.com";
+  if (process.env.CCTP_IRIS_URL) return process.env.CCTP_IRIS_URL;
+  return isMainnet() ? "https://iris-api.circle.com" : "https://iris-api-sandbox.circle.com";
 }
 
 export interface CctpAttestation {

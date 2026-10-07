@@ -35,7 +35,7 @@ import {
   getUsdcAddress,
 } from "../chain/contract";
 import { redeemPeriodicTransfer, relayerBridgeToArc } from "../chain/delegation";
-import { burnParams, fetchAttestation, getTokenMessenger, receiveOnArc } from "../gateway/cctp";
+import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../gateway/cctp";
 import { getSettlementAddress } from "../chain/signers";
 import { payFeeToTreasury } from "../chain/fee-payout";
 import { ARC_DOMAIN, chainKeyForId, getSourceChain } from "../gateway/chains";
@@ -242,7 +242,7 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
     //    wallet. Settlement absorbs the bridge fee out of the platform's own cut,
     //    so the merchant receives the full share.
     await setSweepStatus(sweepDbId, "bridging");
-    const { burnTxHash } = await relayerBridgeToArc({
+    const { burnTxHash, maxFee } = await relayerBridgeToArc({
       chainId: source.chain.id,
       token: source.usdc,
       tokenMessenger: getTokenMessenger(chosenKey),
@@ -258,7 +258,7 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
       chainId: source.chain.id,
       token: source.usdc,
       from: getSettlementAddress(),
-      amount: fee - burnParams("fast", merchantShare).maxFee,
+      amount: fee - maxFee,
     });
 
     const att = await fetchAttestation(source.domain, burnTxHash, { timeoutMs: 180_000, pollMs: 6_000 });
