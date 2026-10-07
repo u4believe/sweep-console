@@ -10,7 +10,7 @@
     "billing:run": "NODE_ENV=development tsx src/billing/runner.ts",
     "billing:start": "node dist/billing/runner.js",
     "db:generate": "prisma generate --schema=../web/prisma/schema.prisma",
-    "db:push": "prisma db push --schema=../web/prisma/schema.prisma",
+    "db:push": "sh scripts/db-push.sh",
     "circle:register-webhook": "tsx scripts/register-circle-webhook.ts",
     "contract:retire": "tsx scripts/retire-subscription-manager.ts",
     "relayer:key": "tsx scripts/relayer-key.ts"
