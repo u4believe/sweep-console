@@ -21,7 +21,7 @@ export const arcMainnet = defineChain({
   nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 18 },
   rpcUrls: {
     default: {
-      http: [import.meta.env.VITE_ARC_MAINNET_RPC_URL ?? "https://rpc.arc.network/"],
+      http: [import.meta.env.VITE_ARC_MAINNET_RPC_URL ?? "https://rpc.mainnet.arc.io"],
     },
   },
   blockExplorers: {

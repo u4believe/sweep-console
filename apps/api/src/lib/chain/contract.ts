@@ -12,12 +12,19 @@ const arcTestnet = defineChain({
   testnet: true,
 });
 
+// Mainnet lives on arc.io. The old default pointed at rpc.arc.network, a host
+// with no mainnet record at all, so setting ARC_NETWORK=mainnet failed at DNS
+// with a bare "fetch failed" rather than saying what was wrong. Circle's primary
+// endpoint is the default; ARC_MAINNET_RPC_URL takes one of the published
+// alternates instead (dRPC rpc.drpc.mainnet.arc.io, and Blockdaemon and QuickNode
+// on the same pattern). Testnet keeps rpc.testnet.arc.network above, which still
+// answers; it is also reachable at rpc.testnet.arc.io.
 const arcMainnet = defineChain({
   id: 5042,
   name: "Arc",
   nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 18 },
   rpcUrls: {
-    default: { http: [process.env.ARC_MAINNET_RPC_URL ?? "https://rpc.arc.network/"] },
+    default: { http: [process.env.ARC_MAINNET_RPC_URL ?? "https://rpc.mainnet.arc.io"] },
   },
 });
 
