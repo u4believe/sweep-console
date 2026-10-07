@@ -6,9 +6,16 @@
 // gasless ERC-3009 transferWithAuthorization, then CCTP-burns it to Arc. No
 // Circle Gateway / unified balance is involved.
 //
-// Addresses below are the Circle TESTNET USDC deployments. Verify current
-// mainnet addresses and Arc destination support at developers.circle.com/cctp
-// before any mainnet rollout.
+// Two tables — Circle's testnet deployments and the mainnet ones — chosen by
+// ARC_NETWORK, which is the same variable contract.ts switches Arc on. One
+// switch for both legs on purpose: a deployment that was mainnet on the source
+// side and testnet on the Arc side would burn testnet USDC toward Arc mainnet.
+//
+// The mainnet entries are the NATIVE USDC deployments, the only ones CCTP can
+// burn and mint. They are deliberately not USDC.e, the bridged token that still
+// exists on Arbitrum and Optimism: an address swapped for its bridged twin fails
+// at the burn, not at boot. Check both tables against developers.circle.com/cctp
+// before the first live charge.
 
 import { createPublicClient, defineChain, http, type Chain, type Hex, type PublicClient } from "viem";
 
@@ -39,7 +46,29 @@ const baseSepolia = defineChain({
   testnet: true,
 });
 
-/// CCTP V2 domain ID for Arc (the destination domain of every bridge).
+const optimism = defineChain({
+  id: 10,
+  name: "OP Mainnet",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: ["https://mainnet.optimism.io"] } },
+});
+
+const arbitrum = defineChain({
+  id: 42_161,
+  name: "Arbitrum One",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: ["https://arb1.arbitrum.io/rpc"] } },
+});
+
+const base = defineChain({
+  id: 8_453,
+  name: "Base",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: ["https://mainnet.base.org"] } },
+});
+
+/// CCTP V2 domain ID for Arc (the destination domain of every bridge). Arc is
+/// live on both networks and keeps domain 26 on each, so this needs no branch.
 export const ARC_DOMAIN = 26;
 
 export interface SourceChain {
@@ -74,6 +103,44 @@ const TESTNET_CHAINS: SourceChain[] = [
   },
 ];
 
+// Same `key` and the same CCTP `domain` as the testnet row above: a CCTP domain
+// identifies the chain, not the network, so only the chain definition and the
+// USDC address differ between the two tables.
+const MAINNET_CHAINS: SourceChain[] = [
+  {
+    key: "optimism",
+    name: "OP Mainnet",
+    domain: 2,
+    chain: optimism,
+    usdc: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+  },
+  {
+    key: "arbitrum",
+    name: "Arbitrum One",
+    domain: 3,
+    chain: arbitrum,
+    usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+  },
+  {
+    key: "base",
+    name: "Base",
+    domain: 6,
+    chain: base,
+    usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  },
+];
+
+/// True when this deployment is pointed at mainnet. Read by both the source
+/// table and arcChainId(), so the two cannot disagree.
+export function isMainnet(): boolean {
+  return process.env.ARC_NETWORK === "mainnet";
+}
+
+/// The table for the network this deployment runs on.
+function networkChains(): SourceChain[] {
+  return isMainnet() ? MAINNET_CHAINS : TESTNET_CHAINS;
+}
+
 /// Active source chains, filtered by SUPPORTED_SOURCE_CHAINS (comma list of
 /// keys, e.g. "base,arbitrum,optimism"). "arc" entries are ignored — Arc is
 /// always the destination and is consulted first natively.
@@ -83,7 +150,7 @@ export function supportedSourceChains(): SourceChain[] {
     .map((s) => s.trim().toLowerCase())
     .filter((s) => s && s !== "arc");
 
-  return TESTNET_CHAINS.filter((c) => wanted.includes(c.key));
+  return networkChains().filter((c) => wanted.includes(c.key));
 }
 
 export function getSourceChain(key: string): SourceChain {
@@ -94,7 +161,7 @@ export function getSourceChain(key: string): SourceChain {
 
 /// Arc's chain id (destination/settlement chain).
 export function arcChainId(): number {
-  return process.env.ARC_NETWORK === "mainnet" ? 5042001 : 5042002;
+  return isMainnet() ? 5042001 : 5042002;
 }
 
 /// Map an EVM chain id to its chain key ("arc" or a source key), or undefined
