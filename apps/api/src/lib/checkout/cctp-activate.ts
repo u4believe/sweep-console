@@ -22,6 +22,7 @@ import { type Address, type Hex } from "viem";
 import { prisma, withRetry } from "../prisma";
 import { completeCheckoutSession } from "./complete";
 import { findWalletConflict } from "./wallet-guard";
+import { findSameTierSubscription } from "./same-tier";
 
 /// The platform's cut, in basis points. Split here rather than by a contract —
 /// the same arithmetic billing/delegated-renewal.ts does for a renewal.
@@ -178,6 +179,25 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
     if (clash) {
       throw new Error(
         `wallet ${subscriber.toLowerCase()} is already paying for ${clash.subscriptionId} at this merchant`
+      );
+    }
+
+    // Same place, same reasoning: the last moment a refusal is free. A subscriber
+    // already on this exact tier is not upgrading, and completing would take a
+    // second initial charge, retire the subscription they are paying to keep and
+    // create an identical one. A different tier falls through untouched — that IS
+    // the upgrade path, and retirePriorActiveSubscriptions makes it atomic.
+    const dup = await findSameTierSubscription({
+      merchantId: session.merchantId,
+      planId: plan.id,
+      tierId: tier.tierId,
+      customerDbId: sweep.customerId,
+      email: sweep.subscriberEmail,
+    });
+    if (dup) {
+      throw new Error(
+        `already subscribed to ${dup.tierName ?? "this tier"} (${dup.subscriptionId}) — ` +
+          `manage it instead of paying again`
       );
     }
 

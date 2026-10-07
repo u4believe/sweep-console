@@ -14,8 +14,9 @@ import { prisma } from "../prisma";
 import { ids } from "../ids";
 import { fireWebhook } from "../webhooks/delivery";
 import { sendPaymentReceipt } from "../email/receipt";
-import { resolveCheckoutCustomer } from "./identity";
+import { resolveCheckoutCustomer, maskEmail } from "./identity";
 import { findWalletConflict, walletConflictMessage } from "./wallet-guard";
+import { findSameTierSubscription } from "./same-tier";
 import { resolveTier } from "./tiers";
 import { retirePriorActiveSubscriptions } from "../subscriptions/revoke";
 import type { CheckoutSession, Merchant, Plan } from "@prisma/client";
@@ -165,11 +166,38 @@ export async function completeCheckoutSession(input: CompleteCheckoutInput) {
   const escrowBalance = 0n;
   const settlementDeadline: Date | null = null;
 
+  // Observed, not refused — same reasoning as the clash above. By here the money
+  // has reached the merchant, so refusing would leave the subscriber paid-up with
+  // nothing. The real guard runs before the pull (cctp-activate), and this exists
+  // to say so when one slips past: two tabs, a retried request, or the direct path
+  // where we only hear about the payment afterwards.
+  const duplicate = await findSameTierSubscription({
+    merchantId: session.merchantId,
+    planId: plan.id,
+    tierId: tier.tierId,
+    customerDbId: customer.customerDbId,
+    email: normalizedEmail,
+  });
+  if (duplicate) {
+    console.error(
+      `[checkout/complete] DUPLICATE TIER after settlement — ${maskEmail(normalizedEmail)} already holds ` +
+        `${duplicate.subscriptionId} on this tier at merchant ${session.merchantId}, and has now paid ` +
+        `${tier.amount} for it a second time. The prior subscription is about to be retired; the charge ` +
+        `cannot be recalled. Needs manual review.`
+    );
+  }
+
   const subscription = await prisma.subscription.create({
     data: {
       subscriptionId: ids.subscription(),
       merchantId: session.merchantId,
       planId: plan.id,
+      // WHICH tier, as a reference. Null for the plan's default tier, which has
+      // no PlanTier row of its own. resolveTier has always returned this; it
+      // simply was not kept, so "is this the same tier?" could only be answered
+      // by comparing prices — which two tiers may share, and which a repriced
+      // tier stops matching.
+      planTierId: tier.tierId,
       // Snapshot the chosen tier's terms so they're immutable for this sub and the
       // billing engine never re-reads a mutated/closed plan.
       amount: tier.amount,

@@ -160,6 +160,8 @@ model PlanTier {
 
   createdAt DateTime @default(now())
 
+  subscriptions Subscription[]
+
   @@index([planId])
   @@map("plan_tiers")
 }
@@ -302,6 +304,18 @@ model Subscription {
   planId         String
   plan           Plan     @relation(fields: [planId], references: [id])
 
+  // Which tier was chosen. Null means the plan's own default tier, which has no
+  // PlanTier row — and also means a subscription created before this column
+  // existed, so nothing may assume it is populated.
+  //
+  // The snapshot below stays the billing truth: terms are fixed per subscription
+  // and must not move when a tier is edited. This reference answers the question
+  // the snapshot cannot — WHICH tier this is — which amount+interval only
+  // approximates, since two tiers may be priced identically and a repriced tier
+  // stops matching its own subscribers.
+  planTierId String?
+  planTier   PlanTier? @relation(fields: [planTierId], references: [id], onDelete: SetNull)
+
   // Chosen-tier snapshot (immutable terms). Null = the plan's default tier; the
   // billing engine reads these and falls back to plan.amount/interval when null.
   amount   BigInt? // per-period USDC micro-units for this subscription
@@ -351,6 +365,7 @@ model Subscription {
   @@index([status])
   @@index([customerId])
   @@index([currentPeriodEnd]) // billing engine queries on this
+  @@index([planTierId])
   @@index([settlementDeadline]) // settlement sweep queries on this
   @@index([merchantId, walletAddress]) // wallet guard: is this wallet spoken for here?
   @@index([walletAddress]) // allowance floor: everything this wallet pays for
