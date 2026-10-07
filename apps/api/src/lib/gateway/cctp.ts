@@ -190,7 +190,7 @@ function arcRelayer() {
     name: "Arc",
     nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 18 },
     rpcUrls: {
-      default: { http: [process.env.ARC_TESTNET_RPC_URL ?? "https://rpc.testnet.arc.network/"] },
+      default: { http: [process.env.ARC_TESTNET_RPC_URL ?? "https://rpc.testnet.arc.io"] },
     },
   });
   return {

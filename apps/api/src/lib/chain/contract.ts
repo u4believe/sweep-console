@@ -7,7 +7,7 @@ const arcTestnet = defineChain({
   name: "Arc Testnet",
   nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 18 },
   rpcUrls: {
-    default: { http: [process.env.ARC_TESTNET_RPC_URL ?? "https://rpc.testnet.arc.network/"] },
+    default: { http: [process.env.ARC_TESTNET_RPC_URL ?? "https://rpc.testnet.arc.io"] },
   },
   testnet: true,
 });
@@ -17,8 +17,9 @@ const arcTestnet = defineChain({
 // with a bare "fetch failed" rather than saying what was wrong. Circle's primary
 // endpoint is the default; ARC_MAINNET_RPC_URL takes one of the published
 // alternates instead (dRPC rpc.drpc.mainnet.arc.io, and Blockdaemon and QuickNode
-// on the same pattern). Testnet keeps rpc.testnet.arc.network above, which still
-// answers; it is also reachable at rpc.testnet.arc.io.
+// on the same pattern). Both networks now sit on arc.io: rpc.testnet.arc.network
+// still answers today, but arc.network has no mainnet record at all, so that
+// family looks like it is being retired and was the next default due to break.
 const arcMainnet = defineChain({
   id: 5042,
   name: "Arc",

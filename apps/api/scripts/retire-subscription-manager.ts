@@ -28,7 +28,7 @@ import { privateKeyToAccount } from "viem/accounts";
 
 const SM = getAddress("0xf4fcf13de61054b7909d33e0a5b1e000c225c0af");
 const USDC = getAddress(process.env.USDC_ADDRESS ?? "0x3600000000000000000000000000000000000000");
-const RPC = process.env.ARC_TESTNET_RPC_URL ?? "https://rpc.testnet.arc.network/";
+const RPC = process.env.ARC_TESTNET_RPC_URL ?? "https://rpc.testnet.arc.io";
 
 const ABI = [
   { name: "paused", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "bool" }] },

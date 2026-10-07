@@ -32,7 +32,7 @@ const CHAINS: Record<string, { id: number; rpc: string; default: string }> = {
   "Base Sepolia": { id: 84532, rpc: process.env.BASE_SEPOLIA_RPC_URL ?? "https://sepolia.base.org", default: "0.02" },
   "Arbitrum Sepolia": { id: 421614, rpc: process.env.ARBITRUM_SEPOLIA_RPC_URL ?? "https://sepolia-rollup.arbitrum.io/rpc", default: "0.02" },
   "OP Sepolia": { id: 11155420, rpc: process.env.OPTIMISM_SEPOLIA_RPC_URL ?? "https://sepolia.optimism.io", default: "0.02" },
-  "Arc (settlement)": { id: 5042002, rpc: process.env.ARC_TESTNET_RPC_URL ?? "https://rpc.testnet.arc.network/", default: "10" },
+  "Arc (settlement)": { id: 5042002, rpc: process.env.ARC_TESTNET_RPC_URL ?? "https://rpc.testnet.arc.io", default: "10" },
 };
 
 const chainFor = (id: number, rpc: string) =>

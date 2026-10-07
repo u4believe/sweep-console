@@ -31,7 +31,7 @@ const arc = defineChain({
   id: 5042002,
   name: "Arc Testnet",
   nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 18 },
-  rpcUrls: { default: { http: [process.env.ARC_TESTNET_RPC_URL ?? "https://rpc.testnet.arc.network/"] } },
+  rpcUrls: { default: { http: [process.env.ARC_TESTNET_RPC_URL ?? "https://rpc.testnet.arc.io"] } },
   testnet: true,
 });
 
