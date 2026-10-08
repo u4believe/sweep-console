@@ -10,7 +10,7 @@ import { GatewaySweepPanel } from "./GatewaySweepPanel";
 import { DelegatedRenewalToggle, TIER2_ENABLED } from "./DelegatedRenewalToggle";
 import { ManageSubscriptionsPanel } from "./ManageSubscriptionsPanel";
 import { PostPaymentGrants } from "./PostPaymentGrants";
-import { BaseLogo, ArbitrumLogo, OptimismLogo } from "./ChainBadge";
+import { BaseMark, ArbitrumMark, OptimismMark } from "@/components/landing/ChainMarks";
 import { Spinner, ActivityBar } from "@/components/ui/Spinner";
 import { CheckoutFrame, RULE, HAIRLINE } from "./CheckoutFrame";
 import { PlanShowcase } from "./PlanShowcase";
@@ -389,9 +389,9 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
    * up with a row that shows no sign of the wallet prompt it just triggered.
    */
   const PAY_CHAINS = [
-    { key: "base", name: "USDC on Base", note: "Settled on Arc · ~20s", Logo: BaseLogo },
-    { key: "arbitrum", name: "USDC on Arbitrum", note: "Settled on Arc · ~25s", Logo: ArbitrumLogo },
-    { key: "optimism", name: "USDC on Optimism", note: "Settled on Arc · ~25s", Logo: OptimismLogo },
+    { key: "base", name: "USDC on Base", note: "Settled on Arc · ~20s", Logo: BaseMark },
+    { key: "arbitrum", name: "USDC on Arbitrum", note: "Settled on Arc · ~25s", Logo: ArbitrumMark },
+    { key: "optimism", name: "USDC on Optimism", note: "Settled on Arc · ~25s", Logo: OptimismMark },
   ] as const;
 
   const [payChain, setPayChain] = useState<string>("base");
@@ -949,7 +949,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                               fontFamily: "var(--font-body)",
                             }}
                           >
-                            <Logo className="h-[22px] w-[22px] shrink-0" />
+                            <Logo height={22} />
                             <span className="min-w-0 flex-1">
                               <span
                                 className="block"

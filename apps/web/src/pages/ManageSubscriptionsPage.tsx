@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useAccount, useConnectorClient } from "wagmi";
 import { formatUnits } from "viem";
 import { Logo } from "@/components/ui/Logo";
-import { BaseLogo, ArbitrumLogo, OptimismLogo } from "@/components/checkout/ChainBadge";
+import { CHAIN_MARKS } from "@/components/landing/ChainMarks";
 import { Spinner, ActivityBar } from "@/components/ui/Spinner";
 import { Turnstile, TURNSTILE_ENABLED } from "@/components/Turnstile";
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
@@ -100,12 +100,6 @@ const PER_NOUN: Record<string, string> = {
 const fmtUsdc = (micro: number) => formatUnits(BigInt(micro), 6).replace(/\.0+$/, "");
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-
-const CHAIN_LOGOS: Record<string, (p: { className?: string }) => JSX.Element> = {
-  base: BaseLogo,
-  arbitrum: ArbitrumLogo,
-  optimism: OptimismLogo,
-};
 
 /// The design's micro-label: 10px, wide tracking, upper. Used for every column
 /// heading, kicker and stat key on this page, so it is written once.
@@ -904,7 +898,7 @@ function SubscriptionDetail({
         <div style={{ borderTop: "1px solid var(--color-divider)" }}>
           {rows.map((c) => {
             const g = granted.get(c.chain_id);
-            const Logo = CHAIN_LOGOS[c.chain_key];
+            const Mark = CHAIN_MARKS[c.chain_key];
             const rowBusy = busyId === `${sub.id}:${c.chain_id}`;
             const isLast = !!g && sub.grants.length === 1;
             return (
@@ -915,8 +909,8 @@ function SubscriptionDetail({
                   padding: "13px 0", borderBottom: "1px solid var(--color-divider)", flexWrap: "wrap",
                 }}
               >
-                {Logo
-                  ? <Logo className="h-[22px] w-[22px] shrink-0" />
+                {Mark
+                  ? <Mark height={22} opacity={g ? 1 : 0.45} />
                   : <span style={{ width: 22, height: 22, flex: "none", background: "var(--color-neutral-200)" }} />}
                 <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 14.5, color: g ? undefined : "var(--color-neutral-700)" }}>
                   {c.name}
