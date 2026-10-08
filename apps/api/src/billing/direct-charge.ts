@@ -28,7 +28,11 @@ import type { Address, Hex } from "viem";
 import { prisma } from "../lib/prisma";
 import { selectPaymentChain } from "../lib/gateway/selector";
 import { chainKeyForId, getSourceChain } from "../lib/gateway/chains";
-import { redeemPeriodicTransfer, decodePeriodTransferTerms } from "../lib/chain/delegation";
+import {
+  redeemPeriodicTransfer,
+  decodePeriodTransferTerms,
+  isDelegationDisabled,
+} from "../lib/chain/delegation";
 import { getRelayerAddress, getSettlementAddress } from "../lib/chain/signers";
 import { mandateGrantsWhere, periodConsumed, mandatePeriodStart, periodCommitted } from "../lib/rail";
 import { advanceBridge } from "./bridge";
@@ -50,7 +54,8 @@ export type ChargeRefusal =
   | "mandate_period_consumed"
   | "insufficient_funds"
   | "no_payout_wallet"
-  | "no_grants";
+  | "no_grants"
+  | "grant_disabled";
 
 export class ChargeError extends Error {
   constructor(public reason: ChargeRefusal, message: string) {
@@ -118,8 +123,8 @@ export async function planCharge(c: ChargeContext) {
     where: { ...mandateGrantsWhere(m.mandateId), status: "active" },
     select: {
       id: true, grantId: true, chainId: true, token: true, context: true,
-      delegateAddress: true, delegationManager: true, periodAmount: true,
-      periodDuration: true, lastRedeemedAt: true,
+      delegateAddress: true, delegationManager: true, delegationHash: true,
+      periodAmount: true, periodDuration: true, lastRedeemedAt: true,
     },
   });
   if (grants.length === 0) {
@@ -154,7 +159,66 @@ export async function planCharge(c: ChargeContext) {
     );
   }
 
-  const allowedChainKeys = usable
+  // Ask each chain whether its delegation is still enabled, before anything
+  // moves money.
+  //
+  // reconcileMandates does this nightly and renewals run straight after it, so
+  // the hosted path never sees a stale row. A rail charge has no such shelter:
+  // it is a developer's API call at an arbitrary hour, and a delegation the
+  // subscriber disabled in their wallet an hour ago still reads active here
+  // until that pass runs. Without this the charge reaches redeemDelegations and
+  // reverts — a spent relayer transaction, and a chain error naming none of the
+  // cause.
+  //
+  // Checked per grant rather than only on the chain about to be picked, so a
+  // disabled Base does not sink a charge Arbitrum could have carried.
+  //
+  // Fails OPEN. An unreadable chain leaves the grant in play: the redeem would
+  // have been attempted anyway, so an RPC blip costs what it costs today rather
+  // than refusing a charge the subscriber did authorize.
+  const enabled = await Promise.all(
+    usable.map(async (g) => {
+      // Null hash predates identity recording; the reconciler skips these too.
+      if (!g.delegationHash) return true;
+      try {
+        return !(await isDelegationDisabled(
+          g.chainId,
+          g.delegationManager as Address,
+          g.delegationHash as Hex
+        ));
+      } catch (e) {
+        console.warn(
+          `[charge] ${m.mandateId}: could not read delegation state on chain ${g.chainId} — ` +
+            `proceeding as enabled:`,
+          e
+        );
+        return true;
+      }
+    })
+  );
+  const live = usable.filter((_, i) => enabled[i]);
+  const disabled = usable.filter((_, i) => !enabled[i]);
+
+  if (disabled.length > 0) {
+    // One direction only, exactly as the reconciler: active → revoked, never
+    // back. The subscriber's wallet is the authority on this.
+    await prisma.renewalDelegation.updateMany({
+      where: { id: { in: disabled.map((g) => g.id) } },
+      data: { status: "revoked" },
+    });
+    console.log(
+      `[charge] ${m.mandateId}: ${disabled.length} grant(s) disabled in the subscriber's wallet ` +
+        `(chains ${disabled.map((g) => g.chainId).join(", ")}) — revoked locally`
+    );
+  }
+  if (live.length === 0) {
+    throw new ChargeError(
+      "grant_disabled",
+      "The subscriber has disabled this authorization in their wallet"
+    );
+  }
+
+  const allowedChainKeys = live
     .map((g) => chainKeyForId(g.chainId))
     .filter((k): k is string => !!k && k !== "arc");
   const selection = await selectPaymentChain(m.walletAddress as Hex, {
@@ -169,7 +233,7 @@ export async function planCharge(c: ChargeContext) {
     );
   }
   const chosenKey = selection.chain.kind === "arc" ? "arc" : selection.chain.key;
-  const grant = usable.find((g) => chainKeyForId(g.chainId) === chosenKey);
+  const grant = live.find((g) => chainKeyForId(g.chainId) === chosenKey);
   if (!grant) {
     throw new ChargeError("insufficient_funds", `No usable grant for the selected chain ${chosenKey}`);
   }
