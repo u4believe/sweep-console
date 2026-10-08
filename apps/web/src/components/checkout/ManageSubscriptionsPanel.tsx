@@ -21,6 +21,9 @@ interface Props {
   email: string;
   emailToken: string;
   connectedWallet?: string;
+  /** The email whose subscriptions have already been acknowledged, if any. */
+  acknowledged: string | null;
+  onAcknowledge: (email: string) => void;
 }
 
 /**
@@ -37,12 +40,18 @@ interface Props {
  * warning should not count as having read it. Escape does, because a dialog
  * that traps Escape is a dialog people fight.
  */
-export function ManageSubscriptionsPanel({ sessionId, email, emailToken, connectedWallet }: Props) {
+export function ManageSubscriptionsPanel({
+  sessionId,
+  email,
+  emailToken,
+  connectedWallet,
+  acknowledged,
+  onAcknowledge,
+}: Props) {
   const [account, setAccount] = useState<LinkedAccount | null>(null);
   const [loading, setLoading] = useState(true);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [dismissed, setDismissed] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -53,14 +62,16 @@ export function ManageSubscriptionsPanel({ sessionId, email, emailToken, connect
   }, [sessionId, email, emailToken]);
 
   useEffect(() => {
-    // `load` changes exactly when the identity does, so a subscriber who
-    // verifies a different email is asked about that email's subscriptions
-    // rather than inheriting the last dismissal.
-    setDismissed(false);
     load();
   }, [load]);
 
-  // Stay silent until we know there is an existing subscription worth blocking on.
+  // Stay silent until we know there is an existing subscription worth blocking
+  // on. The acknowledgement is held by the checkout and keyed by email, so it
+  // survives this component remounting — opening and closing the balance sweep
+  // swaps the whole payment column out and used to resurrect a dismissed
+  // prompt — while a subscriber who verifies a DIFFERENT email is still asked
+  // about that email's subscriptions.
+  const dismissed = acknowledged === email;
   const open = !loading && !dismissed && !!account?.proven && account.subscriptions.length > 0;
 
   // Escape closes, and the page behind does not scroll while it is up — a modal
@@ -68,7 +79,7 @@ export function ManageSubscriptionsPanel({ sessionId, email, emailToken, connect
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setDismissed(true);
+      if (e.key === "Escape") onAcknowledge(email);
     };
     const { overflow } = document.body.style;
     document.body.style.overflow = "hidden";
@@ -77,7 +88,7 @@ export function ManageSubscriptionsPanel({ sessionId, email, emailToken, connect
       document.body.style.overflow = overflow;
       window.removeEventListener("keydown", onKey);
     };
-  }, [open]);
+  }, [open, email, onAcknowledge]);
 
   const onRevoke = async (sub: LinkedSubscription) => {
     setError("");
@@ -203,9 +214,9 @@ export function ManageSubscriptionsPanel({ sessionId, email, emailToken, connect
             type="button"
             className="btn btn-primary"
             autoFocus
-            onClick={() => setDismissed(true)}
+            onClick={() => onAcknowledge(email)}
           >
-            Continue to checkout
+            Keep {many ? "them" : "it"} and continue
           </button>
         </div>
       </div>

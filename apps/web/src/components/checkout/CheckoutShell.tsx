@@ -343,6 +343,12 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
   // pricing table, "pay" shows the payment panel. Single-tier plans skip straight
   // to "pay".
   const [view, setView] = useState<"plans" | "pay">(tiers.length > 0 ? "plans" : "pay");
+
+  // Which email's existing subscriptions the subscriber has already been shown
+  // and waved through. Held here rather than inside the dialog because the
+  // payment column unmounts whole whenever the balance sweep opens, which would
+  // otherwise bring a dismissed prompt straight back.
+  const [ackedSubsFor, setAckedSubsFor] = useState<string | null>(null);
   const selectedTierName = selectedTier ? selectedTier.name : plan.defaultTierName || plan.name;
 
   // All choosable options as uniform pricing cards (default tier first).
@@ -1109,6 +1115,8 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                   email={email.trim()}
                   emailToken={emailToken}
                   connectedWallet={address}
+                  acknowledged={ackedSubsFor}
+                  onAcknowledge={setAckedSubsFor}
                 />
               )}
             </>
