@@ -16,8 +16,19 @@
 set -e
 
 SCHEMA=../web/prisma/schema.prisma
+CONSTRAINTS=../web/prisma/constraints.sql
+
+# Indexes the schema language cannot express. Idempotent, and applied after the
+# push whichever way the push went: `prisma db push` reports no drift from them
+# today, but a future version that tidied them away would otherwise drop a
+# uniqueness guarantee silently on deploy.
+apply_constraints() {
+  prisma db execute --schema="$SCHEMA" --file="$CONSTRAINTS"
+  echo "[db:push] constraints applied"
+}
 
 if prisma db push --schema="$SCHEMA"; then
+  apply_constraints
   exit 0
 fi
 
@@ -26,4 +37,5 @@ prisma migrate diff \
   --from-schema-datasource "$SCHEMA" \
   --to-schema-datamodel "$SCHEMA" \
   --exit-code
-echo "[db:push] database already matches the schema; the other deploy applied it. Continuing."
+echo "[db:push] database already matches the schema; the other deploy applied it."
+apply_constraints
