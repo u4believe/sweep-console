@@ -3,11 +3,8 @@ import { createPortal } from "react-dom";
 import { formatUnits } from "viem";
 import {
   fetchLinkedSubscriptions,
-  revokeLinkedSubscription,
   type LinkedAccount,
-  type LinkedSubscription,
 } from "@/lib/gateway";
-import { friendlyError } from "@/lib/errors";
 import { HAIRLINE } from "./CheckoutFrame";
 
 const INTERVAL_LABELS: Record<string, string> = {
@@ -35,11 +32,11 @@ interface Props {
  * past it to pick a chain never saw that they were about to replace a live
  * subscription. The decision belongs in front of the checkout, not under it.
  *
- * It closes two ways and no others — the subscriber dismisses it, or revokes
- * every subscription it lists (the list empties and the dialog has nothing left
- * to say). The backdrop deliberately does not dismiss: a stray click outside a
- * warning should not count as having read it. Escape does, because a dialog
- * that traps Escape is a dialog people fight.
+ * The subscriber dismisses it and it is gone for that email; the standing row
+ * under Email carries the warning from then on, and Manage subscription is
+ * where anything is actually done about it. The backdrop deliberately does not
+ * dismiss: a stray click outside a warning should not count as having read it.
+ * Escape does, because a dialog that traps Escape is a dialog people fight.
  */
 export function ManageSubscriptionsPanel({
   sessionId,
@@ -51,8 +48,6 @@ export function ManageSubscriptionsPanel({
 }: Props) {
   const [account, setAccount] = useState<LinkedAccount | null>(null);
   const [loading, setLoading] = useState(true);
-  const [revokingId, setRevokingId] = useState<string | null>(null);
-  const [error, setError] = useState("");
 
   const load = useCallback(() => {
     setLoading(true);
@@ -92,20 +87,6 @@ export function ManageSubscriptionsPanel({
     };
   }, [open, email, onAcknowledge]);
 
-  const onRevoke = async (sub: LinkedSubscription) => {
-    setError("");
-    setRevokingId(sub.id);
-    try {
-      await revokeLinkedSubscription(sessionId, sub.id, email, emailToken);
-      load(); // refresh — the revoked sub drops off the active list, and the
-      // dialog closes itself once the last one goes.
-    } catch (e) {
-      setError(friendlyError(e, "Could not revoke. Try again."));
-    } finally {
-      setRevokingId(null);
-    }
-  };
-
   if (!hasSubs || !account) return null;
 
   const many = account.subscriptions.length > 1;
@@ -129,8 +110,7 @@ export function ManageSubscriptionsPanel({
 
         <p className="dialog-body m-0">
           {account.email} is already subscribed. Paying again replaces{" "}
-          {many ? "these" : "this"} automatically — or revoke{" "}
-          {many ? "them" : "it"} now to be sure.
+          {many ? "these" : "this"} automatically.
         </p>
 
         <div style={{ overflowY: "auto", minHeight: 0, display: "grid", gap: 10, margin: "2px 0" }}>
@@ -141,16 +121,13 @@ export function ManageSubscriptionsPanel({
               <div
                 key={s.id}
                 style={{
-                  display: "flex",
-                  alignItems: "flex-start",
-                  justifyContent: "space-between",
-                  gap: 14,
+                  minWidth: 0,
                   padding: "12px 14px",
                   border: "1px solid var(--color-divider)",
                   borderRadius: "var(--radius-md)",
                 }}
               >
-                <div style={{ minWidth: 0 }}>
+                <div>
                   <p
                     className="m-0"
                     style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 14.5 }}
@@ -188,32 +165,10 @@ export function ManageSubscriptionsPanel({
                     </p>
                   )}
                 </div>
-
-                {s.revocable && (
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    style={{ flex: "none", alignSelf: "center" }}
-                    onClick={() => void onRevoke(s)}
-                    disabled={revokingId === s.id}
-                  >
-                    {revokingId === s.id ? "Revoking…" : "Revoke"}
-                  </button>
-                )}
               </div>
             );
           })}
         </div>
-
-        {error && (
-          <p className="m-0" style={{ fontSize: 12.5, color: "var(--color-accent)" }}>
-            {error}
-          </p>
-        )}
-
-        <p className="m-0" style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
-          Gas is covered by the platform — revoking is free.
-        </p>
 
         <div className="dialog-actions">
           <button
@@ -226,7 +181,7 @@ export function ManageSubscriptionsPanel({
           </button>
         </div>
       </div>
-      </div>,
+    </div>,
     document.body
   );
 
