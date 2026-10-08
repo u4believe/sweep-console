@@ -11,42 +11,68 @@ import { resumeChargeBridges } from "./direct-charge";
 //   • the API process itself when BILLING_IN_PROCESS=true (single-service deploy).
 // Pick ONE — running both registers the crons twice.
 export function startBillingEngine(): void {
-  // Main renewal run — configurable (default 2 AM daily).
+  // When the day's billing happens. The passes it is made of run in sequence
+  // inside it, so this is the only billing time there is to configure.
   const renewalSchedule = process.env.BILLING_CRON_SCHEDULE ?? "0 2 * * *";
 
-  cron.schedule("0 1 * * *", async () => {
-    console.log("[cron] transitionTrials triggered");
-    await transitionTrials().catch((e) => console.error("[cron] transitionTrials error:", e));
-  });
-
-  // Deliberately BEFORE the renewal run: a mandate the subscriber disabled in
-  // their wallet is invisible to us until we ask, and attempting it wastes a
-  // relayer transaction to learn what a view call answers for free. Reconciling
-  // first means the renewal pass only sees mandates that can still be redeemed.
-  cron.schedule("30 1 * * *", async () => {
-    console.log("[cron] reconcileMandates triggered");
-    await reconcileMandatesOnce().catch((e) => console.error("[cron] reconcileMandates error:", e));
-  });
-
-  // Mandate expiry, just after reconciliation and before renewals for the same
-  // reason: a lapsed mandate should be known to be lapsed before anything tries
-  // to charge it. Daily is the right cadence — the warning is measured in days,
-  // and both events are one-shot, so running more often would find nothing.
-  cron.schedule("45 1 * * *", async () => {
-    console.log("[cron] mandateExpiry triggered");
-    await runMandateExpiryOnce().catch((e) => console.error("[cron] mandateExpiry error:", e));
-  });
-
-  // The renewal run. One pass now, not two: every due subscription is collected
-  // by redeeming a delegation on a granted source chain and bridging it to Arc.
-  // The Arc-first allowance pass is gone with the contract, and with it the
-  // separate retry job — a subscription that fails stays due and past_due, so the
-  // next run of this same pass is its retry.
+  /**
+   * The daily collection, in the order its parts depend on.
+   *
+   * This was four crons — 01:00, 01:30, 01:45 and BILLING_CRON_SCHEDULE — and
+   * the first three were placed to land before the fourth; each said so in its
+   * own comment. But only the fourth was configurable, so setting
+   * BILLING_CRON_SCHEDULE to anything earlier than 01:45 silently inverted an
+   * ordering the code relies on, and nothing would have said so: renewals
+   * against trials not yet converted, mandates not yet reconciled, and expiries
+   * not yet taken.
+   *
+   * Running them in one job makes that order structural. It cannot invert,
+   * whatever the schedule is set to.
+   *
+   * Each step is still caught on its own. They were independent jobs before and
+   * stay independent in everything but order — a chain that will not answer the
+   * reconciler is not a reason to skip the renewals, which is what the pass
+   * before this change would have done.
+   */
+  let passRunning = false;
   cron.schedule(renewalSchedule, async () => {
-    console.log("[cron] renewals triggered");
-    await runDelegatedRenewalsOnce().catch((e) =>
-      console.error("[cron] delegated renewals error:", e)
-    );
+    // node-cron does not serialise a job against itself, and this one is now
+    // long enough to matter on a short schedule. Two passes overlapping would
+    // both see the same subscription due and both try to redeem it: the second
+    // redeem is refused on-chain by the enforcer's one-per-period rule, but not
+    // before it has spent a relayer transaction to find out.
+    if (passRunning) {
+      console.warn("[cron] billing pass still running — skipping this tick");
+      return;
+    }
+    passRunning = true;
+    console.log("[cron] billing pass triggered");
+    try {
+      // Trials that ended are due today. Convert them before anything asks what
+      // is due, or they wait a whole cycle.
+      await transitionTrials().catch((e) => console.error("[cron] transitionTrials error:", e));
+
+      // A mandate the subscriber disabled in their wallet is invisible to us
+      // until we ask, and attempting it wastes a relayer transaction to learn
+      // what a view call answers for free.
+      await reconcileMandatesOnce().catch((e) =>
+        console.error("[cron] reconcileMandates error:", e)
+      );
+
+      // A lapsed mandate should be known to be lapsed before anything tries to
+      // charge it.
+      await runMandateExpiryOnce().catch((e) => console.error("[cron] mandateExpiry error:", e));
+
+      // One pass, not two: every due subscription is collected by redeeming a
+      // delegation on a granted source chain and bridging it to Arc. A
+      // subscription that fails stays due and past_due, so the next run of this
+      // same pass is its retry.
+      await runDelegatedRenewalsOnce().catch((e) =>
+        console.error("[cron] delegated renewals error:", e)
+      );
+    } finally {
+      passRunning = false;
+    }
   });
 
   // Rail charges in flight. A charge is pulled, burned, attested and minted; if
@@ -62,5 +88,5 @@ export function startBillingEngine(): void {
     await retryWebhooks().catch((e) => console.error("[cron] retryWebhooks error:", e));
   });
 
-  console.log(`[billing] Cron jobs registered (renewals: "${renewalSchedule}"). Engine running.`);
+  console.log(`[billing] Cron jobs registered (billing pass: "${renewalSchedule}"). Engine running.`);
 }
