@@ -395,9 +395,9 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
    * up with a row that shows no sign of the wallet prompt it just triggered.
    */
   const PAY_CHAINS = [
-    { key: "base", name: "USDC on Base", note: "Settled on Arc · ~20s", Logo: BaseMark },
-    { key: "arbitrum", name: "USDC on Arbitrum", note: "Settled on Arc · ~25s", Logo: ArbitrumMark },
-    { key: "optimism", name: "USDC on Optimism", note: "Settled on Arc · ~25s", Logo: OptimismMark },
+    { key: "base", name: "USDC on Base", note: "Settled on Arc", Logo: BaseMark },
+    { key: "arbitrum", name: "USDC on Arbitrum", note: "Settled on Arc", Logo: ArbitrumMark },
+    { key: "optimism", name: "USDC on Optimism", note: "Settled on Arc", Logo: OptimismMark },
   ] as const;
 
   const [payChain, setPayChain] = useState<string>("base");
@@ -408,20 +408,6 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
   const [grantError, setGrantError] = useState("");
   /** Set once a chain is cleared to pay — drives the sweep panel's auto-run. */
   const [sweepChain, setSweepChain] = useState<string | null>(null);
-
-  /**
-   * Any source chain still unauthorized. Drives ONE one-time-setup notice under
-   * the chain list — it used to be repeated on every source row, which spent
-   * three copies of the same two lines and was the single largest block of
-   * height in this column.
-   *
-   * The warning itself still matters: the EIP-7702 wallet setup a source chain
-   * needs is submitted by MetaMask, not by our relayer, so it is the one cost we
-   * cannot cover. Saying so before they click beats a surprise fee prompt.
-   */
-  const anySourceNeedsSetup = PAY_CHAINS.some(
-    ({ key }) => !grantedChains.includes(key) && grantingChain !== key,
-  );
 
   /**
    * Is there enough USDC on `key` to cover this charge?
@@ -1039,15 +1025,6 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                         {grantError}
                       </p>
                     )}
-
-                    <p
-                      className="m-0 mt-2"
-                      style={{ fontSize: 11, color: "var(--color-neutral-700)", lineHeight: 1.5 }}
-                    >
-                      {`${merchant.name} receives the full amount, settled on Arc. `}
-                      {anySourceNeedsSetup &&
-                        "The first time you pay from a network, your wallet may ask for a one-time setup — a few cents of gas. Every charge after is on us."}
-                    </p>
 
                   </StepRow>
                 )}
