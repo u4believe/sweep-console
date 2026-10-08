@@ -332,6 +332,29 @@ customerPortalRouter.post("/subscriptions/:id/grant", async (req, res) => {
   if (!sub) return err(res, "Subscription not found", 404, "not_found");
   if (sub.status === "cancelled") return err(res, "Subscription is cancelled", 409);
 
+  // A grant has to come from the wallet this subscription pays from.
+  //
+  // Both portal buttons check this before prompting, but the check that counts
+  // is this one: proof here is an email OTP, which says who the subscriber is
+  // and nothing about which wallet signed. A grant from a different wallet is
+  // taken by the update path below as a replacement for the right one — same
+  // subscription, same chain — so the row that names who funds this
+  // subscription is quietly rewritten.
+  //
+  // The renewal pass would then disagree with itself: selectPaymentChain reads
+  // sub.walletAddress to decide whether there is enough USDC, while the redeem
+  // spends the context, which is signed by the other wallet. It would weigh one
+  // wallet's balance and pull from another's.
+  if (sub.walletAddress.toLowerCase() !== d.wallet_address.toLowerCase()) {
+    return err(
+      res,
+      `This subscription pays from ${sub.walletAddress}. Authorize from that wallet — ` +
+        `only the wallet that signed up can approve charges for it.`,
+      409,
+      "wallet_mismatch"
+    );
+  }
+
   try {
     // The signed context is the source of truth for the per-period cap — decode it
     // and persist THAT, rejecting a grant that can't cover one charge.
