@@ -8,6 +8,7 @@ import {
   type LinkedSubscription,
 } from "@/lib/gateway";
 import { friendlyError } from "@/lib/errors";
+import { HAIRLINE } from "./CheckoutFrame";
 
 const INTERVAL_LABELS: Record<string, string> = {
   daily: "/ day",
@@ -72,7 +73,8 @@ export function ManageSubscriptionsPanel({
   // prompt — while a subscriber who verifies a DIFFERENT email is still asked
   // about that email's subscriptions.
   const dismissed = acknowledged === email;
-  const open = !loading && !dismissed && !!account?.proven && account.subscriptions.length > 0;
+  const hasSubs = !loading && !!account?.proven && account.subscriptions.length > 0;
+  const open = hasSubs && !dismissed;
 
   // Escape closes, and the page behind does not scroll while it is up — a modal
   // the wheel slides out from under is not blocking anything.
@@ -104,11 +106,15 @@ export function ManageSubscriptionsPanel({
     }
   };
 
-  if (!open || !account) return null;
+  if (!hasSubs || !account) return null;
 
   const many = account.subscriptions.length > 1;
+  // hasSubs guarantees one, but the index signature does not say so.
+  const headline = many
+    ? `You already have ${account.subscriptions.length} active subscriptions here.`
+    : `You already subscribe to ${account.subscriptions[0]?.plan.name ?? "a plan"}.`;
 
-  return createPortal(
+  const dialog = createPortal(
     <div className="dialog-backdrop" style={{ zIndex: 60 }} role="presentation">
       <div
         className="dialog swp-in"
@@ -220,7 +226,49 @@ export function ManageSubscriptionsPanel({
           </button>
         </div>
       </div>
-    </div>,
+      </div>,
     document.body
+  );
+
+  return (
+    <>
+      {/* The standing reminder, once the dialog has been waved through. Built to
+          the same geometry as a StepRow so it reads as part of the sequence
+          rather than something pasted between two steps: 26px marker gutter,
+          13px rhythm, hairline close. It stays for the rest of the checkout —
+          the dialog is seen once, this is what carries the warning afterwards. */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "26px 1fr",
+          padding: "13px 0",
+          borderBottom: HAIRLINE,
+          alignItems: "center",
+        }}
+      >
+        <span style={{ width: 9, height: 9, background: "var(--color-accent)", display: "block" }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 13.5 }}>
+            {headline}{" "}
+            <span style={{ color: "var(--color-neutral-700)" }}>
+              Paying again replaces {many ? "them" : "it"}.
+            </span>
+          </span>
+          {/* A new tab: this is mid-checkout, and navigating away would take the
+              session with it. */}
+          <a
+            className="btn btn-secondary"
+            href="/manage"
+            target="_blank"
+            rel="noreferrer"
+            style={{ marginLeft: "auto", flex: "none" }}
+          >
+            Manage subscription{many ? "s" : ""}
+          </a>
+        </div>
+      </div>
+
+      {open && dialog}
+    </>
   );
 }

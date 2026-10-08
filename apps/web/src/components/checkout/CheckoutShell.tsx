@@ -857,6 +857,22 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                   )}
                 </StepRow>
 
+                {/* Returning customer: a standing warning in the step sequence,
+                    directly under the email it is about, plus a blocking dialog
+                    the first time (portalled, so it needs no room here). At the
+                    bottom of the column this sat below the fold of the decision
+                    it described. */}
+                {emailToken && emailValid && (
+                  <ManageSubscriptionsPanel
+                    sessionId={sessionId}
+                    email={email.trim()}
+                    emailToken={emailToken}
+                    connectedWallet={address}
+                    acknowledged={ackedSubsFor}
+                    onAcknowledge={setAckedSubsFor}
+                  />
+                )}
+
                 {/* 02 — wallet */}
                 {verified && (
                   <StepRow n="02" label="Wallet">
@@ -1106,19 +1122,6 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                 </div>
               )}
 
-              {/* Returning customer: existing subscription(s) + Revoke (email-gated).
-                  Renders a blocking dialog through a portal, so it needs no room
-                  in the column and no spacing of its own. */}
-              {emailToken && emailValid && (
-                <ManageSubscriptionsPanel
-                  sessionId={sessionId}
-                  email={email.trim()}
-                  emailToken={emailToken}
-                  connectedWallet={address}
-                  acknowledged={ackedSubsFor}
-                  onAcknowledge={setAckedSubsFor}
-                />
-              )}
             </>
           )}
 
