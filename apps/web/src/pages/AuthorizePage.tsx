@@ -5,6 +5,7 @@ import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { formatUnits } from "viem";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import { Spinner, ActivityBar } from "@/components/ui/Spinner";
+import { CHAIN_MARKS } from "@/components/landing/ChainMarks";
 import { friendlyError } from "@/lib/errors";
 import {
   getAuthorization,
@@ -293,6 +294,33 @@ export function AuthorizePage() {
             . {remaining.length} more to go.
           </p>
         )}
+
+        {/* Which chains are authorized, and which are still waiting.
+            Faint until signed, full once the grant lands — the payer signs one
+            chain at a time and this is the only thing on the page that says how
+            far through they are. Rendered from `targets` rather than a fixed
+            three, so a mandate offered on fewer chains shows fewer. */}
+        <div className="mt-6">
+          <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-gray-500">Approve chains</p>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-gray-100 pt-3">
+            {view.targets.map((t) => {
+              const Mark = CHAIN_MARKS[t.chain_key];
+              const on = signedChains.includes(t.chain_id);
+              const name = CHAIN_BLURB[t.chain_key] ?? t.name;
+              return (
+                <span key={t.chain_id} className="flex items-center gap-2">
+                  {Mark && <Mark height={20} opacity={on ? 1 : 0.3} />}
+                  <span className={on ? "text-sm font-medium text-gray-900" : "text-sm text-gray-400"}>
+                    {name}
+                  </span>
+                  {/* Opacity is not readable by a screen reader, and colour alone
+                      is not a state. Say it. */}
+                  <span className="sr-only">{on ? "authorized" : "not yet authorized"}</span>
+                </span>
+              );
+            })}
+          </div>
+        </div>
 
         <div className="mt-6">
           {!address ? (
