@@ -23,6 +23,7 @@ import { prisma, withRetry } from "../prisma";
 import { completeCheckoutSession } from "./complete";
 import { findWalletConflict } from "./wallet-guard";
 import { findSameTierSubscription } from "./same-tier";
+import { revokeSessionGrants } from "../subscriptions/orphan-grants";
 
 /// The platform's cut, in basis points. Split here rather than by a contract —
 /// the same arithmetic billing/delegated-renewal.ts does for a renewal.
@@ -177,6 +178,11 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
       identity: { customerDbId: sweep.customerId, email: sweep.subscriberEmail },
     });
     if (clash) {
+      // This session is finished either way: the wallet cannot be freed from
+      // inside it. Retire the signatures it collected rather than leaving them
+      // live and unreachable — the portal shows grants per subscription, and
+      // this session will never have one.
+      await revokeSessionGrants(session.sessionId, "activation refused: wallet already in use here");
       throw new Error(
         `wallet ${subscriber.toLowerCase()} is already paying for ${clash.subscriptionId} at this merchant`
       );
@@ -195,6 +201,7 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
       email: sweep.subscriberEmail,
     });
     if (dup) {
+      await revokeSessionGrants(session.sessionId, "activation refused: already on this tier");
       throw new Error(
         `already subscribed to ${dup.tierName ?? "this tier"} (${dup.subscriptionId}) — ` +
           `manage it instead of paying again`

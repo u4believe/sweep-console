@@ -4,6 +4,7 @@ import { runDelegatedRenewalsOnce } from "./delegated-renewal";
 import { reconcileMandatesOnce } from "./reconcile-mandates";
 import { runMandateExpiryOnce } from "./mandate-expiry";
 import { resumeChargeBridges } from "./direct-charge";
+import { revokeOrphanGrantsOnce } from "../lib/subscriptions/orphan-grants";
 
 // Registers every billing cron job. Pure side-effect-on-call (no auto-start on
 // import) so it can be driven from TWO places without double-registering:
@@ -69,6 +70,16 @@ export function startBillingEngine(): void {
       // same pass is its retry.
       await runDelegatedRenewalsOnce().catch((e) =>
         console.error("[cron] delegated renewals error:", e)
+      );
+
+      // Housekeeping, and the only step here nothing above depends on — a grant
+      // with no subscription is already excluded from every charge path, so this
+      // runs last rather than delaying the collection. It retires grants left
+      // behind by checkouts that were abandoned or turned away after signing,
+      // which are otherwise invisible to the subscriber and re-read from their
+      // chain by the reconciler every night until they expire.
+      await revokeOrphanGrantsOnce().catch((e) =>
+        console.error("[cron] revokeOrphanGrants error:", e)
       );
     } finally {
       passRunning = false;
