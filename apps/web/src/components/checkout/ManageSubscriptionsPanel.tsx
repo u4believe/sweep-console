@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { formatUnits } from "viem";
 import {
   fetchLinkedSubscriptions,
@@ -22,15 +23,26 @@ interface Props {
   connectedWallet?: string;
 }
 
-// Shown once the customer's email is OTP-verified: their on-file identity (full,
-// un-masked email + the wallet on file) and any active subscriptions, each with a
-// Revoke button. Upgrades are auto-replaced at checkout completion regardless, so
-// this panel is explicit control + transparency before the customer re-subscribes.
+/**
+ * What the subscriber is already paying for, asked before they pay again.
+ *
+ * A modal rather than a panel further down the column. As a panel it sat below
+ * the fold of the thing it was warning about: someone who had already scrolled
+ * past it to pick a chain never saw that they were about to replace a live
+ * subscription. The decision belongs in front of the checkout, not under it.
+ *
+ * It closes two ways and no others — the subscriber dismisses it, or revokes
+ * every subscription it lists (the list empties and the dialog has nothing left
+ * to say). The backdrop deliberately does not dismiss: a stray click outside a
+ * warning should not count as having read it. Escape does, because a dialog
+ * that traps Escape is a dialog people fight.
+ */
 export function ManageSubscriptionsPanel({ sessionId, email, emailToken, connectedWallet }: Props) {
   const [account, setAccount] = useState<LinkedAccount | null>(null);
   const [loading, setLoading] = useState(true);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [dismissed, setDismissed] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -41,15 +53,39 @@ export function ManageSubscriptionsPanel({ sessionId, email, emailToken, connect
   }, [sessionId, email, emailToken]);
 
   useEffect(() => {
+    // `load` changes exactly when the identity does, so a subscriber who
+    // verifies a different email is asked about that email's subscriptions
+    // rather than inheriting the last dismissal.
+    setDismissed(false);
     load();
   }, [load]);
+
+  // Stay silent until we know there is an existing subscription worth blocking on.
+  const open = !loading && !dismissed && !!account?.proven && account.subscriptions.length > 0;
+
+  // Escape closes, and the page behind does not scroll while it is up — a modal
+  // the wheel slides out from under is not blocking anything.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDismissed(true);
+    };
+    const { overflow } = document.body.style;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = overflow;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   const onRevoke = async (sub: LinkedSubscription) => {
     setError("");
     setRevokingId(sub.id);
     try {
       await revokeLinkedSubscription(sessionId, sub.id, email, emailToken);
-      load(); // refresh — the revoked sub drops off the active list
+      load(); // refresh — the revoked sub drops off the active list, and the
+      // dialog closes itself once the last one goes.
     } catch (e) {
       setError(friendlyError(e, "Could not revoke. Try again."));
     } finally {
@@ -57,72 +93,123 @@ export function ManageSubscriptionsPanel({ sessionId, email, emailToken, connect
     }
   };
 
-  // Stay silent until we know there's an existing subscription worth showing.
-  if (loading || !account?.proven || account.subscriptions.length === 0) return null;
+  if (!open || !account) return null;
 
-  return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold text-amber-900">Your existing subscription</p>
-        <span className="truncate text-xs text-amber-700">{account.email}</span>
-      </div>
-      <p className="mb-3 text-xs text-amber-700">
-        Subscribing again replaces this automatically — or revoke it now to be sure.
-      </p>
+  const many = account.subscriptions.length > 1;
 
-      <div className="space-y-2">
-        {account.subscriptions.map((s) => {
-          const isConnected =
-            !!connectedWallet && s.wallet_address.toLowerCase() === connectedWallet.toLowerCase();
-          return (
-            <div key={s.id} className="rounded-lg bg-white p-3 ring-1 ring-amber-100">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900">
+  return createPortal(
+    <div className="dialog-backdrop" style={{ zIndex: 60 }} role="presentation">
+      <div
+        className="dialog swp-in"
+        style={{ border: "2px solid var(--color-text)", width: "min(520px, 100%)", maxHeight: "86vh" }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="existing-sub-title"
+      >
+        <p className="dialog-title m-0" id="existing-sub-title">
+          You already {many ? "have subscriptions" : "have a subscription"}
+        </p>
+
+        <p className="dialog-body m-0">
+          {account.email} is already subscribed. Paying again replaces{" "}
+          {many ? "these" : "this"} automatically — or revoke{" "}
+          {many ? "them" : "it"} now to be sure.
+        </p>
+
+        <div style={{ overflowY: "auto", minHeight: 0, display: "grid", gap: 10, margin: "2px 0" }}>
+          {account.subscriptions.map((s) => {
+            const isConnected =
+              !!connectedWallet && s.wallet_address.toLowerCase() === connectedWallet.toLowerCase();
+            return (
+              <div
+                key={s.id}
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  justifyContent: "space-between",
+                  gap: 14,
+                  padding: "12px 14px",
+                  border: "1px solid var(--color-divider)",
+                  borderRadius: "var(--radius-md)",
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <p
+                    className="m-0"
+                    style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 14.5 }}
+                  >
                     {s.plan.name}
                     {s.status !== "active" && (
-                      <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-gray-500">
+                      <span className="tag tag-neutral" style={{ marginLeft: 8 }}>
                         {s.status}
                       </span>
                     )}
                   </p>
-                  <p className="text-xs text-gray-500">
-                    ${formatUnits(BigInt(s.plan.amount), 6)} {s.plan.currency}{" "}
+                  <p className="m-0" style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>
+                    {formatUnits(BigInt(s.plan.amount), 6)} {s.plan.currency}{" "}
                     {INTERVAL_LABELS[s.plan.interval] ?? ""}
                   </p>
-                  {/* Wallet on file — shown in full (not masked), per identity reveal. */}
-                  <p className="mt-1 break-all font-mono text-[11px] text-gray-400">
+                  {/* Wallet on file — shown in full, not masked: this is the
+                      identity reveal the OTP paid for. */}
+                  <p
+                    className="m-0"
+                    style={{
+                      marginTop: 4,
+                      fontFamily: "var(--font-mono, monospace)",
+                      fontSize: 11,
+                      color: "var(--color-neutral-700)",
+                      wordBreak: "break-all",
+                    }}
+                  >
                     {s.wallet_address}
-                    {isConnected && <span className="text-brand-600"> · connected</span>}
+                    {isConnected && <span style={{ color: "var(--color-accent)" }}> · connected</span>}
                   </p>
                   {s.permissions.cross_chain_grants > 0 && (
-                    <p className="text-[11px] text-gray-400">
+                    <p className="m-0" style={{ fontSize: 11, color: "var(--color-neutral-700)" }}>
                       {s.permissions.cross_chain_grants} cross-chain renewal grant
                       {s.permissions.cross_chain_grants > 1 ? "s" : ""}
                     </p>
                   )}
                 </div>
 
-                {/* Revoke — bottom-right of the card. */}
                 {s.revocable && (
                   <button
-                    onClick={() => onRevoke(s)}
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ flex: "none", alignSelf: "center" }}
+                    onClick={() => void onRevoke(s)}
                     disabled={revokingId === s.id}
-                    className="shrink-0 self-end rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
                   >
                     {revokingId === s.id ? "Revoking…" : "Revoke"}
                   </button>
                 )}
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
 
-      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
-      <p className="mt-2 text-[11px] text-amber-600">
-        Gas is covered by the platform — revoking is free.
-      </p>
-    </div>
+        {error && (
+          <p className="m-0" style={{ fontSize: 12.5, color: "var(--color-accent)" }}>
+            {error}
+          </p>
+        )}
+
+        <p className="m-0" style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
+          Gas is covered by the platform — revoking is free.
+        </p>
+
+        <div className="dialog-actions">
+          <button
+            type="button"
+            className="btn btn-primary"
+            autoFocus
+            onClick={() => setDismissed(true)}
+          >
+            Continue to checkout
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }

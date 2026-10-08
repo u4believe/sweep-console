@@ -1100,16 +1100,16 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                 </div>
               )}
 
-              {/* Returning customer: existing subscription(s) + Revoke (email-gated). */}
+              {/* Returning customer: existing subscription(s) + Revoke (email-gated).
+                  Renders a blocking dialog through a portal, so it needs no room
+                  in the column and no spacing of its own. */}
               {emailToken && emailValid && (
-                <div style={{ marginTop: 18 }}>
-                  <ManageSubscriptionsPanel
-                    sessionId={sessionId}
-                    email={email.trim()}
-                    emailToken={emailToken}
-                    connectedWallet={address}
-                  />
-                </div>
+                <ManageSubscriptionsPanel
+                  sessionId={sessionId}
+                  email={email.trim()}
+                  emailToken={emailToken}
+                  connectedWallet={address}
+                />
               )}
             </>
           )}
