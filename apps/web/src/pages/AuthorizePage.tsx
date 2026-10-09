@@ -462,8 +462,8 @@ export function AuthorizePage() {
               onClick={openConnectModal}
               className="flex w-full items-center justify-center gap-2.5 bg-brand-600 py-3 font-semibold text-white transition hover:bg-brand-700"
             >
-              <MetaMaskMark height={18} />
               Connect wallet
+              <MetaMaskMark height={20} />
             </button>
           ) : (
             <>
