@@ -231,7 +231,6 @@ export function ManageSubscriptionsPage() {
       setEmailToken(email_token);
       const res = await portalListSubscriptions(email.trim(), email_token);
       setSubs(res.subscriptions);
-    setMandates(res.mandates ?? []);
       setMandates(res.mandates ?? []);
       setSupportedChains(res.supported_chains ?? []);
       // Open on whatever needs them, not simply the newest — the banner above
@@ -250,6 +249,10 @@ export function ManageSubscriptionsPage() {
     const res = await portalListSubscriptions(email.trim(), emailToken).catch(() => null);
     if (!res) return;
     setSubs(res.subscriptions);
+    // The list is scoped to pending and active, so a mandate just turned off
+    // leaves it here. Missing this is what left a dead row on screen with a
+    // live "Turn off" on it, under a notice saying it had worked.
+    setMandates(res.mandates ?? []);
     if (res.supported_chains) setSupportedChains(res.supported_chains);
     // Keep the open subscription open. Without this a cancel or a grant drops
     // the reader back to the top of a list they were working inside.
