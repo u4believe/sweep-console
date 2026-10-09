@@ -56,7 +56,7 @@ type Phase = "loading" | "review" | "signing" | "done" | "gone";
 
 export function AuthorizePage() {
   const { mandate_id: mandateId } = useParams<{ mandate_id: string }>();
-  const { address } = useAccount();
+  const { address, status: walletStatus } = useAccount();
   const { openConnectModal } = useConnectModal();
 
   const [view, setView] = useState<AuthorizationView | null>(null);
@@ -65,6 +65,10 @@ export function AuthorizePage() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [signedChains, setSignedChains] = useState<number[]>([]);
   const [skipped, setSkipped] = useState<string[]>([]);
+  // The chains this run is working through, in order. Held separately because
+  // signedChains now grows DURING the run, so deriving the in-flight one by
+  // filtering it would walk off the list as it shrinks.
+  const [todoIds, setTodoIds] = useState<number[]>([]);
 
   // Proving the payer's address, before any wallet prompt. Until this step
   // existed the rail recorded a wallet and a developer's assertion about who
@@ -143,17 +147,28 @@ export function AuthorizePage() {
     setError("");
     setSkipped([]);
     setPhase("signing");
+    setTodoIds(todo.map((t) => t.chain_id));
     setProgress({ done: 0, total: todo.length });
     try {
       const failures = await grantRenewalMandates(
         address,
         todo,
-        (body) =>
-          saveAuthorizationGrant(mandateId, {
+        async (body) => {
+          const saved = await saveAuthorizationGrant(mandateId, {
             ...body,
             session_token: view.session_token,
             email_token: emailToken,
-          }),
+          });
+          // Mark it the moment it lands, not when the whole run finishes. The
+          // strip read from a list that only refreshed at the end, so a chain
+          // the payer had just signed sat faint while the next one pulsed —
+          // the two states that matter looked identical.
+          const id = Number((body as { chain_id?: unknown }).chain_id);
+          if (Number.isFinite(id)) {
+            setSignedChains((cur) => (cur.includes(id) ? cur : [...cur, id]));
+          }
+          return saved;
+        },
         (done, total) => setProgress({ done, total }),
         view.merchant_name
       );
@@ -215,7 +230,7 @@ export function AuthorizePage() {
   // `progress.done` counts completed signatures, so it indexes the one in flight
   // within the same `todo` list `authorize` built — the unsigned targets, in order.
   const signingChain = progress
-    ? view.targets.filter((t) => !signedChains.includes(t.chain_id))[progress.done] ?? null
+    ? view.targets.find((t) => t.chain_id === todoIds[progress.done]) ?? null
     : null;
   const signingTarget = signingChain ? CHAIN_BLURB[signingChain.chain_key] ?? signingChain.name : null;
   const chainNames = view.targets.map((t) => CHAIN_BLURB[t.chain_key] ?? t.name);
@@ -232,8 +247,7 @@ export function AuthorizePage() {
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-700">Authorized</p>
           <h1 className="mt-2 text-2xl font-bold tracking-tight text-gray-900">You&rsquo;re set up</h1>
         <p className="mt-2 text-sm text-gray-600">
-          {view.merchant_name} can now charge up to <strong>{usdc(view.max_amount)}</strong> per {noun} from your
-          wallet, until {new Date(view.expires_at).toLocaleDateString()}.
+          {view.merchant_name} can now charge up to <strong>{usdc(view.max_amount)}</strong> per {noun}.
         </p>
         {signedChains.length > 0 && (
           <p className="mt-3 text-sm text-gray-500">
@@ -261,12 +275,21 @@ export function AuthorizePage() {
           </div>
         )}
         <p className="mt-4 text-sm text-gray-500">
-          To stop it, remove the permission in your wallet, or ask {view.merchant_name} to cancel.
+          To stop it, remove the permission in your wallet, or visit the page below to cancel.
         </p>
+        {/* The page the sentence above points at. Primary, because ending this
+            is the one thing the payer may still need and the only place on the
+            platform they can do it. */}
+        <a
+          href="/manage"
+          className="mt-6 block w-full bg-brand-600 py-3 text-center font-semibold text-white transition hover:bg-brand-700"
+        >
+          Manage subscription
+        </a>
         {view.return_url && (
           <a
             href={view.return_url}
-            className="mt-6 block w-full bg-brand-600 py-3 text-center font-semibold text-white transition hover:bg-brand-700"
+            className="mt-3 block w-full py-2 text-center text-sm font-medium text-gray-500 underline underline-offset-2 hover:no-underline"
           >
             Back to {view.merchant_name}
           </a>
@@ -468,7 +491,7 @@ export function AuthorizePage() {
             <p className="border border-gray-200 bg-gray-50 px-4 py-3 text-center text-sm text-gray-500">
               Verify your email to continue.
             </p>
-          ) : !address ? (
+          ) : !address || walletStatus !== "connected" ? (
             <button
               onClick={openConnectModal}
               className="flex w-full items-center justify-center gap-2.5 bg-brand-600 py-3 font-semibold text-white transition hover:bg-brand-700"
@@ -511,7 +534,7 @@ export function AuthorizePage() {
                     )}
                   </p>
                 </div>
-              ) : (
+              ) : walletStatus !== "connected" ? null : (
                 <p className="mt-3 text-center text-xs text-gray-400">
                   Signing as {shortAddress(address)}
                   {view.targets.length > 1 && ` · ${view.targets.length} signatures, one per network`}
