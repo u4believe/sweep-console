@@ -76,7 +76,6 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /// Every settlement lands on Arc, so one explorer covers every receipt here.
 /// Mirrors lib/chain/config.ts — kept as a constant because this page never has
 /// a viem chain object to read it from.
-const EXPLORER = import.meta.env.VITE_ARC_EXPLORER_URL ?? "https://testnet.arcscan.app";
 const INTERVAL_LABELS: Record<string, string> = {
   daily: "/ day",
   weekly: "/ week",
@@ -935,30 +934,6 @@ function MandateDetail({
         <Fact label="Wallet" value={mandate.wallet_address ?? "Unsigned"} mono />
       </div>
 
-      {mandate.charges.length > 0 && (
-        <div style={{ padding: "18px 24px", borderTop: "1px solid var(--color-divider)" }}>
-          <p style={{ ...UPPER, marginBottom: 10 }}>Charges</p>
-          {mandate.charges.map((c) => (
-            <div
-              key={c.charge_id}
-              style={{
-                display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap",
-                padding: "9px 0", borderBottom: "1px solid var(--color-divider)",
-              }}
-            >
-              <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 14 }}>
-                {fmtUsdc(c.amount)} {c.currency}
-              </span>
-              <span className={`tag ${c.status === "succeeded" ? "tag-outline" : "tag-neutral"}`}>{c.status}</span>
-              <span style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>{fmtDate(c.created_at)}</span>
-              {c.failure_reason && (
-                <span style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>{c.failure_reason}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
       <div style={{ padding: "18px 24px", borderTop: "1px solid var(--color-divider)" }}>
         <button className="btn btn-secondary" disabled={busy} onClick={() => onAskCancel(mandate)}>
           {busy ? "Cancelling…" : "Cancel"}
@@ -1196,55 +1171,6 @@ function SubscriptionDetail({
           <p style={{ fontSize: 12.5, color: "var(--color-accent-800)", margin: "10px 0 0" }}>
             No chains are on, so renewals are paused until you turn one back on.
           </p>
-        )}
-      </div>
-
-      {/* The chain column is the one honest difficulty here. Payment.chain holds
-          the SOURCE chain for a first payment and the literal "arc" for a
-          renewal, so the stored value answers two different questions depending
-          on the row. txHash, by contrast, is always the Arc settlement — checked
-          against both chains — so the receipt link is reliable regardless. */}
-      <div style={{ padding: "22px 30px", borderBottom: "1px solid var(--color-divider)" }}>
-        <h3 style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 17, margin: "0 0 12px", letterSpacing: "-0.01em" }}>
-          Payment history
-        </h3>
-        {sub.payments.length === 0 ? (
-          <p style={{ fontSize: 13, color: "var(--color-neutral-700)", margin: 0 }}>Nothing charged yet.</p>
-        ) : (
-          <>
-            <div style={{ overflowX: "auto", maxWidth: "100%" }}>
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Date</th><th>Amount</th><th>Chain</th><th>Status</th>
-                    <th style={{ textAlign: "right" }}>Receipt</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sub.payments.map((pay) => (
-                    <tr key={pay.id}>
-                      <td style={{ whiteSpace: "nowrap" }}>{fmtDate(pay.created_at)}</td>
-                      <td style={{ fontFamily: HEADING, fontWeight: 800, whiteSpace: "nowrap" }}>
-                        {formatUnits(BigInt(pay.amount), 6)} {pay.currency}
-                      </td>
-                      <td style={{ color: "var(--color-neutral-700)" }}>{CHAIN_NAMES[pay.settled_on] ?? pay.settled_on}</td>
-                      <td><PaymentStatus payment={pay} /></td>
-                      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                        {pay.tx_hash ? (
-                          <a href={`${EXPLORER}/tx/${pay.tx_hash}`} target="_blank" rel="noreferrer">ArcScan &#8599;</a>
-                        ) : (
-                          <span style={{ color: "var(--color-neutral-600)" }}>&mdash;</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p style={{ fontSize: 12, color: "var(--color-neutral-700)", margin: "10px 0 0" }}>
-              Every payment settles on Arc whichever chain it came from — each receipt opens the Arc transaction.
-            </p>
-          </>
         )}
       </div>
 
