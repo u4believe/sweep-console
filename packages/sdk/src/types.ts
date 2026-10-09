@@ -29,7 +29,19 @@ export interface Mandate {
   mode: "external";
   status: MandateStatus;
   externalRef: string;
+  /** What YOU sent. Never overwritten — see `verifiedEmail`. */
   email: string | null;
+  /**
+   * The address the payer actually proved on the authorization page, by
+   * answering a code sent to it. Null until they have.
+   *
+   * It need not equal `email`. Yours is prefilled for them and they may change
+   * it, because an address you hold is eventually a stale one and pinning it
+   * would turn that into a payer who cannot authorize at all. When the two
+   * differ, this is the inbox a human answered: receipts go here, and it is
+   * what links them to a Sweep customer record.
+   */
+  verifiedEmail: string | null;
   /** Null until the payer signs — which wallet authorizes is unknown before then. */
   walletAddress: string | null;
   maxAmount: Usdc;
@@ -73,7 +85,12 @@ export interface Charge {
 export interface CreateMandateParams {
   /** YOUR id for this payer. Echoed on every webhook, so you never store ours. */
   externalRef: string;
-  /** Omit and no receipt can be sent for any charge against this mandate. */
+  /**
+   * Prefilled on the authorization page, and the payer may replace it. Omit and
+   * they supply their own — what they prove comes back as `verifiedEmail`, and
+   * receipts go there. Omitting it only costs you a receipt if they never
+   * verify either.
+   */
   email?: string;
   /** The ceiling per interval — NOT the price. Give it headroom. */
   maxAmount: Usdc;

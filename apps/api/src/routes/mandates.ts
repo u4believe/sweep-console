@@ -242,6 +242,10 @@ mandatesRouter.delete("/:id", verifyApiKey, requireExternalRail, async (req, res
     external_ref: mandate.externalRef,
     wallet_address: updated.walletAddress,
     revoked_at: updated.revokedAt?.toISOString() ?? new Date().toISOString(),
+    // Who ended it. The payer can now do this from the portal, and a developer
+    // handling their own cleanup differently from a payer walking away needs to
+    // be able to tell the two apart.
+    revoked_by: "merchant",
     // Says plainly what this did and did not do: the grants stay signed on-chain
     // and only the subscriber's own wallet can disable them. We refuse to redeem.
     on_chain: false,

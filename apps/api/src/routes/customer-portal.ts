@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { Address, Hex } from "viem";
 import { prisma } from "../lib/prisma";
 import { ok, err, serverError } from "../lib/response";
+import { fireWebhook } from "../lib/webhooks/delivery";
 import { ids } from "../lib/ids";
 import { verifyEmailToken, normalizeEmail } from "../lib/checkout/identity";
 import { revokeSubscription } from "../lib/subscriptions/revoke";
@@ -477,6 +478,92 @@ customerPortalRouter.post("/subscriptions/:id/grant", async (req, res) => {
     return ok(res, { delegation_id: delegation.id, status: delegation.status });
   } catch (e) {
     return serverError(res, "portal/grant", e, "We couldn't save your renewal permission.");
+  }
+});
+
+// ─── POST /customer/portal/mandates/:id/revoke ────────────────────────────────
+//
+// The payer stopping a rail authorization themselves.
+//
+// Until this existed the only way out was the developer's own DELETE
+// /v1/mandates/:id, or disabling the delegation in the wallet — so a payer who
+// wanted a standing debit to stop had to ask the party being paid, or go
+// on-chain. The portal showed them the authorization and offered nothing.
+//
+// Scoped through the Customer the OTP step links, so a payer can only end an
+// authorization that is demonstrably theirs: the proved email is the key, not
+// the mandate id, which is a developer's identifier and not a secret.
+//
+// Like every revoke on this platform it is a decision we record and honour,
+// not a cryptographic one — disableDelegation is onlyDeleGator, so the signed
+// permission stays in their wallet and only they can remove it there. What
+// this guarantees is that Sweep will not redeem it.
+const mandateRevokeSchema = proofSchema;
+
+customerPortalRouter.post("/mandates/:id/revoke", async (req, res) => {
+  const parsed = mandateRevokeSchema.safeParse(req.body);
+  if (!parsed.success) return err(res, "Invalid payload", 422);
+  const { email, email_token } = parsed.data;
+  if (!verifyEmailToken(email_token, email)) return err(res, "Verify your email first.", 403);
+
+  const normalized = normalizeEmail(email);
+  const mandate = await prisma.mandate.findFirst({
+    where: {
+      mandateId: req.params.id as string,
+      customer: { is: { email: normalized } },
+    },
+    select: {
+      id: true, mandateId: true, externalRef: true, status: true,
+      walletAddress: true, merchantId: true, merchant: { select: { merchantId: true } },
+    },
+  });
+  if (!mandate) return err(res, "Authorization not found", 404, "not_found");
+
+  // Idempotent, for the same reason the developer's revoke is: a second tap on
+  // a slow button is not an error.
+  if (mandate.status === "revoked") {
+    return ok(res, { mandate_id: mandate.mandateId, status: "revoked" });
+  }
+
+  try {
+    const revokedAt = new Date();
+    await prisma.$transaction([
+      prisma.mandate.update({
+        where: { id: mandate.id },
+        data: { status: "revoked", revokedAt },
+      }),
+      // The grants go too. A charge is refused on the mandate's status alone,
+      // but leaving them active would leave rows claiming to be redeemable that
+      // nothing will ever redeem — the orphan problem in a different costume.
+      prisma.renewalDelegation.updateMany({
+        where: { sessionId: mandate.mandateId, mode: "external", status: "active" },
+        data: { status: "revoked" },
+      }),
+    ]);
+
+    // The developer finds out now rather than at their next refused charge.
+    // revoked_by is the point of this event for them: their own DELETE and
+    // their payer walking away need different handling, and without it the two
+    // are indistinguishable.
+    void fireWebhook(
+      mandate.merchantId,
+      mandate.externalRef,
+      mandate.merchant.merchantId,
+      "mandate.revoked",
+      {
+        mandate_id: mandate.mandateId,
+        external_ref: mandate.externalRef,
+        wallet_address: mandate.walletAddress,
+        revoked_at: revokedAt.toISOString(),
+        revoked_by: "payer",
+        on_chain: false,
+      }
+    ).catch((e: unknown) => console.error("[portal/mandate-revoke] webhook failed:", e));
+
+    console.log(`[portal/mandate-revoke] ${mandate.mandateId} revoked by its payer`);
+    return ok(res, { mandate_id: mandate.mandateId, status: "revoked" });
+  } catch (e) {
+    return serverError(res, "portal/mandate-revoke", e, "We couldn't turn that off. Try again.");
   }
 });
 

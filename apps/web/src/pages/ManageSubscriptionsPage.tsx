@@ -21,6 +21,7 @@ import {
   type PortalSubscription,
   type PortalSupportedChain,
   type PortalPayment,
+  portalRevokeMandate,
   type PortalMandate,
 } from "@/lib/gateway";
 
@@ -190,6 +191,7 @@ export function ManageSubscriptionsPage() {
   // developer owns the schedule, and the only way to end one is to disable the
   // delegation in the wallet that signed it.
   const [mandates, setMandates] = useState<PortalMandate[]>([]);
+  const [confirmMandate, setConfirmMandate] = useState<PortalMandate | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -264,6 +266,25 @@ export function ManageSubscriptionsPage() {
       setNotice(
         "Cancelled. You won't be charged again. Your renewal permission is now dormant — " +
           "you can also revoke it in your wallet for full on-chain control."
+      );
+      await reload();
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const onRevokeMandate = async (m: PortalMandate) => {
+    setConfirmMandate(null);
+    setBusyId(m.mandate_id);
+    setError("");
+    setNotice("");
+    try {
+      await portalRevokeMandate(email.trim(), emailToken, m.mandate_id);
+      setNotice(
+        `${m.merchant.name} can no longer charge you. The permission you signed stays in your ` +
+          `wallet until you remove it there — we simply will not redeem it.`
       );
       await reload();
     } catch (e) {
@@ -774,18 +795,56 @@ export function ManageSubscriptionsPage() {
                   >
                     {m.wallet_address ? shortAddr(m.wallet_address) : "unsigned"}
                   </span>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ flex: "none" }}
+                    disabled={busyId === m.mandate_id}
+                    onClick={() => setConfirmMandate(m)}
+                  >
+                    {busyId === m.mandate_id ? "Turning off…" : "Turn off"}
+                  </button>
                 </div>
               ))}
             </div>
             <p style={{ fontSize: 12, lineHeight: 1.65, color: "var(--color-neutral-700)", margin: "12px 0 0", maxWidth: "80ch" }}>
-              These were authorized directly with the merchant rather than through a Sweep Console plan,
-              so there is no schedule here to cancel — they charge when they choose, never above the
-              ceiling shown. To end one, remove its permission in the wallet that signed it.
+              These were authorized directly with the merchant rather than through a Sweep Console plan:
+              they charge when they choose, never above the ceiling shown. Turning one off stops Sweep
+              Console redeeming it and tells the merchant straight away. The permission you signed stays
+              in your wallet until you remove it there.
             </p>
           </section>
         )}
 
       </main>
+
+      {confirmMandate && (
+        <div className="dialog-backdrop" onClick={() => setConfirmMandate(null)}>
+          <div
+            className="dialog"
+            style={{ border: "2px solid var(--color-text)", maxWidth: 460 }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <p className="dialog-title" style={{ margin: 0 }}>
+              Turn off {confirmMandate.merchant.name}?
+            </p>
+            <p className="dialog-body" style={{ margin: 0 }}>
+              They will not be able to charge you again, and they are told straight away. Charges
+              already taken are not reversed. The permission you signed stays in your wallet until you
+              remove it there — turning it off here means we will not redeem it.
+            </p>
+            <div className="dialog-actions">
+              <button className="btn btn-secondary" onClick={() => setConfirmMandate(null)}>
+                Keep it
+              </button>
+              <button className="btn btn-primary" onClick={() => void onRevokeMandate(confirmMandate)}>
+                Turn it off
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Asking before an irreversible thing, in the product's own voice. */}
       {confirmCancel && (

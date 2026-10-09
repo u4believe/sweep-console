@@ -245,6 +245,7 @@ function toMandate(raw: any): Mandate {
     status: raw.status,
     externalRef: raw.external_ref,
     email: raw.email ?? null,
+    verifiedEmail: raw.verified_email ?? null,
     walletAddress: raw.wallet_address ?? null,
     maxAmount: raw.max_amount as Usdc,
     currency: "USDC",

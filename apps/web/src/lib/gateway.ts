@@ -374,6 +374,19 @@ export interface PortalMandate {
   }[];
 }
 
+/// End a rail authorization from the payer's side. Scoped to the Customer the
+/// proved email links, so a mandate id alone opens nothing.
+export function portalRevokeMandate(
+  email: string,
+  emailToken: string,
+  mandateId: string
+): Promise<{ mandate_id: string; status: string }> {
+  return request(`/customer/portal/mandates/${mandateId}/revoke`, {
+    method: "POST",
+    body: JSON.stringify({ email, email_token: emailToken }),
+  });
+}
+
 export function portalListSubscriptions(
   email: string,
   emailToken: string
