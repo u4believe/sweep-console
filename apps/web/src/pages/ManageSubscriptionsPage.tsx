@@ -21,6 +21,7 @@ import {
   type PortalSubscription,
   type PortalSupportedChain,
   type PortalPayment,
+  type PortalMandate,
 } from "@/lib/gateway";
 
 // Standalone, cross-merchant customer portal. Email + OTP proves ownership; the
@@ -185,6 +186,10 @@ export function ManageSubscriptionsPage() {
   const [captchaReset, setCaptchaReset] = useState(0);
 
   const [subs, setSubs] = useState<PortalSubscription[]>([]);
+  // Rail mandates against this same proved address. Shown, not managed: the
+  // developer owns the schedule, and the only way to end one is to disable the
+  // delegation in the wallet that signed it.
+  const [mandates, setMandates] = useState<PortalMandate[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -224,6 +229,8 @@ export function ManageSubscriptionsPage() {
       setEmailToken(email_token);
       const res = await portalListSubscriptions(email.trim(), email_token);
       setSubs(res.subscriptions);
+    setMandates(res.mandates ?? []);
+      setMandates(res.mandates ?? []);
       setSupportedChains(res.supported_chains ?? []);
       // Open on whatever needs them, not simply the newest — the banner above
       // says something is wrong, and the pane under it should be showing it.
@@ -720,6 +727,63 @@ export function ManageSubscriptionsPage() {
           </>
           );
         })()}
+
+        {/* Standing authorizations from the external rail.
+            Separate from subscriptions on purpose: there is no schedule here
+            that Sweep owns. A developer charges when they choose, up to the
+            ceiling, so the honest thing to show is the ceiling, what has
+            actually been taken, and who can stop it — which is only the wallet
+            that signed. These appeared nowhere until the rail started proving
+            the payer's email; before that there was no verified address to
+            match them to. */}
+        {mandates.length > 0 && (
+          <section style={{ marginTop: 40 }}>
+            <p style={{ ...UPPER, marginBottom: 10 }}>Standing authorizations</p>
+            <div style={{ borderTop: "1px solid var(--color-divider)" }}>
+              {mandates.map((m) => (
+                <div
+                  key={m.mandate_id}
+                  style={{
+                    padding: "14px 0",
+                    borderBottom: "1px solid var(--color-divider)",
+                    display: "flex",
+                    flexWrap: "wrap",
+                    alignItems: "baseline",
+                    gap: 12,
+                  }}
+                >
+                  <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 14.5 }}>
+                    {m.merchant.name}
+                  </span>
+                  <span className={`tag ${m.status === "active" ? "tag-outline" : "tag-neutral"}`}>
+                    {m.status === "active" ? "Authorized" : m.status}
+                  </span>
+                  {m.test_mode && <span className="tag tag-neutral">Test</span>}
+                  <span style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>
+                    up to {fmtUsdc(m.max_amount)} {m.currency} a {PER_NOUN[m.interval] ?? m.interval}
+                    {m.chains.length > 0 && ` · ${m.chains.length} chain${m.chains.length > 1 ? "s" : ""}`}
+                    {m.charges.length > 0 && ` · ${m.charges.length} charge${m.charges.length > 1 ? "s" : ""}`}
+                  </span>
+                  <span
+                    style={{
+                      marginLeft: "auto",
+                      fontSize: 12,
+                      color: "var(--color-neutral-700)",
+                      fontFamily: "ui-monospace, Menlo, monospace",
+                    }}
+                  >
+                    {m.wallet_address ? shortAddr(m.wallet_address) : "unsigned"}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize: 12, lineHeight: 1.65, color: "var(--color-neutral-700)", margin: "12px 0 0", maxWidth: "80ch" }}>
+              These were authorized directly with the merchant rather than through a Sweep Console plan,
+              so there is no schedule here to cancel — they charge when they choose, never above the
+              ceiling shown. To end one, remove its permission in the wallet that signed it.
+            </p>
+          </section>
+        )}
 
       </main>
 

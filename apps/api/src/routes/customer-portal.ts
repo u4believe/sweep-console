@@ -131,8 +131,73 @@ customerPortalRouter.post("/subscriptions", async (req, res) => {
       orderBy: { createdAt: "desc" },
     });
 
+    // Rail mandates belonging to the same proved address.
+    //
+    // A rail payer is not a Subscription — the developer owns the schedule and
+    // Sweep only executes it — so none of these ever appeared here, and a payer
+    // whose wallet was being charged every month could find no record of it on
+    // the platform doing the charging. Matched through the Customer the OTP
+    // step links, which is the only email on a mandate that was ever proved;
+    // Mandate.email on its own is the developer's assertion.
+    const mandates = await prisma.mandate.findMany({
+      where: {
+        status: { in: ["pending", "active"] },
+        customer: { is: { email: normalized } },
+      },
+      include: {
+        merchant: { select: { name: true } },
+        charges: {
+          orderBy: { createdAt: "desc" },
+          take: 6,
+          select: {
+            chargeId: true, amount: true, currency: true, status: true,
+            chain: true, txHash: true, createdAt: true, failureReason: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // The grants are keyed by mandateId rather than related, so they come
+    // separately and are stitched below.
+    const mandateGrants = mandates.length
+      ? await prisma.renewalDelegation.findMany({
+          where: {
+            status: "active",
+            mode: "external",
+            sessionId: { in: mandates.map((m) => m.mandateId) },
+          },
+          select: { sessionId: true, chainId: true, periodAmount: true },
+        })
+      : [];
+
     return ok(res, {
       proven: true,
+      mandates: mandates.map((m) => ({
+        mandate_id: m.mandateId,
+        merchant: { name: m.merchant.name },
+        max_amount: Number(m.maxAmount),
+        currency: "USDC",
+        interval: m.interval,
+        status: m.status,
+        wallet_address: m.walletAddress,
+        expires_at: m.expiresAt.toISOString(),
+        authorized_at: m.authorizedAt?.toISOString() ?? null,
+        test_mode: m.isTestMode,
+        chains: mandateGrants
+          .filter((g) => g.sessionId === m.mandateId)
+          .map((g) => ({ chain_id: g.chainId, period_amount: Number(g.periodAmount) })),
+        charges: m.charges.map((c) => ({
+          charge_id: c.chargeId,
+          amount: Number(c.amount),
+          currency: c.currency,
+          status: c.status,
+          chain: c.chain,
+          tx_hash: c.txHash,
+          created_at: c.createdAt.toISOString(),
+          failure_reason: c.failureReason,
+        })),
+      })),
       email: normalized,
       // Every chain a subscription COULD be authorized on. The portal lists all
       // of them with their state; without this it could only render the ones

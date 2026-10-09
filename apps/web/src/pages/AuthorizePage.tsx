@@ -5,6 +5,7 @@ import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { formatUnits } from "viem";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import { Spinner, ActivityBar } from "@/components/ui/Spinner";
+import { MetaMaskMark } from "@/components/ui/MetaMaskMark";
 import { CHAIN_MARKS } from "@/components/landing/ChainMarks";
 import { friendlyError } from "@/lib/errors";
 import {
@@ -302,8 +303,7 @@ export function AuthorizePage() {
         </div>
 
         <p className="mt-4 text-sm leading-relaxed text-gray-600">
-          They can charge up to this much a {noun} — in one charge or several — and never more, across every chain
-          you approve.
+          Pay up to this charge a {noun} from any of the chains below.
         </p>
 
         <dl className="mt-6 text-sm">
@@ -311,20 +311,6 @@ export function AuthorizePage() {
             <dt className="text-gray-500">Paid in</dt>
             <dd className="text-right font-medium text-gray-900">USDC from {chainNames.join(", ")}</dd>
           </div>
-          <div className="flex justify-between gap-4 border-t border-gray-100 py-3">
-            <dt className="text-gray-500">Expires</dt>
-            <dd className="text-right font-medium text-gray-900">
-              {new Date(view.expires_at).toLocaleDateString(undefined, {
-                year: "numeric", month: "short", day: "numeric",
-              })}
-            </dd>
-          </div>
-          {view.email && (
-            <div className="flex justify-between gap-4 border-t border-gray-100 py-3">
-              <dt className="text-gray-500">For</dt>
-              <dd className="break-all text-right font-medium text-gray-900">{view.email}</dd>
-            </div>
-          )}
           <div className="border-t border-gray-100" />
         </dl>
 
@@ -474,8 +460,9 @@ export function AuthorizePage() {
           ) : !address ? (
             <button
               onClick={openConnectModal}
-              className="w-full bg-brand-600 py-3 font-semibold text-white transition hover:bg-brand-700"
+              className="flex w-full items-center justify-center gap-2.5 bg-brand-600 py-3 font-semibold text-white transition hover:bg-brand-700"
             >
+              <MetaMaskMark height={18} />
               Connect wallet
             </button>
           ) : (

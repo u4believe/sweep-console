@@ -343,6 +343,37 @@ export function portalRequestOtp(email: string, turnstileToken?: string): Promis
   });
 }
 
+/**
+ * A rail mandate the payer has proved their email against.
+ *
+ * Not a subscription: the developer owns the schedule and charges when they
+ * choose, within the ceiling. The portal shows it so the payer can see what is
+ * standing against their wallet — it is not something they can cancel here.
+ */
+export interface PortalMandate {
+  mandate_id: string;
+  merchant: { name: string };
+  max_amount: number;
+  currency: string;
+  interval: string;
+  status: string;
+  wallet_address: string | null;
+  expires_at: string;
+  authorized_at: string | null;
+  test_mode: boolean;
+  chains: { chain_id: number; period_amount: number }[];
+  charges: {
+    charge_id: string;
+    amount: number;
+    currency: string;
+    status: string;
+    chain: string | null;
+    tx_hash: string | null;
+    created_at: string;
+    failure_reason: string | null;
+  }[];
+}
+
 export function portalListSubscriptions(
   email: string,
   emailToken: string
@@ -351,6 +382,7 @@ export function portalListSubscriptions(
   email?: string;
   supported_chains?: PortalSupportedChain[];
   subscriptions: PortalSubscription[];
+  mandates?: PortalMandate[];
 }> {
   return request(`/customer/portal/subscriptions`, {
     method: "POST",
