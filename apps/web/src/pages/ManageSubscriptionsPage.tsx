@@ -251,7 +251,7 @@ export function ManageSubscriptionsPage() {
     setSubs(res.subscriptions);
     // The list is scoped to pending and active, so a mandate just turned off
     // leaves it here. Missing this is what left a dead row on screen with a
-    // live "Turn off" on it, under a notice saying it had worked.
+    // live Cancel on it, under a notice saying it had worked.
     setMandates(res.mandates ?? []);
     if (res.supported_chains) setSupportedChains(res.supported_chains);
     // Keep the open subscription open. Without this a cancel or a grant drops
@@ -804,14 +804,14 @@ export function ManageSubscriptionsPage() {
                     disabled={busyId === m.mandate_id}
                     onClick={() => setConfirmMandate(m)}
                   >
-                    {busyId === m.mandate_id ? "Turning off…" : "Turn off"}
+                    {busyId === m.mandate_id ? "Cancelling…" : "Cancel"}
                   </button>
                 </div>
               ))}
             </div>
             <p style={{ fontSize: 12, lineHeight: 1.65, color: "var(--color-neutral-700)", margin: "12px 0 0", maxWidth: "80ch" }}>
               These were authorized directly with the merchant rather than through a Sweep Console plan:
-              they charge when they choose, never above the ceiling shown. Turning one off stops Sweep
+              they charge when they choose, never above the ceiling shown. Cancelling one stops Sweep
               Console redeeming it and tells the merchant straight away. The permission you signed stays
               in your wallet until you remove it there.
             </p>
@@ -830,19 +830,19 @@ export function ManageSubscriptionsPage() {
             aria-modal="true"
           >
             <p className="dialog-title" style={{ margin: 0 }}>
-              Turn off {confirmMandate.merchant.name}?
+              Cancel {confirmMandate.merchant.name}?
             </p>
             <p className="dialog-body" style={{ margin: 0 }}>
               They will not be able to charge you again, and they are told straight away. Charges
               already taken are not reversed. The permission you signed stays in your wallet until you
-              remove it there — turning it off here means we will not redeem it.
+              remove it there — cancelling here means we will not redeem it.
             </p>
             <div className="dialog-actions">
               <button className="btn btn-secondary" onClick={() => setConfirmMandate(null)}>
                 Keep it
               </button>
               <button className="btn btn-primary" onClick={() => void onRevokeMandate(confirmMandate)}>
-                Turn it off
+                Cancel it
               </button>
             </div>
           </div>
