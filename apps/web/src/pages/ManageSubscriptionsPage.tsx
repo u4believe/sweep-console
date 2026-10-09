@@ -256,7 +256,16 @@ export function ManageSubscriptionsPage() {
     if (res.supported_chains) setSupportedChains(res.supported_chains);
     // Keep the open subscription open. Without this a cancel or a grant drops
     // the reader back to the top of a list they were working inside.
-    setSelectedId((cur) => (cur && res.subscriptions.some((x) => x.id === cur) ? cur : res.subscriptions[0]?.id ?? null));
+    setSelectedId((cur) => {
+      const stillThere =
+        !!cur &&
+        (res.subscriptions.some((x) => x.id === cur) ||
+          (res.mandates ?? []).some((m) => m.mandate_id === cur));
+      // Falls back to a subscription, then to a mandate: after cancelling the
+      // last subscription the pane should land on whatever is left rather than
+      // going blank.
+      return stillThere ? cur : res.subscriptions[0]?.id ?? (res.mandates ?? [])[0]?.mandate_id ?? null;
+    });
   };
 
   const onCancel = async (s: PortalSubscription) => {
@@ -595,13 +604,24 @@ export function ManageSubscriptionsPage() {
         )}
 
         {phase === "list" && (() => {
-          const selected = subs.find((x) => x.id === selectedId) ?? subs[0] ?? null;
+          // One list, two kinds of thing. A mandate is selected by its own id,
+          // and only falls back to the first subscription when nothing is.
+          const selectedMandate = mandates.find((m) => m.mandate_id === selectedId) ?? null;
+          const selected = selectedMandate
+            ? null
+            : subs.find((x) => x.id === selectedId) ?? subs[0] ?? null;
           const needing = subs.filter(needsReauthorization);
           const activeCount = subs.filter((x) => !needsReauthorization(x) && x.status !== "past_due").length;
           const intervals = new Set(subs.map((x) => x.plan.interval));
           const uniform = intervals.size === 1 ? [...intervals][0] : null;
           const maxTotal = subs.reduce((n, x) => n + x.plan.amount, 0);
-          const merchants = new Set(subs.map((x) => x.merchant.name)).size;
+          const merchants = new Set([
+            ...subs.map((x) => x.merchant.name),
+            ...mandates.map((m) => m.merchant.name),
+          ]).size;
+          // Both kinds. A payer whose only authorization is a direct one was
+          // shown "no active subscriptions" over a list that was gated on subs.
+          const total = subs.length + mandates.length;
           const first = needing[0];
 
           return (
@@ -612,12 +632,12 @@ export function ManageSubscriptionsPage() {
                   Subscriptions
                 </h1>
                 <p style={{ fontSize: 14, color: "var(--color-neutral-700)", margin: 0 }}>
-                  {subs.length === 0
+                  {total === 0
                     ? "Nothing active on this email."
-                    : `${subs.length} subscription${subs.length === 1 ? "" : "s"} with ${merchants} merchant${merchants === 1 ? "" : "s"}, paid in USDC from your own wallets.`}
+                    : `${total} authorization${total === 1 ? "" : "s"} with ${merchants} merchant${merchants === 1 ? "" : "s"}, paid in USDC from your own wallets.`}
                 </p>
               </div>
-              {subs.length > 0 && (
+              {total > 0 && (
                 <div style={{ marginLeft: "auto", display: "flex", border: "2px solid var(--color-text)" }}>
                   <Kpi label="Active" value={String(activeCount)} />
                   <Kpi label="Needs you" value={String(needing.length)} accent={needing.length > 0} />
@@ -670,10 +690,10 @@ export function ManageSubscriptionsPage() {
               </div>
             )}
 
-            {subs.length === 0 ? (
+            {total === 0 ? (
               <div style={{ border: "2px solid var(--color-text)", padding: 40, textAlign: "center" }}>
                 <p style={{ fontSize: 13, color: "var(--color-neutral-700)", margin: 0 }}>
-                  No active subscriptions found for this email.
+                  Nothing active found for this email.
                 </p>
               </div>
             ) : (
@@ -686,7 +706,7 @@ export function ManageSubscriptionsPage() {
                   style={{ flex: "1 1 280px", maxWidth: "100%", borderRight: "1px solid var(--color-divider)", background: "var(--color-surface)" }}
                 >
                   <p style={{ ...UPPER, padding: "14px 20px", borderBottom: "2px solid var(--color-text)" }}>
-                    All subscriptions · {subs.length}
+                    All subscriptions · {subs.length + mandates.length}
                   </p>
                   {subs.map((x) => {
                     const on = x.id === selected?.id;
@@ -724,7 +744,63 @@ export function ManageSubscriptionsPage() {
                       </button>
                     );
                   })}
+
+                  {/* Authorized directly with a merchant rather than through a
+                      Sweep plan. Same list, because a payer counting what can
+                      charge them does not care which of our two shapes it is —
+                      these used to sit in their own section below the fold,
+                      which is where things go to be missed. */}
+                  {mandates.map((m) => {
+                    const on = m.mandate_id === selectedId;
+                    return (
+                      <button
+                        key={m.mandate_id}
+                        onClick={() => { setSelectedId(m.mandate_id); setError(""); setNotice(""); }}
+                        aria-current={on ? "true" : undefined}
+                        style={{
+                          display: "block", width: "100%", textAlign: "left",
+                          background: on ? "var(--color-bg)" : "transparent",
+                          border: 0, borderBottom: "1px solid var(--color-divider)",
+                          borderLeft: `4px solid ${on ? "var(--color-accent)" : "transparent"}`,
+                          padding: "16px 20px 16px 16px", cursor: "pointer",
+                          fontFamily: "var(--font-body)", color: "var(--color-text)",
+                        }}
+                      >
+                        <span style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                          <span style={{ ...UPPER, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {m.merchant.name}
+                          </span>
+                          <span
+                            className={`tag ${m.status === "active" ? "tag-outline" : "tag-neutral"}`}
+                            style={{ marginLeft: "auto" }}
+                          >
+                            {m.status === "active" ? "Authorized" : m.status}
+                          </span>
+                        </span>
+                        <span style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                          <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 16, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            Direct authorization
+                          </span>
+                          <span style={{ marginLeft: "auto", fontFamily: HEADING, fontWeight: 800, fontSize: 15, whiteSpace: "nowrap" }}>
+                            {fmtUsdc(m.max_amount)}
+                            <span style={{ fontSize: 11.5, fontWeight: 400, color: "var(--color-neutral-700)" }}>
+                              {" "}/{PER_NOUN[m.interval] ?? m.interval}
+                            </span>
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
                 </nav>
+
+                {selectedMandate && (
+                  <MandateDetail
+                    key={selectedMandate.mandate_id}
+                    mandate={selectedMandate}
+                    busyId={busyId}
+                    onAskCancel={(m) => setConfirmMandate(m)}
+                  />
+                )}
 
                 {selected && (
                   <SubscriptionDetail
@@ -751,72 +827,6 @@ export function ManageSubscriptionsPage() {
           </>
           );
         })()}
-
-        {/* Standing authorizations from the external rail.
-            Separate from subscriptions on purpose: there is no schedule here
-            that Sweep owns. A developer charges when they choose, up to the
-            ceiling, so the honest thing to show is the ceiling, what has
-            actually been taken, and who can stop it — which is only the wallet
-            that signed. These appeared nowhere until the rail started proving
-            the payer's email; before that there was no verified address to
-            match them to. */}
-        {mandates.length > 0 && (
-          <section style={{ marginTop: 40 }}>
-            <p style={{ ...UPPER, marginBottom: 10 }}>Standing authorizations</p>
-            <div style={{ borderTop: "1px solid var(--color-divider)" }}>
-              {mandates.map((m) => (
-                <div
-                  key={m.mandate_id}
-                  style={{
-                    padding: "14px 0",
-                    borderBottom: "1px solid var(--color-divider)",
-                    display: "flex",
-                    flexWrap: "wrap",
-                    alignItems: "baseline",
-                    gap: 12,
-                  }}
-                >
-                  <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 14.5 }}>
-                    {m.merchant.name}
-                  </span>
-                  <span className={`tag ${m.status === "active" ? "tag-outline" : "tag-neutral"}`}>
-                    {m.status === "active" ? "Authorized" : m.status}
-                  </span>
-                  {m.test_mode && <span className="tag tag-neutral">Test</span>}
-                  <span style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>
-                    up to {fmtUsdc(m.max_amount)} {m.currency} a {PER_NOUN[m.interval] ?? m.interval}
-                    {m.chains.length > 0 && ` · ${m.chains.length} chain${m.chains.length > 1 ? "s" : ""}`}
-                    {m.charges.length > 0 && ` · ${m.charges.length} charge${m.charges.length > 1 ? "s" : ""}`}
-                  </span>
-                  <span
-                    style={{
-                      marginLeft: "auto",
-                      fontSize: 12,
-                      color: "var(--color-neutral-700)",
-                      fontFamily: "ui-monospace, Menlo, monospace",
-                    }}
-                  >
-                    {m.wallet_address ? shortAddr(m.wallet_address) : "unsigned"}
-                  </span>
-                  <button
-                    className="btn btn-secondary"
-                    style={{ flex: "none" }}
-                    disabled={busyId === m.mandate_id}
-                    onClick={() => setConfirmMandate(m)}
-                  >
-                    {busyId === m.mandate_id ? "Cancelling…" : "Cancel"}
-                  </button>
-                </div>
-              ))}
-            </div>
-            <p style={{ fontSize: 12, lineHeight: 1.65, color: "var(--color-neutral-700)", margin: "12px 0 0", maxWidth: "80ch" }}>
-              These were authorized directly with the merchant rather than through a Sweep Console plan:
-              they charge when they choose, never above the ceiling shown. Cancelling one stops Sweep
-              Console redeeming it and tells the merchant straight away. The permission you signed stays
-              in your wallet until you remove it there.
-            </p>
-          </section>
-        )}
 
       </main>
 
@@ -872,6 +882,93 @@ export function ManageSubscriptionsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * One direct authorization, in full.
+ *
+ * Deliberately thinner than a subscription's pane, because less is true of it.
+ * There is no schedule to show — the developer charges when they choose, up to
+ * the ceiling — no next renewal date, and no per-chain switching: the chains
+ * were fixed when it was signed. What is left is what it permits, what it has
+ * actually taken, and how to end it.
+ */
+function MandateDetail({
+  mandate,
+  busyId,
+  onAskCancel,
+}: {
+  mandate: PortalMandate;
+  busyId: string | null;
+  onAskCancel: (m: PortalMandate) => void;
+}) {
+  const per = PER_NOUN[mandate.interval] ?? mandate.interval;
+  const busy = busyId === mandate.mandate_id;
+
+  return (
+    <section style={{ flex: "999 1 520px", minWidth: 0, animation: "swp-in .2s ease" }}>
+      <div style={{ padding: "22px 24px", borderBottom: "2px solid var(--color-text)" }}>
+        <p style={{ ...UPPER, marginBottom: 8 }}>{mandate.merchant.name}</p>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+          <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 34, lineHeight: 1, letterSpacing: "-0.02em" }}>
+            {fmtUsdc(mandate.max_amount)}
+          </span>
+          <span style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
+            {mandate.currency} a {per}, at most
+          </span>
+          {mandate.test_mode && <span className="tag tag-neutral" style={{ marginLeft: "auto" }}>Test</span>}
+        </div>
+        <p style={{ fontSize: 12.5, color: "var(--color-neutral-700)", margin: "10px 0 0", maxWidth: "70ch" }}>
+          Authorized directly with {mandate.merchant.name}, not through a Sweep Console plan. They decide
+          when to charge within that ceiling; there is no fixed renewal date.
+        </p>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}>
+        <Fact label="Status" value={mandate.status === "active" ? "Authorized" : mandate.status} />
+        <Fact label="Chains" value={mandate.chains.length > 0 ? `${mandate.chains.length} authorized` : "None yet"} />
+        <Fact
+          label="Authorized"
+          value={mandate.authorized_at ? fmtDate(mandate.authorized_at) : "Not yet"}
+        />
+        <Fact label="Wallet" value={mandate.wallet_address ?? "Unsigned"} mono />
+      </div>
+
+      {mandate.charges.length > 0 && (
+        <div style={{ padding: "18px 24px", borderTop: "1px solid var(--color-divider)" }}>
+          <p style={{ ...UPPER, marginBottom: 10 }}>Charges</p>
+          {mandate.charges.map((c) => (
+            <div
+              key={c.charge_id}
+              style={{
+                display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap",
+                padding: "9px 0", borderBottom: "1px solid var(--color-divider)",
+              }}
+            >
+              <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 14 }}>
+                {fmtUsdc(c.amount)} {c.currency}
+              </span>
+              <span className={`tag ${c.status === "succeeded" ? "tag-outline" : "tag-neutral"}`}>{c.status}</span>
+              <span style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>{fmtDate(c.created_at)}</span>
+              {c.failure_reason && (
+                <span style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>{c.failure_reason}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ padding: "18px 24px", borderTop: "1px solid var(--color-divider)" }}>
+        <button className="btn btn-secondary" disabled={busy} onClick={() => onAskCancel(mandate)}>
+          {busy ? "Cancelling…" : "Cancel"}
+        </button>
+        <p style={{ fontSize: 12, lineHeight: 1.65, color: "var(--color-neutral-700)", margin: "12px 0 0", maxWidth: "70ch" }}>
+          Cancelling stops Sweep Console redeeming this and tells {mandate.merchant.name} straight away.
+          The permission you signed stays in your wallet until you remove it there.
+        </p>
+      </div>
+    </section>
   );
 }
 
