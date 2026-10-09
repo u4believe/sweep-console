@@ -165,13 +165,10 @@ export function AuthorizePage() {
   const noun = INTERVAL_NOUN[view.interval] ?? view.interval;
   // `progress.done` counts completed signatures, so it indexes the one in flight
   // within the same `todo` list `authorize` built — the unsigned targets, in order.
-  const signingTarget = progress
-    ? (() => {
-        const todo = view.targets.filter((t) => !signedChains.includes(t.chain_id));
-        const t = todo[progress.done];
-        return t ? CHAIN_BLURB[t.chain_key] ?? t.name : null;
-      })()
+  const signingChain = progress
+    ? view.targets.filter((t) => !signedChains.includes(t.chain_id))[progress.done] ?? null
     : null;
+  const signingTarget = signingChain ? CHAIN_BLURB[signingChain.chain_key] ?? signingChain.name : null;
   const chainNames = view.targets.map((t) => CHAIN_BLURB[t.chain_key] ?? t.name);
   const remaining = view.targets.filter((t) => !signedChains.includes(t.chain_id));
 
@@ -306,16 +303,32 @@ export function AuthorizePage() {
             {view.targets.map((t) => {
               const Mark = CHAIN_MARKS[t.chain_key];
               const on = signedChains.includes(t.chain_id);
+              // The one whose wallet prompt is open right now. Without this a
+              // chain being signed looks exactly like one not started, which is
+              // the moment the payer most needs the page to point somewhere:
+              // MetaMask opens one prompt per chain, and between dismissing one
+              // and the next appearing there is nothing on screen to say which.
+              const busy = !on && signingChain?.chain_id === t.chain_id;
               const name = CHAIN_BLURB[t.chain_key] ?? t.name;
               return (
                 <span key={t.chain_id} className="flex items-center gap-2">
-                  {Mark && <Mark height={20} opacity={on ? 1 : 0.3} />}
-                  <span className={on ? "text-sm font-medium text-gray-900" : "text-sm text-gray-400"}>
+                  {Mark && (
+                    <span className={busy ? "animate-pulse" : undefined}>
+                      <Mark height={20} opacity={on ? 1 : busy ? 0.75 : 0.3} />
+                    </span>
+                  )}
+                  <span
+                    className={
+                      on || busy ? "text-sm font-medium text-gray-900" : "text-sm text-gray-400"
+                    }
+                  >
                     {name}
                   </span>
-                  {/* Opacity is not readable by a screen reader, and colour alone
-                      is not a state. Say it. */}
-                  <span className="sr-only">{on ? "authorized" : "not yet authorized"}</span>
+                  {/* Opacity and a pulse are not state a screen reader can read,
+                      and colour alone is not either. Say it. */}
+                  <span className="sr-only">
+                    {on ? "authorized" : busy ? "waiting for your wallet" : "not yet authorized"}
+                  </span>
                 </span>
               );
             })}
