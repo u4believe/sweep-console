@@ -143,7 +143,17 @@ customerPortalRouter.post("/subscriptions", async (req, res) => {
     const mandates = await prisma.mandate.findMany({
       where: {
         status: { in: ["pending", "active"] },
-        customer: { is: { email: normalized } },
+        // Either proof of who the payer is. The Customer link is written by
+        // /complete and verifiedEmail by the OTP step before it, so a mandate
+        // whose link failed is still reachable by the address its payer proved.
+        //
+        // Deliberately NOT the developer's `email`: they assert that one, and
+        // matching it would put a mandate — merchant, amount, signing wallet —
+        // in the inbox of anyone they name, proved or not.
+        OR: [
+          { customer: { is: { email: normalized } } },
+          { verifiedEmail: normalized },
+        ],
       },
       include: {
         merchant: { select: { name: true } },
@@ -510,7 +520,12 @@ customerPortalRouter.post("/mandates/:id/revoke", async (req, res) => {
   const mandate = await prisma.mandate.findFirst({
     where: {
       mandateId: req.params.id as string,
-      customer: { is: { email: normalized } },
+      // Same two proofs the list uses. They must agree, or the portal shows a
+      // Cancel that 404s.
+      OR: [
+        { customer: { is: { email: normalized } } },
+        { verifiedEmail: normalized },
+      ],
     },
     select: {
       id: true, mandateId: true, externalRef: true, status: true,
