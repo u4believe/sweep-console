@@ -466,6 +466,10 @@ export interface AuthorizationView {
   status: string;
   merchant_name: string;
   email: string | null;
+  /** Whether that address has been proved by OTP on this page. */
+  email_verified: boolean;
+  /** The developer named the address, so the payer may not change it. */
+  email_locked: boolean;
   /** USDC micro-units — the ceiling per period, not a charge. */
   max_amount: number;
   currency: string;
@@ -485,6 +489,31 @@ export interface AuthorizationView {
 
 export function getAuthorization(mandateId: string): Promise<AuthorizationView> {
   return request(`/authorize/${mandateId}`);
+}
+
+/// Send a 6-digit code to the payer's address. The mandate id is the credential.
+export function requestAuthorizationOtp(
+  mandateId: string,
+  sessionToken: string,
+  email: string
+): Promise<{ sent: boolean }> {
+  return request(`/authorize/${mandateId}/otp`, {
+    method: "POST",
+    body: JSON.stringify({ session_token: sessionToken, email }),
+  });
+}
+
+/// Exchange the code for the token /grant requires.
+export function verifyAuthorizationOtp(
+  mandateId: string,
+  sessionToken: string,
+  email: string,
+  code: string
+): Promise<{ email_token: string; email: string }> {
+  return request(`/authorize/${mandateId}/otp/verify`, {
+    method: "POST",
+    body: JSON.stringify({ session_token: sessionToken, email, code }),
+  });
 }
 
 export function saveAuthorizationGrant(

@@ -11,6 +11,8 @@ import {
   getAuthorization,
   saveAuthorizationGrant,
   completeAuthorization,
+  requestAuthorizationOtp,
+  verifyAuthorizationOtp,
   type AuthorizationView,
 } from "@/lib/gateway";
 
@@ -20,6 +22,8 @@ import {
 // so nothing downstream re-confirms anything. That asymmetry is why this page
 // leads with the merchant's name and the ceiling rather than with a button, and
 // why it says plainly what the signature does and does not permit.
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const INTERVAL_NOUN: Record<string, string> = {
   daily: "day",
@@ -61,12 +65,23 @@ export function AuthorizePage() {
   const [signedChains, setSignedChains] = useState<number[]>([]);
   const [skipped, setSkipped] = useState<string[]>([]);
 
+  // Proving the payer's address, before any wallet prompt. Until this step
+  // existed the rail recorded a wallet and a developer's assertion about who
+  // owned it, and nothing tied the authorization to a person who had agreed.
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [emailToken, setEmailToken] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpBusy, setOtpBusy] = useState(false);
+  const [otpError, setOtpError] = useState("");
+
   const load = useCallback(async () => {
     if (!mandateId) return;
     try {
       const v = await getAuthorization(mandateId);
       setView(v);
       setSignedChains(v.granted_chain_ids);
+      if (v.email) setEmail(v.email);
       // Active does not mean finished. A payer who skipped a chain can come back
       // and add it while the link lives: POST /grant accepts an active mandate,
       // and /complete explicitly handles "the subscriber adding a chain later".
@@ -89,6 +104,34 @@ export function AuthorizePage() {
     void load();
   }, [load]);
 
+  const sendCode = async () => {
+    if (!view || !mandateId) return;
+    setOtpError("");
+    setOtpBusy(true);
+    try {
+      await requestAuthorizationOtp(mandateId, view.session_token, email.trim());
+      setOtpSent(true);
+    } catch (e) {
+      setOtpError(friendlyError(e, "We couldn't send your code. Try again."));
+    } finally {
+      setOtpBusy(false);
+    }
+  };
+
+  const checkCode = async () => {
+    if (!view || !mandateId) return;
+    setOtpError("");
+    setOtpBusy(true);
+    try {
+      const r = await verifyAuthorizationOtp(mandateId, view.session_token, email.trim(), code.trim());
+      setEmailToken(r.email_token);
+    } catch (e) {
+      setOtpError(friendlyError(e, "That code didn't work. Try again."));
+    } finally {
+      setOtpBusy(false);
+    }
+  };
+
   const authorize = async () => {
     if (!view || !mandateId || !address) return;
     // Only sign the chains that aren't already signed — re-signing one replaces
@@ -104,7 +147,12 @@ export function AuthorizePage() {
       const failures = await grantRenewalMandates(
         address,
         todo,
-        (body) => saveAuthorizationGrant(mandateId, { ...body, session_token: view.session_token }),
+        (body) =>
+          saveAuthorizationGrant(mandateId, {
+            ...body,
+            session_token: view.session_token,
+            email_token: emailToken,
+          }),
         (done, total) => setProgress({ done, total }),
         view.merchant_name
       );
@@ -170,6 +218,9 @@ export function AuthorizePage() {
     : null;
   const signingTarget = signingChain ? CHAIN_BLURB[signingChain.chain_key] ?? signingChain.name : null;
   const chainNames = view.targets.map((t) => CHAIN_BLURB[t.chain_key] ?? t.name);
+  // Proved in this browser, this visit. A mandate verified elsewhere still
+  // shows the step: the token is what /grant checks, and we do not have it.
+  const verified = !!emailToken;
   const remaining = view.targets.filter((t) => !signedChains.includes(t.chain_id));
 
   if (phase === "done") {
@@ -292,6 +343,86 @@ export function AuthorizePage() {
           </p>
         )}
 
+        {/* Step one, and it has to be first: a signature proves a wallet, not a
+            person. The merchant is told who authorized this, receipts go to
+            this address, and the payer becomes the same Customer they are for
+            anything else they have bought here — none of which a wallet
+            connection can establish.
+
+            Locked when the developer named an address: that is the one the
+            merchant believes it is billing, and letting the payer prove a
+            different one moves the drift rather than removing it. */}
+        {!verified && (
+          <div className="mt-6">
+            <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-gray-500">Your email</p>
+            <div className="border-t border-gray-100 pt-3">
+              <div className="flex flex-wrap gap-2">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={view.email_locked || otpSent}
+                  placeholder="you@example.com"
+                  className="min-w-0 flex-1 border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-500"
+                />
+                {!otpSent ? (
+                  <button
+                    onClick={() => void sendCode()}
+                    disabled={otpBusy || !EMAIL_RE.test(email.trim())}
+                    className="inline-flex items-center gap-2 bg-gray-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                  >
+                    {otpBusy && <Spinner size={14} tone="onAccent" />}
+                    Send code
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => void sendCode()}
+                    disabled={otpBusy}
+                    className="px-3 py-2 text-sm font-medium text-gray-500 underline disabled:opacity-40"
+                  >
+                    Resend
+                  </button>
+                )}
+              </div>
+
+              {otpSent && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <input
+                    inputMode="numeric"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    placeholder="6-digit code"
+                    className="min-w-0 flex-1 border border-gray-300 px-3 py-2 text-sm tracking-[0.3em]"
+                  />
+                  <button
+                    onClick={() => void checkCode()}
+                    disabled={otpBusy || code.trim().length < 4}
+                    className="inline-flex items-center gap-2 bg-gray-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                  >
+                    {otpBusy && <Spinner size={14} tone="onAccent" />}
+                    Verify
+                  </button>
+                </div>
+              )}
+
+              {otpError && <p className="mt-2 text-sm text-red-700">{otpError}</p>}
+              {otpSent && !otpError && (
+                <p className="mt-2 text-xs text-gray-500">We sent a code to {email.trim()}.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {verified && (
+          <div className="mt-6 flex items-center gap-2 border-t border-gray-100 pt-3">
+            <span className="block h-2 w-2 bg-brand-600" />
+            <span className="text-sm text-gray-900">{email.trim()}</span>
+            <span className="ml-auto text-xs font-semibold uppercase tracking-wider text-brand-700">
+              Verified
+            </span>
+          </div>
+        )}
+
         {/* Which chains are authorized, and which are still waiting.
             Faint until signed, full once the grant lands — the payer signs one
             chain at a time and this is the only thing on the page that says how
@@ -336,7 +467,11 @@ export function AuthorizePage() {
         </div>
 
         <div className="mt-6">
-          {!address ? (
+          {!verified ? (
+            <p className="border border-gray-200 bg-gray-50 px-4 py-3 text-center text-sm text-gray-500">
+              Verify your email to continue.
+            </p>
+          ) : !address ? (
             <button
               onClick={openConnectModal}
               className="w-full bg-brand-600 py-3 font-semibold text-white transition hover:bg-brand-700"

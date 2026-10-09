@@ -591,6 +591,7 @@ model Customer {
   wallets       CustomerWallet[]
   subscriptions Subscription[]
   sweeps        Sweep[]
+  mandates      Mandate[]
 
   @@unique([merchantId, email]) // same email = distinct customer per merchant
   @@index([merchantId])
@@ -789,6 +790,16 @@ model Mandate {
   sessionToken  String   @unique
   linkExpiresAt DateTime
 
+  // Who the payer actually is, once they have proved it.
+  //
+  // `email` above is whatever the developer passed when creating the mandate —
+  // its own comment calls it "not proof of anything". These two are set only
+  // when the payer answered an OTP on the authorization page, which is what
+  // lets a rail payer be the same Customer as a hosted one.
+  customerId         String?
+  customer           Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  emailVerifiedAt    DateTime?
+
   authorizedAt       DateTime?
   revokedAt          DateTime?
   // When we warned the developer this mandate was about to expire. One warning
@@ -811,6 +822,7 @@ model Mandate {
   @@index([merchantId])
   @@index([externalRef])
   @@index([status])
+  @@index([customerId])
   @@map("mandates")
 }
 

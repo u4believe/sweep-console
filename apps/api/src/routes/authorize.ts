@@ -23,6 +23,15 @@ import { decodePeriodTransferTerms, delegationIdentity } from "../lib/chain/dele
 import { getRelayerAddress, getSettlementAddress, settlementIsSeparate } from "../lib/chain/signers";
 import { supportedSourceChains } from "../lib/gateway/chains";
 import { fireWebhook } from "../lib/webhooks/delivery";
+import {
+  requestEmailOtp,
+  verifyEmailOtp,
+  verifyEmailToken,
+  normalizeEmail,
+  resolveCheckoutCustomer,
+  issueEmailToken,
+  OtpError,
+} from "../lib/checkout/identity";
 
 export const authorizeRouter = Router();
 
@@ -33,6 +42,7 @@ interface MandateForPage {
   mandateId: string;
   externalRef: string;
   email: string | null;
+  emailVerifiedAt: Date | null;
   walletAddress: string | null;
   maxAmount: bigint;
   interval: string;
@@ -139,7 +149,8 @@ async function loadMandate(mandateId: string) {
   return prisma.mandate.findUnique({
     where: { mandateId },
     select: {
-      id: true, mandateId: true, externalRef: true, email: true, walletAddress: true,
+      id: true, mandateId: true, externalRef: true, email: true, emailVerifiedAt: true,
+      walletAddress: true,
       maxAmount: true, interval: true, periodDuration: true, chains: true,
       status: true, expiresAt: true, linkExpiresAt: true, returnUrl: true,
       sessionToken: true, merchantId: true,
@@ -178,6 +189,11 @@ authorizeRouter.get("/authorize/:mandate_id", async (req, res) => {
     // subscriber recognises, and Sweep is merely executing on its instruction.
     merchant_name: m.merchant.name,
     email: m.email,
+    // Whether that address still has to be proved, and whether the payer may
+    // choose it. A developer-supplied address is the one the merchant believes
+    // it is billing, so the page shows it locked.
+    email_verified: !!m.emailVerifiedAt,
+    email_locked: !!m.email,
     max_amount: Number(m.maxAmount),
     currency: "USDC",
     interval: m.interval,
@@ -196,8 +212,116 @@ authorizeRouter.get("/authorize/:mandate_id", async (req, res) => {
   });
 });
 
+// ─── Proving who the payer is ─────────────────────────────────────────────────
+//
+// Mandate.email is whatever the developer passed — its own schema comment says
+// it is "not proof of anything". Until this existed the rail never asked the
+// payer anything: they connected a wallet, signed, and the platform recorded an
+// address and a developer's assertion. Nothing tied the payment to a person who
+// had agreed to it, so a rail payer existed in no portal and could be sent
+// someone else's receipt.
+//
+// Same OTP the hosted checkout uses, so a payer who is already a Customer at
+// this merchant resolves to that same Customer rather than a second one.
+//
+// When the developer DID supply an email, that is the address the merchant
+// believes it is billing, so it is the address that must be proved. Letting the
+// payer verify a different one would reintroduce the drift from the other side.
+const otpSchema = z.object({
+  session_token: z.string().min(1),
+  email: z.string().email(),
+});
+const otpVerifySchema = otpSchema.extend({ code: z.string().min(4).max(12) });
+
+/// Shared gate: a live link, an unrevoked mandate, and the right session token.
+interface OtpGateError {
+  message: string;
+  status: number;
+  code?: string;
+}
+
+async function loadForOtp(
+  mandateId: string,
+  sessionToken: string
+): Promise<{ m: MandateForPage; error?: undefined } | { m?: undefined; error: OtpGateError }> {
+  const m = await loadMandate(mandateId);
+  if (!m) return { error: { message: "Authorization not found", status: 404, code: "not_found" } };
+  if (m.sessionToken !== sessionToken) {
+    return { error: { message: "Invalid session token", status: 401 } };
+  }
+  if (m.linkExpiresAt.getTime() < Date.now()) {
+    return {
+      error: {
+        message: "This authorization link has expired. Ask the merchant for a new one.",
+        status: 410,
+        code: "link_expired",
+      },
+    };
+  }
+  if (m.status === "revoked") {
+    return { error: { message: "This authorization was revoked", status: 409, code: "mandate_revoked" } };
+  }
+  return { m };
+}
+
+/// The address this mandate may be verified against: the developer's if they
+/// named one, otherwise whatever the payer enters.
+function emailMismatch(m: { email: string | null }, email: string): boolean {
+  return !!m.email && normalizeEmail(m.email) !== normalizeEmail(email);
+}
+
+authorizeRouter.post("/authorize/:mandate_id/otp", async (req, res) => {
+  const parsed = otpSchema.safeParse(req.body);
+  if (!parsed.success) return err(res, "Enter a valid email address", 422);
+  const { session_token, email } = parsed.data;
+
+  const loaded = await loadForOtp(req.params.mandate_id as string, session_token);
+  if (loaded.error) return err(res, loaded.error.message, loaded.error.status, loaded.error.code);
+  const m = loaded.m;
+  if (emailMismatch(m, email)) {
+    return err(res, `This authorization is for ${m.email}. Use that address.`, 409, "email_mismatch");
+  }
+
+  try {
+    await requestEmailOtp(email, m.merchant.name);
+    return ok(res, { sent: true });
+  } catch (e) {
+    return serverError(res, "authorize/otp", e, "We couldn't send your code. Try again.");
+  }
+});
+
+authorizeRouter.post("/authorize/:mandate_id/otp/verify", async (req, res) => {
+  const parsed = otpVerifySchema.safeParse(req.body);
+  if (!parsed.success) return err(res, "Enter the 6-digit code", 422);
+  const { session_token, email, code } = parsed.data;
+
+  const loaded = await loadForOtp(req.params.mandate_id as string, session_token);
+  if (loaded.error) return err(res, loaded.error.message, loaded.error.status, loaded.error.code);
+  const m = loaded.m;
+  if (emailMismatch(m, email)) {
+    return err(res, `This authorization is for ${m.email}. Use that address.`, 409, "email_mismatch");
+  }
+
+  try {
+    const emailToken = await verifyEmailOtp(email, code);
+    // Recorded here, not at completion: the proof is a fact about the payer the
+    // moment it happens, and /grant below reads it rather than re-trusting a
+    // token the client hands back.
+    await prisma.mandate.update({
+      where: { id: m.id },
+      data: { email: normalizeEmail(email), emailVerifiedAt: new Date() },
+    });
+    return ok(res, { email_token: emailToken, email: normalizeEmail(email) });
+  } catch (e) {
+    if (e instanceof OtpError) return err(res, e.message, e.httpStatus, "otp_invalid");
+    return serverError(res, "authorize/otp-verify", e, "We couldn't check your code. Try again.");
+  }
+});
+
 const grantSchema = z.object({
   session_token: z.string().min(1),
+  // Proof from /otp/verify. Checked against the address stored on the mandate.
+  email_token: z.string().min(1),
   wallet_address: z.string().regex(ADDRESS_RE),
   account_address: z.string().regex(ADDRESS_RE).optional(),
   delegate_address: z.string().regex(ADDRESS_RE),
@@ -231,6 +355,19 @@ authorizeRouter.post("/authorize/:mandate_id/grant", async (req, res) => {
     }
     if (m.status === "revoked") return err(res, "This authorization was revoked", 409, "mandate_revoked");
     if (m.expiresAt.getTime() < Date.now()) return err(res, "This authorization has expired", 409, "mandate_expired");
+
+    // No signature without a proved email.
+    //
+    // Both halves are checked. The stored timestamp is the server's own record
+    // that this mandate was verified, and the token proves the caller is the
+    // one who did it — a mandate verified in someone else's browser is not
+    // authority for this request.
+    if (!m.emailVerifiedAt || !m.email) {
+      return err(res, "Verify your email before authorizing.", 403, "email_unverified");
+    }
+    if (!verifyEmailToken(d.email_token, m.email)) {
+      return err(res, "Verify your email before authorizing.", 403, "email_unverified");
+    }
 
     // The signed context is the source of truth for the cap, not the client's
     // period_amount — persist what the wallet actually authorized. A grant whose
@@ -325,9 +462,38 @@ authorizeRouter.post("/authorize/:mandate_id/complete", async (req, res) => {
       return ok(res, { id: m.mandateId, status: "active", chain_ids: grants.map((g) => g.chainId) });
     }
 
+    // The wallet is only known now, so this is where the proved email and the
+    // address that signed become one Customer. Same resolver the hosted
+    // checkout uses, so a payer who already bought from this merchant resolves
+    // to the Customer they already are rather than a second row with the same
+    // address on it.
+    //
+    // Best effort: the mandate is authorized either way. Failing the
+    // authorization over a bookkeeping row would cost the payer a signature
+    // they already gave.
+    let customerDbId: string | null = null;
+    if (m.email && m.emailVerifiedAt) {
+      try {
+        const resolved = await resolveCheckoutCustomer({
+          merchantId: m.merchantId,
+          walletAddress: d.wallet_address,
+          email: m.email,
+          emailToken: issueEmailToken(m.email),
+        });
+        customerDbId = resolved?.customerDbId ?? null;
+      } catch (e) {
+        console.error(`[authorize/complete] customer link failed for ${m.mandateId}:`, e);
+      }
+    }
+
     const updated = await prisma.mandate.update({
       where: { id: m.id },
-      data: { status: "active", walletAddress: d.wallet_address, authorizedAt: new Date() },
+      data: {
+        status: "active",
+        walletAddress: d.wallet_address,
+        authorizedAt: new Date(),
+        ...(customerDbId ? { customerId: customerDbId } : {}),
+      },
       select: { mandateId: true, status: true, maxAmount: true, interval: true, expiresAt: true },
     });
 
