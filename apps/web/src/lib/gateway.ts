@@ -498,10 +498,10 @@ export interface AuthorizationView {
   status: string;
   merchant_name: string;
   email: string | null;
-  /** Whether that address has been proved by OTP on this page. */
+  /** Whether an address has been proved by OTP on this page. */
   email_verified: boolean;
-  /** The developer named the address, so the payer may not change it. */
-  email_locked: boolean;
+  /** What was proved, which need not be the developer's `email`. */
+  verified_email: string | null;
   /** USDC micro-units — the ceiling per period, not a charge. */
   max_amount: number;
   currency: string;

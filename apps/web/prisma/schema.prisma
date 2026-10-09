@@ -796,6 +796,12 @@ model Mandate {
   // its own comment calls it "not proof of anything". These two are set only
   // when the payer answered an OTP on the authorization page, which is what
   // lets a rail payer be the same Customer as a hosted one.
+  // What the payer proved on the authorization page, kept BESIDE `email` rather
+  // than replacing it. The developer's value is their record and overwriting it
+  // reads as corruption when they fetch the mandate back; both are returned, so
+  // a merchant can see "I asked for one address, another proved it" and
+  // reconcile or not as they choose.
+  verifiedEmail      String?
   customerId         String?
   customer           Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
   emailVerifiedAt    DateTime?

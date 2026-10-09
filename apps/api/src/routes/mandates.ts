@@ -60,6 +60,7 @@ interface MandateRow {
   mandateId: string;
   externalRef: string;
   email: string | null;
+  verifiedEmail: string | null;
   walletAddress: string | null;
   maxAmount: bigint;
   interval: string;
@@ -86,6 +87,10 @@ function serialize(m: MandateRow) {
     status: m.status,
     external_ref: m.externalRef,
     email: m.email,
+    // What the payer actually proved on the authorization page. Differs from
+    // `email` when the address you sent was not the one they could answer a
+    // code at; null until they have.
+    verified_email: m.verifiedEmail,
     // Null until the subscriber signs — which wallet authorizes is not known when
     // the mandate is created.
     wallet_address: m.walletAddress,
@@ -108,7 +113,7 @@ function serialize(m: MandateRow) {
 }
 
 const SELECT = {
-  mandateId: true, externalRef: true, email: true, walletAddress: true,
+  mandateId: true, externalRef: true, email: true, verifiedEmail: true, walletAddress: true,
   maxAmount: true, interval: true, periodDuration: true, chains: true,
   status: true, isTestMode: true, expiresAt: true, linkExpiresAt: true,
   authorizedAt: true, revokedAt: true, metadata: true, createdAt: true,

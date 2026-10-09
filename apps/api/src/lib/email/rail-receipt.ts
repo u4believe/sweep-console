@@ -41,7 +41,10 @@ export async function sendRailChargeReceipt(chargeDbId: string): Promise<void> {
         chain: true, txHash: true, createdAt: true,
         merchant: { select: { name: true } },
         mandate: {
-          select: { email: true, walletAddress: true, maxAmount: true, interval: true, expiresAt: true },
+          select: {
+            email: true, verifiedEmail: true, walletAddress: true,
+            maxAmount: true, interval: true, expiresAt: true,
+          },
         },
       },
     });
@@ -53,10 +56,12 @@ export async function sendRailChargeReceipt(chargeDbId: string): Promise<void> {
     if (charge.status !== "succeeded") return;
     if (charge.amount <= 0n) return;
 
-    // email is optional on a mandate: a developer who never collected one has
-    // nowhere for this to go. Worth a line in the log, because a merchant
-    // wondering why their payers get no receipt will look here first.
-    const to = charge.mandate.email;
+    // The proved address first: it is the inbox a human answered a code at,
+    // where the developer's is an assertion that may be stale. Both optional —
+    // a developer who collected neither has nowhere for this to go. Worth a
+    // line in the log, because a merchant wondering why their payers get no
+    // receipt will look here first.
+    const to = charge.mandate.verifiedEmail ?? charge.mandate.email;
     if (!to) {
       console.log(`[rail-receipt] ${charge.chargeId}: mandate has no email, nothing sent`);
       return;

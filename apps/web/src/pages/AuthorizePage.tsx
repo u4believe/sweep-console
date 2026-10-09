@@ -335,9 +335,11 @@ export function AuthorizePage() {
             anything else they have bought here — none of which a wallet
             connection can establish.
 
-            Locked when the developer named an address: that is the one the
-            merchant believes it is billing, and letting the payer prove a
-            different one moves the drift rather than removing it. */}
+            Prefilled when the developer named an address, never locked to it.
+            An address a merchant holds is eventually a stale address, and
+            pinning it here turns a typo in their CRM into a payer who cannot
+            authorize at all. What they proved is reported back beside what was
+            asked for, so a mismatch is the merchant's to reconcile. */}
         {!verified && (
           <div className="mt-6">
             <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-gray-500">Your email</p>
@@ -346,10 +348,19 @@ export function AuthorizePage() {
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={view.email_locked || otpSent}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    // Changing the address retires the code sent to the old
+                    // one. Leaving the code box up would invite typing a code
+                    // that can only ever fail.
+                    if (otpSent) {
+                      setOtpSent(false);
+                      setCode("");
+                      setOtpError("");
+                    }
+                  }}
                   placeholder="you@example.com"
-                  className="min-w-0 flex-1 border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-500"
+                  className="min-w-0 flex-1 border border-gray-300 px-3 py-2 text-sm"
                 />
                 {!otpSent ? (
                   <button

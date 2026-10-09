@@ -42,6 +42,7 @@ interface MandateForPage {
   mandateId: string;
   externalRef: string;
   email: string | null;
+  verifiedEmail: string | null;
   emailVerifiedAt: Date | null;
   walletAddress: string | null;
   maxAmount: bigint;
@@ -149,7 +150,8 @@ async function loadMandate(mandateId: string) {
   return prisma.mandate.findUnique({
     where: { mandateId },
     select: {
-      id: true, mandateId: true, externalRef: true, email: true, emailVerifiedAt: true,
+      id: true, mandateId: true, externalRef: true, email: true, verifiedEmail: true,
+      emailVerifiedAt: true,
       walletAddress: true,
       maxAmount: true, interval: true, periodDuration: true, chains: true,
       status: true, expiresAt: true, linkExpiresAt: true, returnUrl: true,
@@ -189,11 +191,12 @@ authorizeRouter.get("/authorize/:mandate_id", async (req, res) => {
     // subscriber recognises, and Sweep is merely executing on its instruction.
     merchant_name: m.merchant.name,
     email: m.email,
-    // Whether that address still has to be proved, and whether the payer may
-    // choose it. A developer-supplied address is the one the merchant believes
-    // it is billing, so the page shows it locked.
+    // Prefilled from the developer's value when they sent one, and always the
+    // payer's to change: an address a merchant holds is eventually a stale
+    // address, and locking it there turns a typo in their CRM into a payer who
+    // cannot authorize at all.
     email_verified: !!m.emailVerifiedAt,
-    email_locked: !!m.email,
+    verified_email: m.verifiedEmail,
     max_amount: Number(m.maxAmount),
     currency: "USDC",
     interval: m.interval,
@@ -264,12 +267,6 @@ async function loadForOtp(
   return { m };
 }
 
-/// The address this mandate may be verified against: the developer's if they
-/// named one, otherwise whatever the payer enters.
-function emailMismatch(m: { email: string | null }, email: string): boolean {
-  return !!m.email && normalizeEmail(m.email) !== normalizeEmail(email);
-}
-
 authorizeRouter.post("/authorize/:mandate_id/otp", async (req, res) => {
   const parsed = otpSchema.safeParse(req.body);
   if (!parsed.success) return err(res, "Enter a valid email address", 422);
@@ -278,10 +275,6 @@ authorizeRouter.post("/authorize/:mandate_id/otp", async (req, res) => {
   const loaded = await loadForOtp(req.params.mandate_id as string, session_token);
   if (loaded.error) return err(res, loaded.error.message, loaded.error.status, loaded.error.code);
   const m = loaded.m;
-  if (emailMismatch(m, email)) {
-    return err(res, `This authorization is for ${m.email}. Use that address.`, 409, "email_mismatch");
-  }
-
   try {
     await requestEmailOtp(email, m.merchant.name);
     return ok(res, { sent: true });
@@ -298,18 +291,18 @@ authorizeRouter.post("/authorize/:mandate_id/otp/verify", async (req, res) => {
   const loaded = await loadForOtp(req.params.mandate_id as string, session_token);
   if (loaded.error) return err(res, loaded.error.message, loaded.error.status, loaded.error.code);
   const m = loaded.m;
-  if (emailMismatch(m, email)) {
-    return err(res, `This authorization is for ${m.email}. Use that address.`, 409, "email_mismatch");
-  }
-
   try {
     const emailToken = await verifyEmailOtp(email, code);
     // Recorded here, not at completion: the proof is a fact about the payer the
     // moment it happens, and /grant below reads it rather than re-trusting a
     // token the client hands back.
+    //
+    // `email` is left exactly as the developer sent it. Replacing it would make
+    // a field they set change under them with nothing saying so, which in a
+    // payments API reads as corruption even when the new value is the right one.
     await prisma.mandate.update({
       where: { id: m.id },
-      data: { email: normalizeEmail(email), emailVerifiedAt: new Date() },
+      data: { verifiedEmail: normalizeEmail(email), emailVerifiedAt: new Date() },
     });
     return ok(res, { email_token: emailToken, email: normalizeEmail(email) });
   } catch (e) {
@@ -362,10 +355,10 @@ authorizeRouter.post("/authorize/:mandate_id/grant", async (req, res) => {
     // that this mandate was verified, and the token proves the caller is the
     // one who did it — a mandate verified in someone else's browser is not
     // authority for this request.
-    if (!m.emailVerifiedAt || !m.email) {
+    if (!m.emailVerifiedAt || !m.verifiedEmail) {
       return err(res, "Verify your email before authorizing.", 403, "email_unverified");
     }
-    if (!verifyEmailToken(d.email_token, m.email)) {
+    if (!verifyEmailToken(d.email_token, m.verifiedEmail)) {
       return err(res, "Verify your email before authorizing.", 403, "email_unverified");
     }
 
@@ -472,13 +465,14 @@ authorizeRouter.post("/authorize/:mandate_id/complete", async (req, res) => {
     // authorization over a bookkeeping row would cost the payer a signature
     // they already gave.
     let customerDbId: string | null = null;
-    if (m.email && m.emailVerifiedAt) {
+    const payerEmail = m.verifiedEmail ?? m.email;
+    if (payerEmail && m.emailVerifiedAt) {
       try {
         const resolved = await resolveCheckoutCustomer({
           merchantId: m.merchantId,
           walletAddress: d.wallet_address,
-          email: m.email,
-          emailToken: issueEmailToken(m.email),
+          email: payerEmail,
+          emailToken: issueEmailToken(payerEmail),
         });
         customerDbId = resolved?.customerDbId ?? null;
       } catch (e) {
@@ -505,6 +499,11 @@ authorizeRouter.post("/authorize/:mandate_id/complete", async (req, res) => {
       currency: "USDC",
       interval: updated.interval,
       chain_ids: grants.map((g) => g.chainId),
+      // Both, deliberately. `email` is what the merchant asked for and
+      // `verified_email` is who actually proved it; when they differ that is
+      // the fact worth reconciling, and this is where they would see it.
+      email: m.email,
+      verified_email: m.verifiedEmail,
       expires_at: updated.expiresAt.toISOString(),
     }).catch((e) => console.error("[authorize/complete] webhook failed:", e));
 
