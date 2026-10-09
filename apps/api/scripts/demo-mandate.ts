@@ -4,6 +4,12 @@
 //   pnpm tsx scripts/demo-mandate.ts                      # dry run
 //   pnpm tsx scripts/demo-mandate.ts --write              # create it
 //   pnpm tsx scripts/demo-mandate.ts --write --amount 2 --chains base,arbitrum
+//   pnpm tsx scripts/demo-mandate.ts --write --email ada@example.com
+//
+// No --email by default, which is the API's own default and the more revealing
+// case: the payer enters and proves their own address on the authorization
+// page. Pass one and the field is pinned to it, because an address the
+// developer named is the address the merchant believes it is billing.
 //
 // Creates exactly what POST /v1/mandates creates, for the one merchant that
 // holds the rail entitlement. It exists because that endpoint needs the
@@ -30,6 +36,7 @@ async function main() {
   const usdc = arg("amount", "5");
   const interval = arg("interval", "monthly");
   const chains = arg("chains", "base,arbitrum,optimism").split(",").map((c) => c.trim().toLowerCase());
+  const email = arg("email", "");
 
   const merchant = await prisma.merchant.findFirst({
     where: { externalRailEnabled: true },
@@ -45,6 +52,7 @@ async function main() {
   console.log(`merchant   ${merchant.name} (${merchant.merchantId})`);
   console.log(`cap        ${usdc} USDC per ${interval}`);
   console.log(`chains     ${chains.join(", ")}`);
+  console.log(`email      ${email || "(none — the payer enters and proves their own)"}`);
 
   if (!WRITE) {
     console.log("\nDry run. Re-run with --write to create it.");
@@ -57,7 +65,7 @@ async function main() {
       mandateId: ids.mandate(),
       merchantId: merchant.id,
       externalRef: `demo-${now.toISOString().slice(0, 10)}`,
-      email: merchant.email,
+      email: email || null,
       maxAmount,
       interval,
       periodDuration: INTERVAL_SECONDS[interval] ?? INTERVAL_SECONDS.monthly,
