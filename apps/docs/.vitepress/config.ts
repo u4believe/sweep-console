@@ -116,12 +116,9 @@ export default defineConfig({
     // searches for, and it works offline.
     search: { provider: "local" },
 
-    socialLinks: [{ icon: "github", link: "https://github.com/u4believe/sweep-console" }],
-
-    editLink: {
-      pattern: "https://github.com/u4believe/sweep-console/edit/main/apps/docs/:path",
-      text: "Edit this page on GitHub",
-    },
+    // No repository link and no "Edit this page". The source is a private
+    // monorepo, so both would send a reader to a 404 and advertise where the
+    // platform's code lives while doing it.
 
     footer: {
       message: "Recurring USDC payments, settled on Arc.",
