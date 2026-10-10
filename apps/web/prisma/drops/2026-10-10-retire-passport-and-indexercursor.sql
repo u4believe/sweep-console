@@ -18,12 +18,14 @@
 -- anything else it judged to be drift — including the partial unique index on
 -- renewal_delegations, which the schema cannot express.
 --
--- Run:  psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -f apps/web/prisma/drops/2026-10-10-retire-passport-and-indexercursor.sql
-
-BEGIN;
+-- Applied automatically by scripts/db-push.sh on every deploy, before the
+-- schema push. Idempotent, so running it again does nothing. No transaction
+-- block: `prisma db execute` runs this as a script, and each statement here is
+-- atomic by itself.
+--
+-- Order matters. The column carries a foreign key to passports, so it goes
+-- first or the table drop fails on the dependency.
 
 ALTER TABLE public.subscriptions DROP COLUMN IF EXISTS "passportId";
 DROP TABLE IF EXISTS public.passports;
 DROP TABLE IF EXISTS public.indexer_cursors;
-
-COMMIT;

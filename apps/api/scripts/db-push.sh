@@ -17,6 +17,7 @@ set -e
 
 SCHEMA=../web/prisma/schema.prisma
 CONSTRAINTS=../web/prisma/constraints.sql
+DROPS=../web/prisma/drops
 
 # Indexes the schema language cannot express. Idempotent, and applied after the
 # push whichever way the push went: `prisma db push` reports no drift from them
@@ -26,6 +27,34 @@ apply_constraints() {
   prisma db execute --schema="$SCHEMA" --file="$CONSTRAINTS"
   echo "[db:push] constraints applied"
 }
+
+# Removals we actually meant, applied before the push.
+#
+# `prisma db push` refuses to drop a table or column that holds rows, and it is
+# right to: a schema edit should not be able to delete data as a side effect of
+# someone deleting a model. But that refusal also blocks a removal we DID
+# intend, and the whole deploy then fails on it — which is what happened when
+# Passport and IndexerCursor were retired.
+#
+# --accept-data-loss would buy the deploy back by authorizing whatever else
+# Prisma decided to remove, for ever, unreviewed. So an intended removal is
+# written as SQL in prisma/drops instead: reviewed like code, in version
+# control, naming exactly what goes. Applied first, the push then finds nothing
+# destructive left to refuse.
+#
+# Every statement must be idempotent (IF EXISTS) and ordered so dependants go
+# before their dependencies — both services run this on every deploy, and a
+# file that has already been applied must be a no-op.
+apply_drops() {
+  [ -d "$DROPS" ] || return 0
+  for f in "$DROPS"/*.sql; do
+    [ -f "$f" ] || continue
+    echo "[db:push] applying $(basename "$f")"
+    prisma db execute --schema="$SCHEMA" --file="$f"
+  done
+}
+
+apply_drops
 
 if prisma db push --schema="$SCHEMA"; then
   apply_constraints
