@@ -236,7 +236,7 @@ model Sweep {
   session   CheckoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   walletAddress   String // subscriber's wallet (depositor + mint recipient)
-  subscriberEmail String? // carried through the async sweep so completion can bind the Passport
+  subscriberEmail String? // carried through the async sweep so completion can bind the Customer
   // The Customer resolved from the OTP proof at activate time. The sweep runs
   // detached, long after the short-lived email token is gone, so completion cannot
   // re-prove ownership — it reads the decision made here instead of falling back
@@ -323,7 +323,7 @@ model Subscription {
 
   externalRef      String // developer's user ID
   walletAddress    String // subscriber's wallet address
-  subscriberEmail  String? // email bound to the wallet at checkout (Passport identity)
+  subscriberEmail  String? // email bound to the wallet at checkout, before a Customer exists
   status           String // "trialing" | "active" | "past_due" | "cancelled" | "paused"
   activationMethod String // "wallet" | "passport"
   isTestMode       Boolean @default(false)
@@ -345,8 +345,6 @@ model Subscription {
   cancelledAt        DateTime?
   cancelReason       String?
 
-  passportId String?
-  passport   Passport? @relation(fields: [passportId], references: [id])
 
   customerId String? // email-anchored identity (stable across wallet changes)
   customer   Customer? @relation(fields: [customerId], references: [id])
@@ -392,21 +390,6 @@ model RenewalClaim {
 
 // ─── Indexer Cursor ────────────────────────────────────────────────────────────
 //
-// Last block an event indexer has fully processed, so a restart resumes where it
-// left off instead of rescanning from deploy (or silently skipping the gap).
-// Keyed by (name, chainId) so testnet and mainnet cursors coexist, and so a
-// second indexer can be added without colliding.
-model IndexerCursor {
-  id        String   @id @default(cuid())
-  name      String // "subscription_manager"
-  chainId   Int
-  lastBlock BigInt
-  updatedAt DateTime @updatedAt
-
-  @@unique([name, chainId])
-  @@map("indexer_cursors")
-}
-
 // ─── Renewal Delegation (Tier 2 — ERC-7710) ────────────────────────────────────
 //
 // A subscriber's one-time ERC-7715 grant: authorises the relayer (delegate) to
@@ -650,24 +633,6 @@ model MerchantChallenge {
   @@index([merchantId, purpose])
   @@index([expiresAt])
   @@map("merchant_challenges")
-}
-
-// ─── Passport (legacy — superseded by Customer) ────────────────────────────────
-
-model Passport {
-  id            String    @id @default(cuid())
-  passportId    String    @unique // "pass_xyz"
-  walletAddress String    @unique
-  email         String? // bound to the wallet at checkout = Passport identity (addendum decision 5)
-  platformSig   String // HMAC signature of {walletAddress + issuedAt}
-  isValid       Boolean   @default(true)
-  issuedAt      DateTime  @default(now())
-  revokedAt     DateTime?
-  revokedReason String?
-
-  subscriptions Subscription[]
-
-  @@map("passports")
 }
 
 // ─── Webhook ──────────────────────────────────────────────────────────────────
