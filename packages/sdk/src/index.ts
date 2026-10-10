@@ -43,8 +43,9 @@ import type { WebhookEventType } from "./types.js";
 export { usdc, format } from "./money.js";
 export type { SweepOptions } from "./client.js";
 export type {
-  Chain, Charge, ChargeStatus, CreateChargeParams, CreateMandateParams, FailureCode,
-  Interval, Mandate, MandateStatus, Usdc, WebhookEvent, WebhookEventType,
+  Chain, Charge, ChargeStatus, CheckoutSession, CreateChargeParams, CreateMandateParams,
+  CreateSessionParams, FailureCode, Interval, Mandate, MandateStatus, RetrievedSession,
+  Subscription, SubscriptionStatus, Usdc, WebhookEvent, WebhookEventType,
   WebhookPayloads, TypedWebhookEvent,
 } from "./types.js";
 export type { ConstructOptions } from "./webhooks.js";

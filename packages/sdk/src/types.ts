@@ -110,6 +110,94 @@ export interface CreateChargeParams {
   metadata?: Record<string, unknown>;
 }
 
+/* ── Hosted plans ──────────────────────────────────────────────────────────── */
+
+export type SubscriptionStatus =
+  | "active"
+  | "trialing"
+  | "past_due"
+  | "cancelled"
+  | "incomplete";
+
+/** A subscription to a plan you made in the portal (or through /v1/plans). */
+export interface Subscription {
+  id: string;
+  /** YOUR id for this payer, if you set one when the session was created. */
+  externalRef: string;
+  status: SubscriptionStatus;
+  /** The wallet that pays. Null before the first charge settles. */
+  walletAddress: string | null;
+  activationMethod: string;
+  testMode: boolean;
+  plan: {
+    id: string;
+    name: string;
+    amount: Usdc;
+    currency: "USDC";
+    interval: Interval;
+  };
+  txHash: string | null;
+  currentPeriodStart: Date;
+  /** When the next charge is due. Billing moves this forward on each renewal. */
+  currentPeriodEnd: Date;
+  trialStart: Date | null;
+  trialEnd: Date | null;
+  cancelledAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateSessionParams {
+  /** A plan id (`plan_…`) from the portal, or a Plan you created. */
+  plan: string;
+  /**
+   * YOUR id for this payer. It arrives as `external_ref` on every webhook for
+   * the subscription this session creates, which is how you map it back. Pass
+   * it from your own session, never from the browser.
+   */
+  externalRef: string;
+  successUrl: string;
+  cancelUrl: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** A hosted checkout session. Send the payer to `url`. */
+export interface CheckoutSession {
+  id: string;
+  /** Where to send the payer. This is the whole point of the object. */
+  url: string;
+  status: string;
+  /**
+   * For the embedded checkout. Not a secret you can treat casually: it
+   * authorizes completing THIS session, so it belongs in the page that is
+   * checking out and nowhere else.
+   */
+  sessionToken?: string;
+  plan: {
+    name: string;
+    amount: Usdc;
+    currency: "USDC";
+    interval: Interval;
+  };
+  expiresAt: Date;
+}
+
+/** A session read back after the fact. Has no `url` or token. */
+export interface RetrievedSession {
+  id: string;
+  status: string;
+  externalRef: string;
+  successUrl: string;
+  cancelUrl: string;
+  metadata: Record<string, unknown> | null;
+  testMode: boolean;
+  plan: { name: string; amount: Usdc; currency: "USDC"; interval: Interval };
+  /** Set once checkout completed. */
+  subscriptionId: string | null;
+  expiresAt: Date;
+  createdAt: Date;
+}
+
 export type WebhookEventType =
   // Hosted plans — a plan you created in the portal, paid through Sweep's own
   // checkout or a payment link. You do not call the API for these at all; the

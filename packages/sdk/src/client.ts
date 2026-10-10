@@ -1,6 +1,7 @@
 import { errorFrom, SweepError } from "./errors.js";
 import type {
-  Charge, CreateChargeParams, CreateMandateParams, Mandate, Usdc,
+  Charge, CheckoutSession, CreateChargeParams, CreateMandateParams,
+  CreateSessionParams, Mandate, RetrievedSession, Subscription, Usdc,
 } from "./types.js";
 
 // The API is its own origin, not a path under the website. www.sweepconsole.xyz
@@ -54,6 +55,10 @@ function checkedBaseUrl(raw: string): string {
 export class Sweep {
   readonly mandates: Mandates;
   readonly charges: Charges;
+  /** Hosted plans: start a checkout for a plan you made in the portal. */
+  readonly checkout: { sessions: Sessions };
+  /** Hosted plans: read and cancel what checkout created. */
+  readonly subscriptions: Subscriptions;
 
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -77,6 +82,8 @@ export class Sweep {
     this.maxRetries = options.maxRetries ?? 2;
     this.mandates = new Mandates(this);
     this.charges = new Charges(this);
+    this.checkout = { sessions: new Sessions(this) };
+    this.subscriptions = new Subscriptions(this);
   }
 
   /**
@@ -315,4 +322,182 @@ function safeJson(res: Response): Promise<any> {
 }
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/* ── Hosted plans ──────────────────────────────────────────────────────────── */
+
+function toSession(raw: Record<string, string | number | Record<string, unknown>>): CheckoutSession {
+  const plan = raw["plan"] as Record<string, unknown>;
+  return {
+    id: raw["session_id"] as string,
+    url: raw["checkout_url"] as string,
+    status: raw["status"] as string,
+    ...(raw["session_token"] ? { sessionToken: raw["session_token"] as string } : {}),
+    plan: {
+      name: plan["name"] as string,
+      amount: plan["amount"] as Usdc,
+      currency: "USDC",
+      interval: plan["interval"] as CheckoutSession["plan"]["interval"],
+    },
+    expiresAt: new Date(raw["expires_at"] as string),
+  };
+}
+
+function toRetrievedSession(raw: Record<string, unknown>): RetrievedSession {
+  const plan = raw["plan"] as Record<string, unknown>;
+  return {
+    id: raw["id"] as string,
+    status: raw["status"] as string,
+    externalRef: raw["external_ref"] as string,
+    successUrl: raw["success_url"] as string,
+    cancelUrl: raw["cancel_url"] as string,
+    metadata: (raw["metadata"] as Record<string, unknown>) ?? null,
+    testMode: !!raw["test_mode"],
+    plan: {
+      name: plan["name"] as string,
+      amount: plan["amount"] as Usdc,
+      currency: "USDC",
+      interval: plan["interval"] as RetrievedSession["plan"]["interval"],
+    },
+    subscriptionId: (raw["subscription_id"] as string | null) ?? null,
+    expiresAt: new Date(raw["expires_at"] as string),
+    createdAt: new Date(raw["created_at"] as string),
+  };
+}
+
+function toSubscription(raw: Record<string, unknown>): Subscription {
+  const plan = raw["plan"] as Record<string, unknown>;
+  const date = (v: unknown) => (v ? new Date(v as string) : null);
+  return {
+    id: raw["id"] as string,
+    externalRef: raw["external_ref"] as string,
+    status: raw["status"] as Subscription["status"],
+    walletAddress: (raw["wallet_address"] as string | null) ?? null,
+    activationMethod: raw["activation_method"] as string,
+    testMode: !!raw["test_mode"],
+    plan: {
+      id: plan["id"] as string,
+      name: plan["name"] as string,
+      amount: plan["amount"] as Usdc,
+      currency: "USDC",
+      interval: plan["interval"] as Subscription["plan"]["interval"],
+    },
+    txHash: (raw["tx_hash"] as string | null) ?? null,
+    currentPeriodStart: new Date(raw["current_period_start"] as string),
+    currentPeriodEnd: new Date(raw["current_period_end"] as string),
+    trialStart: date(raw["trial_start"]),
+    trialEnd: date(raw["trial_end"]),
+    cancelledAt: date(raw["cancelled_at"]),
+    createdAt: new Date(raw["created_at"] as string),
+    updatedAt: new Date(raw["updated_at"] as string),
+  };
+}
+
+class Sessions {
+  constructor(private readonly sweep: Sweep) {}
+
+  /**
+   * Start a hosted checkout and get the URL to send the payer to.
+   *
+   * This is the server half of a "Subscribe with USDC" button: call it from
+   * your own endpoint, where `externalRef` comes from your session rather than
+   * from the page, and return `url` for the browser to follow.
+   */
+  async create(params: CreateSessionParams): Promise<CheckoutSession> {
+    return toSession(
+      await this.sweep.request("POST", "/v1/checkout/sessions", {
+        body: {
+          plan_id: params.plan,
+          external_ref: params.externalRef,
+          success_url: params.successUrl,
+          cancel_url: params.cancelUrl,
+          ...(params.metadata && { metadata: params.metadata }),
+        },
+      })
+    );
+  }
+
+  /**
+   * Read a session back. `subscriptionId` is set once checkout completed.
+   *
+   * Do not treat this as the signal to grant access: a payer who closed the tab
+   * leaves a session you will poll forever. Act on subscription.created.
+   */
+  async retrieve(id: string): Promise<RetrievedSession> {
+    return toRetrievedSession(
+      await this.sweep.request("GET", `/v1/checkout/sessions/${encodeURIComponent(id)}`)
+    );
+  }
+
+  /** Close an open session early, so its link stops working. */
+  async expire(id: string): Promise<{ id: string; status: string }> {
+    return this.sweep.request("POST", `/v1/checkout/sessions/${encodeURIComponent(id)}/expire`);
+  }
+}
+
+class Subscriptions {
+  constructor(private readonly sweep: Sweep) {}
+
+  async retrieve(id: string): Promise<Subscription> {
+    return toSubscription(
+      await this.sweep.request("GET", `/v1/subscriptions/${encodeURIComponent(id)}`)
+    );
+  }
+
+  /**
+   * The live subscription for one of YOUR user ids, or null.
+   *
+   * Only active, trialing and past_due count as live. Use it to answer "is
+   * this person a subscriber right now" on a page load, not as a substitute
+   * for handling the webhooks — polling this per request is a round trip you
+   * do not need when subscription.created already told you.
+   */
+  async status(externalRef: string): Promise<Subscription | null> {
+    try {
+      return toSubscription(
+        await this.sweep.request("GET", "/v1/subscriptions/status", {
+          query: { external_ref: externalRef },
+        })
+      );
+    } catch (e) {
+      // The endpoint 404s when nothing is live, which is an answer rather than
+      // a fault — every caller would otherwise write this same try/catch.
+      if (e instanceof SweepError && e.status === 404) return null;
+      throw e;
+    }
+  }
+
+  async list(
+    params: { status?: string; plan?: string; externalRef?: string; limit?: number } = {}
+  ): Promise<Subscription[]> {
+    const body = await this.sweep.request<{ data?: unknown[] } | unknown[]>(
+      "GET",
+      "/v1/subscriptions",
+      {
+        query: {
+          status: params.status,
+          plan_id: params.plan,
+          external_ref: params.externalRef,
+          limit: params.limit,
+        },
+      }
+    );
+    const rows = Array.isArray(body) ? body : body.data ?? [];
+    return rows.map((r) => toSubscription(r as Record<string, unknown>));
+  }
+
+  /**
+   * Stop a subscription. No further charges are attempted.
+   *
+   * It also revokes the renewal delegations behind it, so this is not merely a
+   * status flag. No money moves: nothing was ever held, so there is nothing to
+   * return — see the note on refunds in the README.
+   */
+  async cancel(id: string, opts: { reason?: string } = {}): Promise<Subscription> {
+    return toSubscription(
+      await this.sweep.request("POST", `/v1/subscriptions/${encodeURIComponent(id)}/cancel`, {
+        body: opts.reason ? { cancel_reason: opts.reason } : {},
+      })
+    );
+  }
 }

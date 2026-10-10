@@ -18,16 +18,26 @@ A **Subscribe with USDC** button for your checkout. It asks your server for a UR
 import Sweep from "@sweepconsole/node";
 const sweep = new Sweep(process.env.SWEEP_SECRET_KEY);
 
+// A plan you made in the Sweep portal:
 app.post("/api/sweep/session", requireLogin, async (req, res) => {
-  const mandate = await sweep.mandates.create({
+  const session = await sweep.checkout.sessions.create({
+    plan: "plan_pro",
     externalRef: req.user.id,
-    maxAmount: usdc("35.00"),          // the ceiling, with headroom — not the price
-    interval: "monthly",
-    chains: ["base", "arbitrum", "optimism"],
-    expiresAt: addYears(new Date(), 1),
+    successUrl: "https://app.example.com/welcome",
+    cancelUrl: "https://app.example.com/pricing",
   });
-  res.json({ url: mandate.authorizationUrl });
+  res.json({ url: session.url });
 });
+
+// Or, on the external rail, where you do the billing yourself:
+//   const mandate = await sweep.mandates.create({
+//     externalRef: req.user.id,
+//     maxAmount: usdc("35.00"),        // the ceiling, with headroom — not the price
+//     interval: "monthly",
+//     chains: ["base", "arbitrum", "optimism"],
+//     expiresAt: addYears(new Date(), 1),
+//   });
+//   res.json({ url: mandate.authorizationUrl });
 ```
 
 That is the whole integration. The payer signs in their wallet on Sweep's hosted

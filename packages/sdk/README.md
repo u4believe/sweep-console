@@ -12,12 +12,34 @@ Requires Node 20+. You need a Sweep account with the **payment rail** enabled
 
 ## Two rails, one webhook endpoint
 
-This package exists for the **external rail**: you create mandates and charge
-them yourself, with your own billing logic.
+**Hosted plans** — you made the plan in the portal. Start a checkout, send the
+payer to it, and act on the webhook:
 
-If instead you made the plan in the Sweep portal and send payers to a hosted
-checkout or a payment link, you call no API at all — the webhook is the whole
-integration, and these types cover those events too:
+```ts
+// your endpoint. externalRef comes from your session, never from the page.
+app.post("/api/checkout", requireLogin, async (req, res) => {
+  const session = await sweep.checkout.sessions.create({
+    plan: "plan_pro",
+    externalRef: req.user.id,
+    successUrl: "https://app.example.com/welcome",
+    cancelUrl: "https://app.example.com/pricing",
+  });
+  res.json({ url: session.url });
+});
+```
+
+```ts
+// is this person a subscriber right now? null when nothing is live.
+const sub = await sweep.subscriptions.status(req.user.id);
+
+// from your admin panel
+await sweep.subscriptions.cancel(sub.id, { reason: "requested by support" });
+```
+
+**The external rail** — you create mandates and charge them yourself, with your
+own billing logic. That is `sweep.mandates` and `sweep.charges` below.
+
+Either way the webhook is what grants access. These types cover both:
 
 ```ts
 sweep.webhooks.express(process.env.SWEEP_WEBHOOK_SECRET!, {
@@ -36,9 +58,20 @@ sweep.webhooks.express(process.env.SWEEP_WEBHOOK_SECRET!, {
 });
 ```
 
-You do not need this package for that — verification is an HMAC over the raw
-body, and the docs show it in fifteen lines of `node:crypto`. Install it if you
-want the payload types and the dispatch.
+A payment link needs no API call at all: the link is the checkout, and the
+webhook is the whole integration. Verification is an HMAC over the raw body,
+which the docs show in fifteen lines of `node:crypto` — so you can handle
+hosted plans without this package. Install it for the payload types, the
+dispatch, and the calls above.
+
+## Refunds
+
+There is no refund method, because there is no refund. A charge settles by
+minting your share straight into your wallet, so there is never a moment when
+this platform holds the money and could return it. `POST /v1/subscriptions/:id/refund`
+still answers, with that explanation, so an old integration gets a reason
+instead of a 404. Cancel stops the next charge; returning a past one is between
+you and your payer.
 
 ## The whole integration
 
