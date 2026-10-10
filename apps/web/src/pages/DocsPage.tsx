@@ -171,6 +171,7 @@ const toc = [
     group: "Webhooks",
     items: [
       { id: "webhooks", label: "Set up an endpoint" },
+      { id: "webhooks-code", label: "What your app must have" },
       { id: "webhooks-events", label: "Events" },
       { id: "webhooks-payload", label: "Payload & headers" },
       { id: "webhooks-verify", label: "Verify & respond" },
@@ -1072,6 +1073,123 @@ for (const user of await db.users.dueForCharge()) {
               <p className="text-sm text-gray-500">
                 Your URL must be <strong>HTTPS</strong> and publicly reachable. For local testing, expose your dev
                 server with a tunnel (e.g. <Code>ngrok</Code>) and register that URL.
+              </p>
+            </Section>
+
+            <Section id="webhooks-code" title="What your app must have">
+              <p>
+                Saving a URL in the dashboard tells us where to send events. It does not create the
+                thing that receives them — <strong>that part is yours to write</strong>. A URL has to
+                be served by something, and if nothing is listening we retry into the void for
+                eleven hours.
+              </p>
+              <p>
+                For a plan you made in the portal, this handler <em>is</em> the integration: you call
+                no API, poll nothing, and write no billing logic. Four things are required, and none
+                of them is optional.
+              </p>
+
+              <div className="rounded-xl border border-gray-200 px-5 py-1">
+                <Row k="1 · A route" v={<>A public <Code>POST</Code> endpoint at the URL you saved. HTTPS.</>} />
+                <Row k="2 · The raw body" v={<>Capture it as bytes (<Code>express.raw</Code>). The signature is over the exact bytes we sent; once <Code>express.json</Code> has parsed and re-serialized them, they no longer match and nothing downstream can recover them.</>} />
+                <Row k="3 · Signature check" v={<>HMAC-SHA256 of that body with your signing secret, compared against <Code>X-Sweep-Signature</Code> in constant time. Skip it and anyone who learns your URL can grant themselves a subscription.</>} />
+                <Row k="4 · A fast 2xx" v={<>Within <strong>10 seconds</strong>, before you do slow work. Otherwise we treat it as failed and resend.</>} />
+              </div>
+
+              <p className="mt-6">
+                In full. This is the whole file for a hosted plan — copy it, change the two database
+                calls, and you are done.
+              </p>
+<Pre>{`import express from "express";
+import crypto from "crypto";
+
+const app = express();
+const SECRET = process.env.SWEEP_WEBHOOK_SECRET;   // from Portal → Webhooks
+
+// express.raw, NOT express.json — see requirement 2 above.
+app.post("/webhooks/sweep", express.raw({ type: "application/json" }), async (req, res) => {
+  // ── verify ──────────────────────────────────────────────────────────────
+  const signature = String(req.headers["x-sweep-signature"] ?? "");
+  const expected = "sha256=" + crypto.createHmac("sha256", SECRET).update(req.body).digest("hex");
+  const valid =
+    signature.length === expected.length &&
+    crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  if (!valid) return res.status(400).send("bad signature");
+
+  const event = JSON.parse(req.body.toString("utf8"));
+
+  // ── skip anything already handled ───────────────────────────────────────
+  // Retries reuse the same event_id, and a retry is not an attack: we resend
+  // whenever you do not answer 2xx. Without this, one slow response can extend
+  // the same subscriber five times.
+  if (await db.sweepEvents.exists(event.event_id)) return res.status(200).send("ok");
+
+  // ── act ─────────────────────────────────────────────────────────────────
+  const d = event.data;
+  switch (event.event_type) {
+    case "subscription.created":
+      // Who subscribed. With a payment link you set no external_ref, so the
+      // envelope carries one we generated — identify on the email, or on
+      // customer_id, which is stable across every wallet this person pays from.
+      await db.users.activate(d.subscriber_email, {
+        plan: d.plan_id,                       // "plan_pro"
+        tier: d.tier_name,                     // "Monthly"
+        sweepSubscriptionId: d.subscription_id,
+        activeUntil: addMonths(new Date(), 1),
+      });
+      break;
+
+    case "subscription.renewed":
+      // Use current_period_end rather than adding a month yourself — a retry
+      // may have moved it.
+      await db.users.setActiveUntil(d.subscription_id, d.current_period_end);
+      break;
+
+    case "subscription.past_due":
+      await email.dunning(d.subscription_id, d.reason);   // not cancelled yet
+      break;
+
+    case "subscription.cancelled":
+      await db.users.revoke(d.subscription_id, d.cancel_reason);
+      break;
+  }
+
+  await db.sweepEvents.record(event.event_id);
+  res.status(200).send("ok");                   // requirement 4
+});`}</Pre>
+
+              <p className="mt-6">
+                <strong>Prefer not to write the crypto?</strong> Our Node SDK does requirements 2 to 4
+                for you and types every payload, so a mistyped field is a compile error rather than{" "}
+                <Code>undefined</Code> at 3am:
+              </p>
+<Pre>{`import Sweep from "@sweepconsole/node";
+const sweep = new Sweep(process.env.SWEEP_API_KEY);
+
+app.post(
+  "/webhooks/sweep",
+  express.raw({ type: "application/json" }),
+  sweep.webhooks.express(process.env.SWEEP_WEBHOOK_SECRET, {
+    "subscription.created": async (e) => {
+      await db.users.activate(e.data.subscriber_email, { plan: e.data.plan_id });
+    },
+    "subscription.cancelled": async (e) => {
+      await db.users.revoke(e.data.subscription_id, e.data.cancel_reason);
+    },
+    onError: (err) => log.error(err),
+  })
+);`}</Pre>
+              <p>
+                You still write the route and the raw-body line. Everything else — the constant-time
+                compare, the 2xx, the dispatch — it handles.
+              </p>
+
+              <p className="mt-6">
+                <strong>And if you write no code at all?</strong> Then nothing happens. Your plan still
+                sells, the payer is still charged, and the money still reaches your wallet — you simply
+                are not told, and your app cannot unlock anything. If you would rather configure than
+                code, point the URL at Zapier, Make or n8n and have it write to your database; just
+                check the tool can verify an HMAC signature, or you have skipped requirement 3.
               </p>
             </Section>
 
