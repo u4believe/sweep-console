@@ -139,7 +139,7 @@ function Compare({ rows }: { rows: { aspect: string; hosted: ReactNode; rail: Re
 
 const toc = [
   {
-    group: "Using Sweep Console",
+    group: "Hosted plans",
     items: [
       { id: "two-ways", label: "Which one do I want?" },
       { id: "creator-account", label: "Create a creator account" },
@@ -149,7 +149,7 @@ const toc = [
       { id: "upgrading", label: "Upgrading a plan" },
       { id: "pricing-changes", label: "Changing a price" },
       { id: "revenue-split", label: "Revenue & settlement" },
-      { id: "challenges", label: "Common challenges" },
+      { id: "challenges", label: "What subscribers run into" },
     ],
   },
   {
@@ -323,6 +323,17 @@ export function DocsPage() {
           <div className="mt-12 space-y-10">
             <Section id="two-ways" title="Which one do I want?">
               <p>
+                These docs are for the person <strong>integrating</strong> Sweep — so &ldquo;you&rdquo; is always you,
+                the developer, and the person paying is &ldquo;your subscriber&rdquo; or &ldquo;the payer&rdquo;. Where
+                a step happens in the dashboard rather than in code, it says so.
+              </p>
+              <p>
+                One naming note, because the product and the API disagree: the dashboard calls your account a{" "}
+                <strong>creator</strong> account, while the API and every webhook call it a{" "}
+                <strong>merchant</strong>: every webhook carries <Code>merchant_id</Code>. Same thing, two words, and
+                these docs use whichever matches the screen or the payload you are looking at.
+              </p>
+              <p>
                 There are two ways to take money with Sweep, and the rest of these docs make more sense once you know
                 which one you are reading about. The difference is <strong>who owns the billing clock</strong>.
               </p>
@@ -456,8 +467,8 @@ export function DocsPage() {
                 attached to it.
               </p>
               <ul className="list-disc space-y-1.5 pl-5">
-                <li><strong>Subscribers</strong> verify with a 6-digit one-time code before paying. Returning subscribers may not be asked to verify again.</li>
-                <li><strong>Creators</strong> verify via a link emailed at sign-up, where they set their password. Signing up with Google skips that step.</li>
+                <li><strong>Your subscribers</strong> verify with a 6-digit one-time code before paying. A returning subscriber may not be asked again.</li>
+                <li><strong>You</strong> verify your own account via a link emailed at sign-up, where you set a password. Signing up with Google skips that step.</li>
               </ul>
             </Section>
 
@@ -465,8 +476,8 @@ export function DocsPage() {
               <ul className="list-disc space-y-1.5 pl-5">
                 <li><strong>No auto-connect.</strong> Connecting a wallet is always an explicit action.</li>
                 <li><strong>New subscriber</strong> → a <strong>Connect Wallet</strong> button appears after email verification.</li>
-                <li><strong>Returning subscriber</strong> → the wallet you used here before is recognized after you verify your email.</li>
-                <li><strong>Use a different wallet</strong> → disconnect and pick another. Connecting a <em>new</em> wallet to a merchant you already subscribe to <strong>auto-revokes the old wallet's renewal delegation</strong>, so only one wallet ever bills you.</li>
+                <li><strong>Returning subscriber</strong> → the wallet they used with you before is recognised once they verify their email.</li>
+                <li><strong>Use a different wallet</strong> → they disconnect and pick another. The old wallet's permission is revoked when the <strong>new subscription completes</strong> and replaces the old one — not when the new wallet is connected. Between those two moments both grants are live, which is why the checkout also offers to revoke the old one first.</li>
                 <li><strong>Recurring charges</strong> need an ERC-7715-capable wallet (e.g. MetaMask) — the grant is what authorizes every renewal after the first.</li>
               </ul>
             </Section>
@@ -479,9 +490,9 @@ export function DocsPage() {
                 explicitly reprices existing subscribers.
               </p>
               <p>
-                Completing the new subscription <strong>auto-replaces the old one</strong> (or you can revoke the old one first from
-                the checkout). If you upgrade with the <strong>same wallet</strong> that already enabled cross-chain renewals, the
-                grant carries over — no re-authorizing while that grant is still active.
+                Completing the new subscription <strong>replaces the old one</strong>, and the checkout also offers to revoke
+                the old one first. When a subscriber upgrades with the <strong>same wallet</strong> that already enabled
+                cross-chain renewals, the grant carries over — no second signature while it is still active.
               </p>
             </Section>
 
@@ -535,15 +546,19 @@ export function DocsPage() {
               </p>
             </Section>
 
-            <Section id="challenges" title="Common challenges (and fixes)">
+            <Section id="challenges" title="What your subscribers run into">
+              <p>
+                Everything here happens on the hosted checkout, to the person paying — not to you. It is listed so
+                you recognise the support ticket when it arrives, and can answer it in one reply.
+              </p>
               <ul className="list-disc space-y-2 pl-5">
-                <li><strong>Not enough USDC.</strong> Checkout checks the balance on the chain you picked before asking for a signature — top up, or switch to another of Base / Arbitrum / Optimism.</li>
-                <li><strong>Wallet can't authorize renewals.</strong> Recurring charges need an ERC-7715-capable wallet (MetaMask). Wallets without it cannot subscribe yet.</li>
-                <li><strong>MetaMask "couldn't reach permission storage".</strong> Turn on MetaMask → Settings → <strong>Backup and sync</strong>, make sure you're signed in and online, then retry.</li>
-                <li><strong>Email not verified.</strong> Payment is blocked until you enter the 6-digit code sent to your email.</li>
-                <li><strong>Chain switching.</strong> To sign, your wallet must be on the chain you are paying from — the app switches it for you; just approve the prompt.</li>
-                <li><strong>Cross-chain takes a moment.</strong> CCTP Fast usually settles in under a minute — keep the page open.</li>
-                <li><strong>Gas.</strong> Paying is gasless on every chain — the platform submits each transaction and covers gas and the bridge fee. The one exception is a wallet&apos;s <strong>one-time smart-account setup</strong> on each chain you pay from, which the wallet submits itself and costs the subscriber a few cents. It is never charged again for that chain.</li>
+                <li><strong>Not enough USDC.</strong> Checkout checks the balance on the chosen chain before asking for a signature. They top up, or switch to another of Base / Arbitrum / Optimism.</li>
+                <li><strong>Their wallet can&apos;t authorize renewals.</strong> Recurring charges need an ERC-7715-capable wallet — MetaMask today. A wallet without it cannot subscribe, and the checkout says so rather than failing at the signature.</li>
+                <li><strong>MetaMask says &ldquo;couldn&apos;t reach permission storage&rdquo;.</strong> They turn on MetaMask → Settings → <strong>Backup and sync</strong>, confirm they are signed in and online, and retry. Nothing to fix on your side.</li>
+                <li><strong>Email not verified.</strong> Payment is blocked until they enter the 6-digit code. If it never arrives, it is almost always a spam folder.</li>
+                <li><strong>Chain switching.</strong> The wallet has to be on the chain being paid from. The checkout switches it for them; they approve the prompt.</li>
+                <li><strong>Cross-chain takes a moment.</strong> CCTP Fast usually settles in under a minute, and the page must stay open.</li>
+                <li><strong>Gas.</strong> Paying is gasless on every chain — the platform submits each transaction and covers gas and the bridge fee. One exception: a wallet&apos;s <strong>one-time smart-account setup</strong> on each chain, which the wallet submits itself and costs the subscriber a few cents. Never charged again for that chain.</li>
               </ul>
             </Section>
           </div>
@@ -731,13 +746,18 @@ for (const user of await db.users.dueForCharge()) {
                 The whole thing is two server routes and a webhook handler. This is Express; the shape is the same
                 anywhere. Nothing here is pseudo-code — it is what the four steps above look like written out.
               </p>
-              <p className="font-semibold text-gray-800">1 · The &ldquo;Pay with USDC&rdquo; button</p>
+              <p className="font-semibold text-gray-800">1 · The &ldquo;Subscribe with USDC&rdquo; button</p>
               <p>
                 A form that posts to your own server, exactly like a Stripe Checkout session. The secret key never
                 reaches the browser.
               </p>
+              <p>
+                Label it <strong>Subscribe</strong>, not <strong>Pay</strong>. What your payer signs is a standing
+                permission with a ceiling, not a single payment — someone who reads &ldquo;Pay $15&rdquo; and then
+                meets a wallet asking for recurring authority abandons the checkout, and is right to.
+              </p>
               <Pre>{`<form method="POST" action="/subscribe/usdc">
-  <button type="submit">Pay with USDC</button>
+  <button type="submit">Subscribe with USDC</button>
 </form>`}</Pre>
 
               <p className="font-semibold text-gray-800">2 · Create the mandate and redirect</p>
