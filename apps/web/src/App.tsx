@@ -24,7 +24,7 @@ import { CheckoutPage } from "@/pages/CheckoutPage";
 import { PaymentLinkPage } from "@/pages/PaymentLinkPage";
 import { DevGrantTestPage } from "@/pages/DevGrantTestPage";
 import { LandingPage } from "@/pages/LandingPage";
-import { DocsPage } from "@/pages/DocsPage";
+import { DocsRedirect } from "@/pages/DocsRedirect";
 import { OnboardingPage } from "@/pages/OnboardingPage";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import { ManageSubscriptionsPage } from "@/pages/ManageSubscriptionsPage";
@@ -35,7 +35,7 @@ export default function App() {
     <Routes>
       {/* Public marketing landing page + documentation */}
       <Route path="/" element={<LandingPage />} />
-      <Route path="/docs" element={<DocsPage />} />
+      <Route path="/docs" element={<DocsRedirect />} />
       <Route path="/analytics" element={<AnalyticsPage />} />
 
       {/* Auth pages — redirect to dashboard if already logged in */}

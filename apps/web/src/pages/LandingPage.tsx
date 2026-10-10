@@ -3,6 +3,7 @@ import { feePercent } from "@/lib/fee";
 import { useAuth } from "@/context/auth";
 import { Logo } from "@/components/ui/Logo";
 import { ArcMark, ArbitrumMark, BaseMark, OptimismMark } from "@/components/landing/ChainMarks";
+import { DOCS_URL } from "@/lib/docs";
 
 /**
  * The landing page, in the Modernist system: ruled editorial hero, features as
@@ -143,7 +144,7 @@ function Header() {
         <a href="#features" style={{ color: "var(--color-text)" }}>Features</a>
         <a href="#how" style={{ color: "var(--color-text)" }}>How it works</a>
         <a href="#pricing" style={{ color: "var(--color-text)" }}>Pricing</a>
-        <Link to="/docs" style={{ color: "var(--color-text)" }}>Documentation</Link>
+        <a href={DOCS_URL} style={{ color: "var(--color-text)" }}>Documentation</a>
       </nav>
 
       <div className="flex items-center gap-3.5">
@@ -235,9 +236,9 @@ function Hero() {
                 {user ? "Enter Console" : "Start for free"}
               </Link>
             )}
-            <Link to="/docs" className="btn btn-secondary" style={{ padding: "12px 20px", fontSize: 14 }}>
+            <a href={DOCS_URL} className="btn btn-secondary" style={{ padding: "12px 20px", fontSize: 14 }}>
               See the docs
-            </Link>
+            </a>
             <span style={{ fontSize: 11, color: "var(--color-neutral-600)", marginLeft: 8 }}>
               No card · test mode included
             </span>
@@ -484,9 +485,9 @@ function DocsTeaser() {
             </code>
             . Signed webhooks and a full test mode are on from day one.
           </p>
-          <Link to="/docs" className="btn btn-secondary" style={{ padding: "11px 18px" }}>
+          <a href={DOCS_URL} className="btn btn-secondary" style={{ padding: "11px 18px" }}>
             Read the docs
-          </Link>
+          </a>
         </div>
         <pre
           className="m-0 overflow-x-auto"
@@ -535,13 +536,26 @@ function PosterClose() {
             >
               {user ? "Enter Console" : "Create your account"}
             </Link>
-            <Link
-              to={user ? "/docs" : "/login"}
-              className="btn"
-              style={{ border: "1px solid rgba(243,242,242,.5)", color: "var(--color-bg)", padding: "14px 22px", fontSize: 14 }}
-            >
-              {user ? "See the docs" : "Open the console"}
-            </Link>
+            {/* Two destinations, and only one is a route on this site. A <Link>
+                whose `to` is an absolute URL is treated as a relative path by
+                react-router, so this has to branch on the element, not the href. */}
+            {user ? (
+              <a
+                href={DOCS_URL}
+                className="btn"
+                style={{ border: "1px solid rgba(243,242,242,.5)", color: "var(--color-bg)", padding: "14px 22px", fontSize: 14 }}
+              >
+                See the docs
+              </a>
+            ) : (
+              <Link
+                to="/login"
+                className="btn"
+                style={{ border: "1px solid rgba(243,242,242,.5)", color: "var(--color-bg)", padding: "14px 22px", fontSize: 14 }}
+              >
+                Open the console
+              </Link>
+            )}
           </>
         )}
       </div>
@@ -568,7 +582,7 @@ export function LandingPage() {
         <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, color: "var(--color-text)" }}>
           Sweep Console
         </span>
-        <Link to="/docs" style={{ color: "var(--color-neutral-700)" }}>Documentation</Link>
+        <a href={DOCS_URL} style={{ color: "var(--color-neutral-700)" }}>Documentation</a>
         <Link to="/manage" style={{ color: "var(--color-neutral-700)" }}>Manage subscription</Link>
         <span className="ml-auto">
           Payment infrastructure for on-chain recurring revenue · © {new Date().getFullYear()}
