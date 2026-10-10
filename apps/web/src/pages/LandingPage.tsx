@@ -50,12 +50,16 @@ const STEPS = [
 ];
 
 /**
- * Pricing must match PLATFORM_FEE_BPS in the API environment: 300, i.e. a flat
- * The platform fee of every settled charge, quoted from VITE_PLATFORM_FEE_BPS
- * so it cannot drift from what the API charges. Nothing on-chain enforces that
- * rate any more — the
- * split is computed off-chain when a charge settles — so this page is the only
- * place the promise lives. Do not quote a rate the platform does not charge.
+ * The platform fee on every settled charge, quoted from VITE_PLATFORM_FEE_BPS
+ * rather than written here, so the page cannot drift from what the API charges.
+ *
+ * Keep that variable equal to PLATFORM_FEE_BPS on the API. Nothing on-chain
+ * enforces the rate any more — the split is computed off-chain as a charge
+ * settles — so this page and the docs are the only places the promise to a
+ * merchant lives. Do not quote a rate the platform does not charge: for a
+ * while this comment asserted 300 while the API was configured for 300 and
+ * every page rendered the 200 fallback, which is the drift it warns about
+ * happening to the warning itself.
  */
 const PRICING = [
   {

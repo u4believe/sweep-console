@@ -28,6 +28,7 @@ import {
 import { revokeSubscription } from "../lib/subscriptions/revoke";
 import { verifyTurnstile, clientIp } from "../lib/turnstile";
 import type { Hex } from "viem";
+import { supportedSourceChains } from "../lib/gateway/chains";
 
 
 export const publicRouter = Router();
@@ -372,6 +373,32 @@ publicRouter.post("/customer/subscriptions/:id/revoke", async (req, res) => {
 // ─── Payment Links (public) ───────────────────────────────────────────────────
 // A reusable, shareable URL. GET returns the plan summary for the landing page;
 // POST mints a fresh checkout session on demand (Stripe Payment Link model).
+
+// ─── GET /config ──────────────────────────────────────────────────────────────
+//
+// The handful of numbers the documentation and the marketing site quote, read
+// from the same environment the billing code reads.
+//
+// It exists because a static site cannot otherwise stay honest about them. The
+// web app bakes VITE_PLATFORM_FEE_BPS into its bundle at build time, which is
+// fine while every deploy rebuilds it — the docs are a separate site that may
+// not be rebuilt for months, and a page quoting a rate nobody charges is worse
+// than a page that had to make one request.
+//
+// Public on purpose: the fee is on the pricing page, and the chains are on the
+// checkout. Nothing here is a secret, and nothing here identifies anyone.
+publicRouter.get("/config", (_req, res) => {
+  const bps = Number(process.env.PLATFORM_FEE_BPS ?? "200");
+  return ok(res, {
+    platform_fee_bps: Number.isFinite(bps) ? bps : 200,
+    source_chains: supportedSourceChains().map((c) => ({ key: c.key, name: c.name })),
+    settlement_chain: "arc",
+    currency: "USDC",
+    // Live keys are not issued yet, and the SDK refuses one. Saying so here
+    // means the docs do not have to be edited on the day that changes.
+    live_keys_available: false,
+  });
+});
 
 publicRouter.get("/pay/:link_id", async (req, res) => {
   try {
