@@ -3,6 +3,12 @@ node_modules/
 .env.local
 .env*.local
 *.env
+# Every variant, not just the exact names above. A .env.bak, an editor's
+# .env.save, or a .env.local copied for a test holds the same secrets as
+# .env — and one of those was a `git add -A` away from this public repo.
+.env*
+!.env.example
+!.env*.template
 
 # Next.js
 apps/web/.next/
