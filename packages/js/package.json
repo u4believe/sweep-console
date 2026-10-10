@@ -1,0 +1,38 @@
+{
+  "name": "@sweepconsole/js",
+  "version": "0.1.0",
+  "description": "Pay-with-USDC button for the browser — asks your server for a checkout URL and sends the payer there",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./button.css": "./dist/button.css"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/build-cdn.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node test/button.test.mjs"
+  },
+  "keywords": [
+    "usdc",
+    "stablecoin",
+    "subscriptions",
+    "payments",
+    "checkout",
+    "button",
+    "sweep-console"
+  ],
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}
