@@ -171,11 +171,37 @@ async function messageFrom(res: Response): Promise<string> {
   return `We couldn't start your payment (HTTP ${res.status}).`;
 }
 
+/**
+ * Refuse to navigate anywhere that could execute script.
+ *
+ * The URL arrives from the merchant's own endpoint, so this is not a defence
+ * against Sweep — it is a defence against that endpoint being made to reflect
+ * something. `location.assign("javascript:…")` runs the script in the
+ * merchant's page, with their session and their DOM, which turns a reflected
+ * value into stored XSS on a checkout.
+ *
+ * A relative URL carries no scheme and inherits the page's, so it needs no
+ * check. An absolute one must be http(s); another host is allowed, since
+ * plenty of merchants host checkout on a different one.
+ */
+function checkedUrl(url: string): string {
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url);
+  if (!scheme) return url;
+  const protocol = (scheme[1] ?? "").toLowerCase();
+  if (protocol !== "http" && protocol !== "https") {
+    throw new Error(
+      `Sweep: refusing to navigate to a ${protocol}: URL. Your endpoint must return an http(s) ` +
+        `address or a path.`
+    );
+  }
+  return url;
+}
+
 async function fetchUrl(opts: MountOptions): Promise<string> {
   if (typeof opts.session === "function") {
     const url = await opts.session();
     if (!url) throw new Error("Sweep.mount: the session function returned no URL.");
-    return url;
+    return checkedUrl(url);
   }
 
   const hasBody = !!opts.body;
@@ -199,7 +225,7 @@ async function fetchUrl(opts: MountOptions): Promise<string> {
         "for the external rail that is the mandate's authorizationUrl."
     );
   }
-  return url;
+  return checkedUrl(url);
 }
 
 /**

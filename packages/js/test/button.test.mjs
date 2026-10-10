@@ -188,6 +188,29 @@ let threw = "";
 try { Sweep.mount("#nope", { session: "/s" }); } catch (e) { threw = e.message; }
 ok("missing target throws a clear error", /nothing matched/.test(threw), threw.slice(0, 60));
 
+// ── a javascript: URL must never be navigated to ──
+errs.length = 0;
+assigned.length = 0;
+for (const bad of ["javascript:alert(1)", "data:text/html,<script>x</script>", "vbscript:x"]) {
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ url: bad }) });
+  const hx = Sweep.mount(makeEl("div"), { session: "/s", onError: (e) => errs.push(e) });
+  hx.element.click();
+  await new Promise((r) => setTimeout(r, 5));
+}
+ok("refuses javascript:/data:/vbscript:", assigned.length === 0 && errs.length === 3,
+  `${assigned.length} navigation(s), ${errs.length} error(s)`);
+ok("  and says why", /refusing to navigate/.test(errs[0]?.message ?? ""), errs[0]?.message);
+
+// a relative path and a cross-origin https URL both stay allowed
+assigned.length = 0;
+for (const good of ["/authorize/mdt_ok", "https://checkout.example.com/x"]) {
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ url: good }) });
+  const hg = Sweep.mount(makeEl("div"), { session: "/s" });
+  hg.element.click();
+  await new Promise((r) => setTimeout(r, 5));
+}
+ok("allows a path and an https host", assigned.length === 2, assigned.join(" "));
+
 // ── destroy unwinds ──
 h2.destroy();
 theirs.click();

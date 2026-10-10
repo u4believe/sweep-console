@@ -47,6 +47,7 @@ export type {
   Interval, Mandate, MandateStatus, Usdc, WebhookEvent, WebhookEventType,
   WebhookPayloads, TypedWebhookEvent,
 } from "./types.js";
+export type { ConstructOptions } from "./webhooks.js";
 export {
   AmountOverCap, ChargeConflict, IdempotencyKeyInFlight, IdempotencyKeyRequired,
   IdempotencyKeyReused, MandateExists, MandateNotActive, MandateNotFound, MandateRevoked,

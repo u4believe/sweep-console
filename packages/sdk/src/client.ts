@@ -24,6 +24,33 @@ export interface SweepOptions {
   maxRetries?: number;
 }
 
+/**
+ * Refuse to carry a secret key over plaintext.
+ *
+ * Every request sends `Authorization: Bearer <your key>`. An http baseUrl —
+ * from a typo, a copied tunnel URL, or an environment variable someone else
+ * can set — puts that key on the wire in clear, where it buys the ability to
+ * charge this merchant's payers. Loopback is exempt because that is where
+ * people legitimately run the API while developing.
+ */
+function checkedBaseUrl(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`Sweep: baseUrl is not a URL: ${JSON.stringify(raw)}`);
+  }
+  const host = url.hostname.toLowerCase();
+  const loopback = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]" || host.endsWith(".localhost");
+  if (url.protocol !== "https:" && !loopback) {
+    throw new Error(
+      `Sweep: baseUrl must be https — ${url.protocol}//${url.host} would send your API key in clear. ` +
+        `Only localhost may use http.`
+    );
+  }
+  return raw.replace(/\/+$/, "");
+}
+
 export class Sweep {
   readonly mandates: Mandates;
   readonly charges: Charges;
@@ -45,7 +72,7 @@ export class Sweep {
       throw new Error("Sweep: live API keys are not issued yet. Use your test_ key.");
     }
     this.apiKey = apiKey;
-    this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+    this.baseUrl = checkedBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL);
     this.timeoutMs = options.timeoutMs ?? 30_000;
     this.maxRetries = options.maxRetries ?? 2;
     this.mandates = new Mandates(this);

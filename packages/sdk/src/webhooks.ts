@@ -36,8 +36,34 @@ export function verify(rawBody: Buffer | string, signature: string | undefined, 
   }
 }
 
+export interface ConstructOptions {
+  /**
+   * Reject an event whose `created_at` is older than this many seconds.
+   *
+   * OFF by default, and that is deliberate: deliveries here retry at 5, 30,
+   * 120, 300 and 600 minutes with the original payload, so any tolerance
+   * shorter than about 11 hours would reject the platform's own retries — the
+   * five-minute window other rails use does not fit this delivery schedule.
+   *
+   * `created_at` is inside the signed body, so it cannot be edited by whoever
+   * replays it. That makes this a real check if you want one; it is just not a
+   * substitute for the next paragraph.
+   *
+   * REPLAY DEFENCE: dedupe on `eventId`. It is stable across every retry of the
+   * same event, so storing the ones you have processed makes a replayed body
+   * harmless however old it is, and makes your handler safe to run twice —
+   * which it must be regardless, since a retry is not an attack.
+   */
+  toleranceSeconds?: number;
+}
+
 /** Verify, then parse. Returns the event with Dates and camelCase fields. */
-export function construct(rawBody: Buffer | string, signature: string | undefined, secret: string): WebhookEvent {
+export function construct(
+  rawBody: Buffer | string,
+  signature: string | undefined,
+  secret: string,
+  opts: ConstructOptions = {}
+): WebhookEvent {
   verify(rawBody, signature, secret);
   const raw = JSON.parse(typeof rawBody === "string" ? rawBody : rawBody.toString("utf8")) as {
     event_id: string;
@@ -47,6 +73,7 @@ export function construct(rawBody: Buffer | string, signature: string | undefine
     external_ref: string;
     data: Record<string, unknown>;
   };
+  checkAge(raw.created_at, opts.toleranceSeconds);
   return {
     eventId: raw.event_id,
     eventType: raw.event_type,
@@ -55,6 +82,21 @@ export function construct(rawBody: Buffer | string, signature: string | undefine
     externalRef: raw.external_ref,
     data: raw.data,
   };
+}
+
+function checkAge(createdAt: string, toleranceSeconds: number | undefined): void {
+  if (toleranceSeconds === undefined) return;
+  const t = Date.parse(createdAt);
+  if (Number.isNaN(t)) {
+    throw new WebhookSignatureError(`Event created_at is not a date: ${JSON.stringify(createdAt)}`);
+  }
+  const ageSeconds = Math.abs(Date.now() - t) / 1000;
+  if (ageSeconds > toleranceSeconds) {
+    throw new WebhookSignatureError(
+      `Event is ${Math.round(ageSeconds)}s old, outside the ${toleranceSeconds}s tolerance. ` +
+        `Note that deliveries retry for up to 11 hours, so a short tolerance rejects genuine retries.`
+    );
+  }
 }
 
 /**
@@ -94,12 +136,18 @@ interface Res {
  */
 export function expressHandler(
   secret: string,
-  handlers: { [K in WebhookEventType]?: Handler<K> } & { onError?: (e: unknown) => void }
+  handlers: { [K in WebhookEventType]?: Handler<K> } & {
+    onError?: (e: unknown) => void;
+    /** See ConstructOptions. Off by default, for the retry schedule's sake. */
+    toleranceSeconds?: number;
+  }
 ) {
   return (req: Req, res: Res) => {
     let event: WebhookEvent;
     try {
-      event = construct(req.body as Buffer, header(req, "x-sweep-signature"), secret);
+      event = construct(req.body as Buffer, header(req, "x-sweep-signature"), secret, {
+        toleranceSeconds: handlers.toleranceSeconds,
+      });
     } catch (e) {
       handlers.onError?.(e);
       res.status(400).send("bad signature");
