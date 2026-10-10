@@ -52,7 +52,8 @@ export function findSubsToClose(planDbId: string) {
   });
 }
 
-/// Stop + refund every subscriber of a deleted plan, then notify once. Detached:
+/// Stop every subscriber of a deleted plan, then notify once. Nothing is
+/// refunded, because nothing is held — see the note below. Detached:
 /// callers fire-and-forget this after archiving the plan and responding.
 export async function closePlanSubscriptions(plan: ClosingPlan, subs: ClosingSub[]): Promise<void> {
   for (const sub of subs) {

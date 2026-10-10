@@ -133,34 +133,12 @@ subscriptionsRouter.post("/:id/cancel", verifyApiKey, async (req, res) => {
   });
 });
 
-// ─── POST /:id/refund ─────────────────────────────────────────────────────────
-// Retired. A charge settles straight into the merchant's payout wallet, so the
-// platform never holds funds it could return. Kept as an explicit 409 so an
-// existing integration gets a reason instead of a 404 that reads like a bug.
-
-const refundSchema = z.object({
-  refund_pct: z.number().int().min(1).max(100),
-});
-
-subscriptionsRouter.post("/:id/refund", verifyApiKey, async (req, res) => {
-  const { merchant } = req as AuthedRequest;
-  const sub = await prisma.subscription.findFirst({
-    where: { subscriptionId: req.params.id as string, merchantId: merchant.id },
-    select: { subscriptionId: true },
-  });
-  if (!sub) return err(res, "Subscription not found", 404, "not_found");
-
-  // Refunds are gone with the settlement-window escrow they operated on. A charge
-  // now settles by minting the merchant's share straight into their wallet, so
-  // there is never a moment when this platform holds the money and could return
-  // it. The endpoint stays so an existing integration gets a reason rather than a
-  // 404 that reads like a bug.
-  return err(
-    res,
-    "Refunds are no longer available. Payments settle directly to your payout wallet with no " +
-      "escrow held, so there are no funds for this platform to return — refund the subscriber " +
-      "from your wallet, and cancel the subscription to stop future charges.",
-    409,
-    "refunds_unavailable"
-  );
-});
+// ─── No refund endpoint ───────────────────────────────────────────────────────
+//
+// This note is here so nobody adds one back by reflex. Refunds went with the
+// settlement-window escrow they operated on: a charge now settles by minting
+// the merchant's share straight into their wallet, so there is never a moment
+// when this platform holds money it could return. A merchant refunds from
+// their own wallet, and cancels to stop the next charge.
+//
+// Reintroducing the endpoint means reintroducing custody.

@@ -373,7 +373,9 @@ export function PlanDetailPage() {
               className="m-0 mb-3"
               style={{ fontSize: 12.5, color: "var(--color-neutral-800)", lineHeight: 1.6 }}
             >
-              Deleting cancels and refunds every active subscriber on-chain. This can&apos;t be undone.
+              Deleting stops billing for every active subscriber and tells them why. Nothing is
+              refunded — charges already taken settled straight to your wallet, so refunding is
+              yours to do. This can&apos;t be undone.
             </p>
             <button
               type="button"
