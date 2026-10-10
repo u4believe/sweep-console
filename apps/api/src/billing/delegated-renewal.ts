@@ -160,7 +160,9 @@ async function markRenewalFailed(sub: RenewalSub, amount: bigint, reason: string
     });
     await fireWebhook(sub.merchantId, sub.externalRef, sub.merchant.merchantId, "subscription.cancelled", {
       subscription_id: sub.subscriptionId,
+      plan_id: sub.plan.planId,
       cancel_reason: "Payment failed after maximum retries",
+      cancelled_at: new Date().toISOString(),
     });
     console.log(`[billing/tier2] cancelled ${sub.subscriptionId} after ${attempts} failed renewals`);
     return;
@@ -175,6 +177,15 @@ async function markRenewalFailed(sub: RenewalSub, amount: bigint, reason: string
     plan_id: sub.plan.planId,
     amount: Number(amount),
     currency: sub.plan.currency,
+    attempt: attempts,
+    reason,
+  });
+  await fireWebhook(sub.merchantId, sub.externalRef, sub.merchant.merchantId, "payment.failed", {
+    subscription_id: sub.subscriptionId,
+    plan_id: sub.plan.planId,
+    amount: Number(amount),
+    currency: sub.plan.currency,
+    type: "renewal",
     attempt: attempts,
     reason,
   });

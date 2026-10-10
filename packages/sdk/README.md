@@ -10,6 +10,36 @@ npm install @sweepconsole/node
 Requires Node 20+. You need a Sweep account with the **payment rail** enabled
 (portal → Payment rail → Request access) and a payout wallet linked.
 
+## Two rails, one webhook endpoint
+
+This package exists for the **external rail**: you create mandates and charge
+them yourself, with your own billing logic.
+
+If instead you made the plan in the Sweep portal and send payers to a hosted
+checkout or a payment link, you call no API at all — the webhook is the whole
+integration, and these types cover those events too:
+
+```ts
+sweep.webhooks.express(process.env.SWEEP_WEBHOOK_SECRET!, {
+  "subscription.created": async (e) => {
+    // With a payment link you did not set an external_ref, so the envelope
+    // carries one we generated. Identify on the email, or on customer_id,
+    // which is stable across every wallet this person pays from.
+    await grantAccess(e.data.subscriber_email, e.data.plan_id);
+  },
+  "subscription.renewed": async (e) => {
+    await extendTo(e.data.subscription_id, e.data.current_period_end);
+  },
+  "subscription.cancelled": async (e) => {
+    await revoke(e.data.subscription_id, e.data.cancel_reason);
+  },
+});
+```
+
+You do not need this package for that — verification is an HMAC over the raw
+body, and the docs show it in fifteen lines of `node:crypto`. Install it if you
+want the payload types and the dispatch.
+
 ## The whole integration
 
 ```ts

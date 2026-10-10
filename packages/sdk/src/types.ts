@@ -111,6 +111,17 @@ export interface CreateChargeParams {
 }
 
 export type WebhookEventType =
+  // Hosted plans — a plan you created in the portal, paid through Sweep's own
+  // checkout or a payment link. You do not call the API for these at all; the
+  // webhook is the whole integration.
+  | "checkout.session.completed"
+  | "subscription.created"
+  | "subscription.renewed"
+  | "subscription.past_due"
+  | "subscription.cancelled"
+  | "payment.succeeded"
+  | "payment.failed"
+  // The external rail — mandates you create and charge yourself.
   | "mandate.authorized"
   | "mandate.revoked"
   | "mandate.expiring"
@@ -126,6 +137,98 @@ export type WebhookEventType =
  * because this is the wire payload, unlike the rest of the SDK.
  */
 export interface WebhookPayloads {
+  "checkout.session.completed": {
+    subscription_id: string;
+    plan_id: string;
+    amount: number;
+    /** What reached your wallet, after the platform fee. */
+    merchant_share: number;
+    platform_fee: number;
+    currency: "USDC";
+  };
+  /**
+   * A subscriber finished checkout on a hosted plan and billing began.
+   *
+   * This is the one to act on for a portal-created plan. Note what identifies
+   * the payer: with a payment link you did not set an `external_ref`, so the
+   * envelope's is one Sweep generated. Use `subscriber_email` or the stable
+   * `customer_id` — or append `?ref=<your user id>` to the link, which the
+   * hosted page forwards.
+   */
+  "subscription.created": {
+    subscription_id: string;
+    plan_id: string;
+    plan_name: string;
+    tier_id: string;
+    tier_name: string;
+    amount: number;
+    currency: "USDC";
+    interval: Interval;
+    status: string;
+    activation_method: string;
+    wallet_address: string;
+    /** Stable across every wallet this person pays from. Null if unresolved. */
+    customer_id: string | null;
+    subscriber_email: string;
+    tx_hash: string | null;
+    allowance_tx_hash: string | null;
+    block_number: number | null;
+    /** Where the USDC came from. */
+    chain: string;
+    /** Where it settled. Always Arc. */
+    settlement_chain: string;
+  };
+  "subscription.renewed": {
+    subscription_id: string;
+    plan_id: string;
+    amount: number;
+    currency: "USDC";
+    tx_hash: string;
+    chain: string;
+    source_chain: string;
+    /** When the next charge is due. */
+    current_period_end: string;
+  };
+  /** A renewal failed and the subscription is awaiting payment. */
+  "subscription.past_due": {
+    subscription_id: string;
+    plan_id: string;
+    amount: number;
+    currency: "USDC";
+    /** Which retry this was. */
+    attempt: number;
+    reason: string;
+  };
+  "subscription.cancelled": {
+    subscription_id: string;
+    plan_id: string;
+    cancel_reason: string;
+    cancelled_at: string;
+    /** Only when the payer's own cancel produced it. */
+    wallet_address?: string;
+    revoked_delegations?: number;
+  };
+  "payment.succeeded": {
+    subscription_id: string;
+    plan_id?: string;
+    amount: number;
+    /** What reached your wallet, after the platform fee. */
+    merchant_share?: number;
+    platform_fee?: number;
+    currency: "USDC";
+    /** "initial" for the first charge, "renewal" afterwards. */
+    type: string;
+    tx_hash: string | null;
+  };
+  "payment.failed": {
+    subscription_id: string;
+    plan_id: string;
+    amount: number;
+    currency: "USDC";
+    type: string;
+    attempt: number;
+    reason: string;
+  };
   "mandate.authorized": {
     mandate_id: string;
     external_ref: string;

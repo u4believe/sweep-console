@@ -23,6 +23,7 @@ export interface ClosingSub {
   externalRef: string;
   onChainSubId: string | null;
   subscriberEmail: string | null;
+  plan: { planId: string };
 }
 
 export interface ClosingPlan {
@@ -44,6 +45,9 @@ export function findSubsToClose(planDbId: string) {
       externalRef: true,
       onChainSubId: true,
       subscriberEmail: true,
+      // For subscription.cancelled, which now carries plan_id like every other
+      // path that fires it. ClosingPlan does not hold the public id.
+      plan: { select: { planId: true } },
     },
   });
 }
@@ -61,7 +65,9 @@ export async function closePlanSubscriptions(plan: ClosingPlan, subs: ClosingSub
 
     await fireWebhook(sub.merchantId, sub.externalRef, plan.merchantPublicId, "subscription.cancelled", {
       subscription_id: sub.subscriptionId,
-      reason: "plan_deleted",
+      plan_id: sub.plan.planId,
+      cancel_reason: "plan_deleted",
+      cancelled_at: new Date().toISOString(),
     }).catch((e) => console.error(`[plan-lifecycle] webhook failed for ${sub.subscriptionId}:`, e));
 
     if (sub.subscriberEmail) {

@@ -40,7 +40,7 @@ export const WEBHOOK_EVENT_DESCRIPTIONS: Record<WebhookEventType, string> = {
   "subscription.past_due": "A renewal failed; the subscription is awaiting payment.",
   "subscription.cancelled": "Billing stopped — by the subscriber, by you, or by a closed plan.",
   "payment.succeeded": "USDC settled on Arc for a charge.",
-  "payment.failed": "A charge could not be collected.",
+  "payment.failed": "A renewal charge could not be collected.",
   "mandate.authorized":
     "A subscriber authorized recurring payments from their wallet on the external rail.",
   "mandate.revoked":

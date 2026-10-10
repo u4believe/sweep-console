@@ -783,6 +783,7 @@ app.post("/subscribe/usdc", async (req, res) => {
 
   const event = JSON.parse(req.body.toString("utf8"));
   const userId = event.external_ref;           // the id you sent at step 2
+                                               // (hosted plans: see below)
 
   switch (event.event_type) {
     case "mandate.authorized":
@@ -1081,9 +1082,9 @@ for (const user of await db.users.dueForCharge()) {
                 <Row k="subscription.created" v="A new subscription was activated (first charge taken, or trial started)." />
                 <Row k="subscription.renewed" v="A recurring cycle was charged successfully." />
                 <Row k="subscription.past_due" v="A renewal failed; the subscription entered the retry window." />
-                <Row k="subscription.cancelled" v="The subscription ended; no further charges will be attempted." />
+                <Row k="subscription.cancelled" v={<>The subscription ended; no further charges will be attempted. <Code>cancel_reason</Code> says why, whoever ended it.</>} />
                 <Row k="payment.succeeded" v="A charge settled (first payment or a renewal)." />
-                <Row k="payment.failed" v="A charge attempt failed." />
+                <Row k="payment.failed" v={<>A renewal charge could not be collected. Carries <Code>attempt</Code> and <Code>reason</Code>, and arrives alongside <Code>subscription.past_due</Code> — subscribe to whichever you act on.</>} />
               </div>
               <p className="mt-6">
                 These four belong to the <a href="#rail-overview" className="text-brand-700 underline">payment rail</a>{" "}
@@ -1167,6 +1168,49 @@ app.post("/webhooks/sweep", express.raw({ type: "application/json" }), (req, res
 
   res.status(200).send("ok"); // acknowledge fast
 });`}</Pre>
+              <p className="font-semibold text-gray-800">A plan you made in the portal</p>
+              <p>
+                Nothing else to build: you never call the API, and the webhook is the whole
+                integration. <Code>subscription.created</Code> is the one that starts access.
+              </p>
+              <Pre>{`switch (event.event_type) {
+  case "subscription.created": {
+    const d = event.data;
+    // Who subscribed. With a payment link you did not set an external_ref, so
+    // the envelope carries one we generated — identify on the email, or on
+    // customer_id, which stays the same across every wallet they pay from.
+    const user = await db.users.findByEmail(d.subscriber_email);
+    await db.users.update(user.id, {
+      plan: d.plan_id,            // "plan_pro"
+      tier: d.tier_name,          // "Monthly"
+      sweepSubscriptionId: d.subscription_id,
+      activeUntil: addMonths(new Date(), 1),
+    });
+    break;
+  }
+
+  case "subscription.renewed":
+    // current_period_end is when the next charge is due. Use it rather than
+    // adding a month yourself — a retry may have moved it.
+    await db.users.setActiveUntil(event.data.subscription_id, event.data.current_period_end);
+    break;
+
+  case "subscription.past_due":
+    // Not cancelled yet. We retry at 5 min, 30 min, 2 h, 5 h, 10 h.
+    await email.dunning(event.data.subscription_id, event.data.reason);
+    break;
+
+  case "subscription.cancelled":
+    await db.users.revoke(event.data.subscription_id, event.data.cancel_reason);
+    break;
+}`}</Pre>
+              <p>
+                To tie a subscription to your own user id instead, append{" "}
+                <Code>?ref=&lt;your user id&gt;</Code> to the payment link — the hosted page forwards it, and
+                it arrives as <Code>external_ref</Code> on every event for that subscription. Do not use it for
+                anything you need to trust: the payer can edit a value that sits in a URL.
+              </p>
+
               <p className="font-semibold text-gray-800">Responding & retries</p>
               <p>
                 Return any <Code>2xx</Code> within <strong>10 seconds</strong> to acknowledge. Do slow work (emails,
