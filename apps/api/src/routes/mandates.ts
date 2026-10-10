@@ -227,11 +227,22 @@ mandatesRouter.delete("/:id", verifyApiKey, requireExternalRail, async (req, res
     return ok(res, serialize(current));
   }
 
-  const updated = await prisma.mandate.update({
-    where: { id: mandate.id },
-    data: { status: "revoked", revokedAt: new Date() },
-    select: SELECT,
-  });
+  const [updated] = await prisma.$transaction([
+    prisma.mandate.update({
+      where: { id: mandate.id },
+      data: { status: "revoked", revokedAt: new Date() },
+      select: SELECT,
+    }),
+    // The grants go with it, as they do when the payer cancels from the portal.
+    // This path did not do it, so a revoked mandate kept rows marked active and
+    // redeemable that no charge would ever touch — nothing could collect on
+    // them, but every count of live authorizations was wrong, including the ones
+    // a payer is shown.
+    prisma.renewalDelegation.updateMany({
+      where: { sessionId: mandate.mandateId, mode: "external", status: "active" },
+      data: { status: "revoked" },
+    }),
+  ]);
 
   // mandate.revoked is offered in the portal's event picker, so something has to
   // fire it. Nothing did until now: a merchant could subscribe and wait forever,

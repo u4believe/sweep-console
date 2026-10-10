@@ -341,17 +341,6 @@ export function AuthorizePage() {
           <p className="mt-5 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
         )}
 
-        {signedChains.length > 0 && remaining.length > 0 && (
-          <p className="mt-5 border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-700">
-            Already authorized on{" "}
-            {view.targets
-              .filter((t) => signedChains.includes(t.chain_id))
-              .map((t) => CHAIN_BLURB[t.chain_key] ?? t.name)
-              .join(", ")}
-            . {remaining.length} more to go.
-          </p>
-        )}
-
         {/* Step one, and it has to be first: a signature proves a wallet, not a
             person. The merchant is told who authorized this, receipts go to
             this address, and the payer becomes the same Customer they are for
@@ -508,9 +497,7 @@ export function AuthorizePage() {
               >
                 {phase === "signing" && <Spinner size={16} tone="onAccent" />}
                 {phase === "signing"
-                  ? progress
-                    ? `Authorizing ${progress.done + 1} of ${progress.total}…`
-                    : "Authorizing…"
+                  ? "Authorizing…"
                   : `Authorize ${usdc(view.max_amount)} per ${noun}`}
               </button>
 
