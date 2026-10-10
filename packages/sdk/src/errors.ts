@@ -10,10 +10,21 @@ export class SweepError extends Error {
   readonly reference?: string;
   /** Per-field messages from a 422. */
   readonly details?: Record<string, string>;
+  /** The id of whatever conflicted. Set on `mandate_exists`. */
+  readonly mandateId?: string;
+  /** Set on `mandate_exists` when the existing mandate is still pending. */
+  readonly authorizationUrl?: string;
 
   constructor(
     message: string,
-    opts: { code: string; status: number; reference?: string; details?: Record<string, string> }
+    opts: {
+      code: string;
+      status: number;
+      reference?: string;
+      details?: Record<string, string>;
+      mandateId?: string;
+      authorizationUrl?: string;
+    }
   ) {
     super(message);
     this.name = new.target.name;
@@ -21,6 +32,8 @@ export class SweepError extends Error {
     this.status = opts.status;
     this.reference = opts.reference;
     this.details = opts.details;
+    this.mandateId = opts.mandateId;
+    this.authorizationUrl = opts.authorizationUrl;
   }
 }
 
@@ -35,6 +48,17 @@ export class MandateRevoked extends SweepError {}
 
 /** 409 — never authorized, or no longer active. */
 export class MandateNotActive extends SweepError {}
+
+/**
+ * 409 — this `externalRef` already has a live mandate at your merchant.
+ *
+ * Two live mandates for one payer are two independent delegations with
+ * independent period enforcers, so their ceilings add up and both can be
+ * charged. `mandateId` names the one already standing. If it is still pending,
+ * `authorizationUrl` is the link to resend — do that instead of creating a
+ * second. To replace an active one, revoke it first.
+ */
+export class MandateExists extends SweepError {}
 
 /** 422 — this single charge is larger than the mandate's `maxAmount`. */
 export class AmountOverCap extends SweepError {}
@@ -70,6 +94,7 @@ const BY_CODE: Record<string, typeof SweepError> = {
   not_found: MandateNotFound,
   mandate_revoked: MandateRevoked,
   mandate_not_active: MandateNotActive,
+  mandate_exists: MandateExists,
   amount_over_cap: AmountOverCap,
   period_cap_exceeded: PeriodCapExceeded,
   idempotency_key_required: IdempotencyKeyRequired,
@@ -80,11 +105,27 @@ const BY_CODE: Record<string, typeof SweepError> = {
 
 export function errorFrom(
   status: number,
-  body: { error?: { message?: string; code?: string; reference?: string; details?: Record<string, string> } } | null
+  body: {
+    error?: {
+      message?: string;
+      code?: string;
+      reference?: string;
+      details?: Record<string, string>;
+      mandate_id?: string;
+      authorization_url?: string;
+    };
+  } | null
 ): SweepError {
   const e = body?.error;
   const code = e?.code ?? "error";
   const Cls = BY_CODE[code] ?? SweepError;
   const message = e?.message ?? `Sweep API error (${status})`;
-  return new Cls(message, { code, status, reference: e?.reference, details: e?.details });
+  return new Cls(message, {
+    code,
+    status,
+    reference: e?.reference,
+    details: e?.details,
+    mandateId: e?.mandate_id,
+    authorizationUrl: e?.authorization_url,
+  });
 }

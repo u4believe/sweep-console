@@ -49,7 +49,7 @@ export type {
 } from "./types.js";
 export {
   AmountOverCap, ChargeConflict, IdempotencyKeyInFlight, IdempotencyKeyRequired,
-  IdempotencyKeyReused, MandateNotActive, MandateNotFound, MandateRevoked,
+  IdempotencyKeyReused, MandateExists, MandateNotActive, MandateNotFound, MandateRevoked,
   PeriodCapExceeded, RailNotEnabled, SweepError, WebhookSignatureError,
 } from "./errors.js";
 

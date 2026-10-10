@@ -9,9 +9,20 @@ export function created<T>(res: Response, data: T) {
   return res.status(201).json(data);
 }
 
-export function err(res: Response, message: string, status: number, code?: string) {
+export function err(
+  res: Response,
+  message: string,
+  status: number,
+  code?: string,
+  /**
+   * Extra fields on the error object, for a refusal the caller can act on
+   * programmatically — the id of the thing that conflicted, say, rather than
+   * asking them to parse it out of the sentence.
+   */
+  extra?: Record<string, unknown>
+) {
   return res.status(status).json({
-    error: { message, code: code ?? httpCodeToSlug(status) },
+    error: { message, code: code ?? httpCodeToSlug(status), ...extra },
   });
 }
 

@@ -491,6 +491,23 @@ authorizeRouter.post("/authorize/:mandate_id/complete", async (req, res) => {
       select: { mandateId: true, status: true, maxAmount: true, interval: true, expiresAt: true },
     });
 
+    // Does another live mandate at this merchant already sit behind this
+    // wallet? Not blocked: one person paying for two seats, or a household or
+    // company wallet, is legitimate, and each of those payers proved their own
+    // email — by the rail's own test they are different people. But the
+    // merchant may have a rule about it, and they cannot apply a rule they
+    // cannot see. Case-insensitive, because the address arrives as the wallet
+    // chose to spell it.
+    const walletReused =
+      (await prisma.mandate.count({
+        where: {
+          merchantId: m.merchantId,
+          status: "active",
+          walletAddress: { equals: d.wallet_address, mode: "insensitive" },
+          NOT: { mandateId: updated.mandateId },
+        },
+      })) > 0;
+
     await fireWebhook(m.merchantId, m.externalRef, m.merchant.merchantId, "mandate.authorized", {
       mandate_id: updated.mandateId,
       external_ref: m.externalRef,
@@ -505,6 +522,10 @@ authorizeRouter.post("/authorize/:mandate_id/complete", async (req, res) => {
       email: m.email,
       verified_email: m.verifiedEmail,
       expires_at: updated.expiresAt.toISOString(),
+      // True when this wallet already backs another live mandate here. Each is
+      // its own delegation with its own period enforcer, so neither can see the
+      // other's charges — the ceilings add up rather than capping each other.
+      wallet_reused: walletReused,
     }).catch((e) => console.error("[authorize/complete] webhook failed:", e));
 
     return ok(res, { id: updated.mandateId, status: updated.status, chain_ids: grants.map((g) => g.chainId) });

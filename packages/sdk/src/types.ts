@@ -141,6 +141,16 @@ export interface WebhookPayloads {
     /** What the payer proved. May differ from `email` — reconcile on this. */
     verified_email: string | null;
     expires_at: string;
+    /**
+     * This wallet already backs another live mandate at your merchant.
+     *
+     * Not an error, and not blocked: one person paying for two seats, or a
+     * household or company wallet, is legitimate, and each payer proved their
+     * own email. But the two are independent delegations with independent
+     * period enforcers, so their ceilings ADD UP rather than capping each
+     * other. If that is not something you allow, this is where you find out.
+     */
+    wallet_reused: boolean;
   };
   "mandate.revoked": {
     mandate_id: string;

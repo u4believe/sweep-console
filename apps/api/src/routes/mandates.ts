@@ -150,6 +150,45 @@ mandatesRouter.post("/", verifyApiKey, requireExternalRail, async (req, res) => 
     return validationError(res, { expires_at: "Must be in the future." });
   }
 
+  // One live mandate per payer, per merchant.
+  //
+  // external_ref is the developer's OWN user id, so a second live mandate under
+  // it is the same person twice — a duplicate signup, or a create retried after
+  // a timeout. Never intent. Two live mandates are two independent delegations,
+  // each with its own period enforcer, so their ceilings add up instead of
+  // capping each other: the payer can be charged both.
+  //
+  // A different external_ref on the same wallet is NOT blocked. One person
+  // paying for two seats is legitimate, and mandate.authorized carries
+  // wallet_reused so a merchant who disagrees can act on it.
+  const live = await prisma.mandate.findFirst({
+    where: {
+      merchantId: merchant.id,
+      externalRef: d.external_ref,
+      status: { in: ["pending", "active"] },
+    },
+    select: { mandateId: true, status: true, linkExpiresAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+  // A pending mandate whose link has expired blocks nothing — it can no longer
+  // be authorized, so refusing a replacement would leave the developer stuck.
+  const blocking = live && (live.status === "active" || live.linkExpiresAt.getTime() > Date.now());
+  if (blocking && live) {
+    const url = live.status === "pending" ? `${appUrl()}/authorize/${live.mandateId}` : null;
+    return err(
+      res,
+      live.status === "pending"
+        ? `${d.external_ref} already has a mandate awaiting authorization (${live.mandateId}). ` +
+            `Send them its authorization_url rather than creating a second one.`
+        : `${d.external_ref} already has an active mandate (${live.mandateId}). Revoke it with ` +
+            `DELETE /v1/mandates/${live.mandateId} before creating another — two live mandates can ` +
+            `both be charged.`,
+      409,
+      "mandate_exists",
+      { mandate_id: live.mandateId, status: live.status, ...(url && { authorization_url: url }) }
+    );
+  }
+
   const mandate = await prisma.mandate.create({
     data: {
       mandateId: ids.mandate(),
