@@ -20,14 +20,33 @@ export default defineConfig({
     "Take recurring USDC payments from a wallet — hosted plans with no billing code, or a rail you drive yourself.",
   lang: "en-GB",
   cleanUrls: true,
+  /**
+   * Dark by default, toggle kept.
+   *
+   * "dark" sets the initial theme and leaves the switch in the nav;
+   * "force-dark" would remove the switch, and true would follow the reader's
+   * OS instead. The design is dark-first, but a reader on a bright screen
+   * still gets to choose.
+   */
+  appearance: "dark",
   lastUpdated: true,
 
   head: [
-    ["link", { rel: "icon", href: "/favicon.svg" }],
-    ["meta", { name: "theme-color", content: "#2f6fc9" }],
+    ["link", { rel: "icon", href: "/logo.svg" }],
+    ["meta", { name: "theme-color", content: "#1b1b1f" }],
+    ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
+    ["link", { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "" }],
+    [
+      "link",
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap",
+      },
+    ],
   ],
 
   themeConfig: {
+    logo: "/logo.svg",
     siteTitle: "Sweep Console",
 
     nav: [

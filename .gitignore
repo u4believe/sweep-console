@@ -54,3 +54,7 @@ apps/api/q*.cjs
 
 # SDK build output
 packages/sdk/dist/
+
+# VitePress build output and cache
+apps/docs/.vitepress/dist
+apps/docs/.vitepress/cache
