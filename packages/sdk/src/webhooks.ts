@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { WebhookSignatureError } from "./errors.js";
-import type { WebhookEvent, WebhookEventType } from "./types.js";
+import type { WebhookEvent, WebhookEventType, TypedWebhookEvent } from "./types.js";
 
 /**
  * Webhook verification, which is where this integration goes wrong most often.
@@ -57,7 +57,14 @@ export function construct(rawBody: Buffer | string, signature: string | undefine
   };
 }
 
-type Handler = (event: WebhookEvent) => void | Promise<void>;
+/**
+ * Each handler receives its own event type, so `event.data` is the payload for
+ * that event rather than Record<string, unknown>. A typo in a field name is a
+ * compile error now instead of undefined at 3am.
+ */
+type Handler<K extends WebhookEventType> = (
+  event: TypedWebhookEvent<K>
+) => void | Promise<void>;
 
 /** Minimal shapes, so this package needs no dependency on Express's types. */
 interface Req {
@@ -87,7 +94,7 @@ interface Res {
  */
 export function expressHandler(
   secret: string,
-  handlers: Partial<Record<WebhookEventType, Handler>> & { onError?: (e: unknown) => void }
+  handlers: { [K in WebhookEventType]?: Handler<K> } & { onError?: (e: unknown) => void }
 ) {
   return (req: Req, res: Res) => {
     let event: WebhookEvent;
@@ -101,7 +108,14 @@ export function expressHandler(
 
     res.status(200).send("ok");
 
-    const handler = handlers[event.eventType];
+    // The one place the runtime key and the static types meet. Looking a
+    // handler up by event.eventType is correct at runtime, but the union of
+    // every Handler<K> has an intersection for its parameter, so TypeScript
+    // reduces it to never. Erase it here rather than in the signature, where
+    // it is what gives each handler its own payload type.
+    const handler = handlers[event.eventType] as
+      | ((e: WebhookEvent) => void | Promise<void>)
+      | undefined;
     if (!handler) return;
     void (async () => {
       try {

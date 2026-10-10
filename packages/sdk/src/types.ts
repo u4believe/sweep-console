@@ -118,6 +118,84 @@ export type WebhookEventType =
   | "charge.succeeded"
   | "charge.failed";
 
+/**
+ * What each event carries.
+ *
+ * These were `Record<string, unknown>` — every field a developer needed was
+ * reachable only by guessing its name and casting. The names are snake_case
+ * because this is the wire payload, unlike the rest of the SDK.
+ */
+export interface WebhookPayloads {
+  "mandate.authorized": {
+    mandate_id: string;
+    external_ref: string;
+    /** The wallet that signed. Known for the first time at this event. */
+    wallet_address: string;
+    max_amount: number;
+    currency: "USDC";
+    interval: Interval;
+    /** Numeric chain ids actually signed — may be fewer than you requested. */
+    chain_ids: number[];
+    /** What you sent when you created it, or null. */
+    email: string | null;
+    /** What the payer proved. May differ from `email` — reconcile on this. */
+    verified_email: string | null;
+    expires_at: string;
+  };
+  "mandate.revoked": {
+    mandate_id: string;
+    external_ref: string;
+    wallet_address: string | null;
+    revoked_at: string;
+    /** Who ended it: your own DELETE, or the payer from their portal. */
+    revoked_by: "merchant" | "payer";
+    /**
+     * Always false. The signed permission stays in the payer's wallet —
+     * disableDelegation is onlyDeleGator, so only they can remove it. What is
+     * guaranteed is that Sweep Console will not redeem it again.
+     */
+    on_chain: boolean;
+  };
+  "mandate.expiring": {
+    mandate_id: string;
+    external_ref: string;
+    wallet_address: string | null;
+    expires_at: string;
+    days_remaining: number;
+    recovery: string;
+  };
+  "mandate.expired": {
+    mandate_id: string;
+    external_ref: string;
+    wallet_address: string | null;
+    expired_at: string;
+    /** You cannot extend a mandate. Only the payer can sign a new one. */
+    recovery: string;
+  };
+  "charge.succeeded": {
+    charge_id: string;
+    mandate_id: string;
+    external_ref: string;
+    amount: number;
+    currency: "USDC";
+    /** Where the USDC came from. */
+    source_chain: string;
+    /** Where it settled. Always Arc. */
+    chain: string;
+    tx_hash: string;
+    description: string | null;
+  };
+  "charge.failed": {
+    charge_id: string;
+    mandate_id: string;
+    external_ref: string;
+    amount: number;
+    currency: "USDC";
+    failure_code: string;
+    failure_reason: string;
+  };
+}
+
 export interface WebhookEvent<T = Record<string, unknown>> {
   eventId: string;
   eventType: WebhookEventType;
@@ -127,3 +205,16 @@ export interface WebhookEvent<T = Record<string, unknown>> {
   externalRef: string;
   data: T;
 }
+
+/**
+ * An event narrowed to one type, so `data` is the real shape.
+ *
+ * The handler map in `expressHandler` hands you one of these already narrowed;
+ * `construct` cannot, since the type is only known after it parses.
+ */
+export type TypedWebhookEvent<K extends WebhookEventType = WebhookEventType> = {
+  [T in K]: Omit<WebhookEvent, "eventType" | "data"> & {
+    eventType: T;
+    data: WebhookPayloads[T];
+  };
+}[K];

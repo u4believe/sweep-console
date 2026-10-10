@@ -45,6 +45,7 @@ export type { SweepOptions } from "./client.js";
 export type {
   Chain, Charge, ChargeStatus, CreateChargeParams, CreateMandateParams, FailureCode,
   Interval, Mandate, MandateStatus, Usdc, WebhookEvent, WebhookEventType,
+  WebhookPayloads, TypedWebhookEvent,
 } from "./types.js";
 export {
   AmountOverCap, ChargeConflict, IdempotencyKeyInFlight, IdempotencyKeyRequired,
@@ -56,19 +57,14 @@ export {
 /// a function of the raw body and your endpoint's signing secret — but hanging
 /// it here means one import and one object to find it on.
 export class Sweep extends SweepClient {
+  // Inferred, not re-declared. The hand-written shape that used to sit here
+  // restated express's handler map as Partial<Record<WebhookEventType, …>>,
+  // which widened every handler's event back to the untyped one — on the path
+  // the README actually documents.
   readonly webhooks = {
     verify,
     construct,
     express: expressHandler,
-  } as {
-    verify: typeof verify;
-    construct: typeof construct;
-    express: (
-      secret: string,
-      handlers: Partial<Record<WebhookEventType, (e: ReturnType<typeof construct>) => void | Promise<void>>> & {
-        onError?: (e: unknown) => void;
-      }
-    ) => ReturnType<typeof expressHandler>;
   };
 
   constructor(apiKey: string, options: SweepOptions = {}) {
