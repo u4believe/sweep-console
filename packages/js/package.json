@@ -1,7 +1,7 @@
 {
   "name": "@sweepconsole/js",
   "version": "0.1.0",
-  "description": "Pay-with-USDC button for the browser — asks your server for a checkout URL and sends the payer there",
+  "description": "Pay-with-USDC button for the browser \u2014 asks your server for a checkout URL and sends the payer there",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,7 +21,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/build-cdn.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node test/button.test.mjs"
+    "test": "node test/button.test.mjs",
+    "prepublishOnly": "pnpm build && pnpm test"
   },
   "keywords": [
     "usdc",
@@ -34,5 +35,17 @@
   ],
   "devDependencies": {
     "typescript": "^5.6.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/u4believe/sweep-console.git",
+    "directory": "packages/js"
+  },
+  "homepage": "https://github.com/u4believe/sweep-console#readme",
+  "bugs": {
+    "url": "https://github.com/u4believe/sweep-console/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

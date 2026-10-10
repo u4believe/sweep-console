@@ -5,7 +5,7 @@ A **Subscribe with USDC** button for your checkout. It asks your server for a UR
 ~3KB gzipped, no dependencies.
 
 ```html
-<script src="https://cdn.sweepconsole.com/v1/sweep.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@sweepconsole/js@0.1.0/dist/sweep.js"></script>
 <button id="pay-usdc">Subscribe with USDC</button>
 
 <script>
@@ -45,7 +45,7 @@ For a public link — a pricing page, an invoice, a QR code — there is no iden
 to protect, and a plain anchor is enough:
 
 ```html
-<link rel="stylesheet" href="https://cdn.sweepconsole.com/v1/button.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@sweepconsole/js@0.1.0/dist/button.css">
 <a class="sweep-pay" href="https://pay.sweepconsole.com/pay/plink_a1b2c3?ref=user_42">
   Subscribe with USDC
 </a>
