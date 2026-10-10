@@ -406,9 +406,10 @@ export function PlanDetailPage() {
         >
           {plan.subscribers > 0 ? (
             <>
-              This will <strong>cancel and refund {plan.subscribers} active
-              subscriber{plan.subscribers === 1 ? "" : "s"}</strong> — any escrowed funds are
-              returned to them on-chain, and they&apos;re emailed that billing has stopped.
+              This will <strong>stop billing for {plan.subscribers} active
+              subscriber{plan.subscribers === 1 ? "" : "s"}</strong>, and they&apos;re emailed that
+              it has stopped. Nothing is returned to them: every charge already settled to your
+              wallet, so a refund is yours to send.
             </>
           ) : (
             <>This plan has no active subscribers. It will be closed and kept for your records.</>

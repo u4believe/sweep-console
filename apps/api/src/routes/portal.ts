@@ -1411,6 +1411,16 @@ portalRouter.get("/payments", async (req, res) => {
     const payments = await prisma.payment.findMany({
       where: {
         merchantId: dbId,
+        // The refund path is retired, so its rows stop being surfaced here.
+        // They stay in the table — 22 of them are real money that really went
+        // back during the settlement-window era, and deleting financial history
+        // to tidy a screen is not a trade worth making. Excluding them at the
+        // source instead means no client has to remember to filter, and
+        // "settled total" cannot quietly inflate when one forgets.
+        //
+        // Note this is the refund TYPE only. The 13 original charges marked
+        // status "refunded" still show, because that is what happened to them.
+        type: { not: "refund" },
         ...(scopedDays
           ? {
               createdAt: {

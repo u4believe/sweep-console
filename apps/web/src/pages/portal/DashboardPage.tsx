@@ -93,7 +93,7 @@ function buildChart(payments: Payment[], range: ChartRange): Bar[] {
   }));
 
   for (const p of payments) {
-    if (p.status !== "succeeded" || p.type === "refund") continue;
+    if (p.status !== "succeeded") continue;
     const d = new Date(p.createdAt);
     if (Number.isNaN(d.getTime())) continue;
 

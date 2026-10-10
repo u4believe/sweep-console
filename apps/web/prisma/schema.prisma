@@ -537,8 +537,13 @@ model Payment {
 
   amount     BigInt // USDC in smallest unit
   currency   String  @default("USDC")
-  status     String // "pending" | "succeeded" | "failed" | "refunded"
-  type       String // "initial" | "renewal" | "refund"
+  // "refunded" is history: 13 first charges carry it from the settlement-window
+  // era. Nothing sets it now, and nothing should — a charge settles straight to
+  // the merchant's wallet, so this platform has nothing to return.
+  status     String // "pending" | "succeeded" | "failed" | ("refunded", historical)
+  // Likewise "refund": 22 rows of real money that really went back then. The
+  // portal no longer serves them; see the filter in routes/portal.ts.
+  type       String // "initial" | "renewal" | ("refund", historical)
   isTestMode Boolean @default(false)
 
   // On-chain proof

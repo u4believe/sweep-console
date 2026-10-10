@@ -716,8 +716,8 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
 
           <div style={{ borderTop: HAIRLINE, marginTop: 26, paddingTop: 14 }}>
             <p className="m-0" style={{ fontSize: 11.5, color: "var(--color-neutral-700)", lineHeight: 1.6 }}>
-              Cancel anytime by revoking the authorization from your wallet. Refunds inside the
-              settlement window settle back on-chain.
+              Cancel anytime by revoking the authorization from your wallet. Each charge goes
+              straight to the creator, so a refund is theirs to send.
             </p>
           </div>
         </aside>

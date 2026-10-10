@@ -294,9 +294,6 @@ export interface PortalSubscription {
   created_at: string;
   current_period_end: string;
   trial_end: string | null;
-  escrow_refundable: boolean;
-  refundable_until: string | null;
-  refundable_amount: number;
   permissions: { arc_subscription: boolean; cross_chain_grants: number };
   /// One row per authorized chain, so the portal can offer per-chain control.
   /// Status is the stored one, kept current by the nightly reconciliation pass.

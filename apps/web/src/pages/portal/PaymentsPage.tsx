@@ -25,7 +25,7 @@ interface Payment {
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  initial: "Initial", renewal: "Renewal", refund: "Refund",
+  initial: "Initial", renewal: "Renewal",
 };
 
 /// Shows the hash truncated (a full one blows out the column) but copies the
@@ -67,14 +67,14 @@ export function PaymentsPage() {
   const kpis = useMemo(() => {
     const rows = payments ?? [];
     const settled = rows
-      .filter((p) => p.status === "succeeded" && p.type !== "refund")
+      .filter((p) => p.status === "succeeded")
       .reduce((sum, p) => sum + p.amount, 0);
     const failed = rows.filter((p) => p.status === "failed").length;
     return [
       { label: "Settled total", value: (settled / 1_000_000).toFixed(2), unit: "USDC" },
       { label: "Renewals", value: String(rows.filter((p) => p.type === "renewal").length) },
       { label: "Failed", value: String(failed), accent: failed > 0 },
-      { label: "Refunded", value: String(rows.filter((p) => p.type === "refund").length) },
+      { label: "First charges", value: String(rows.filter((p) => p.type === "initial").length) },
     ];
   }, [payments]);
 

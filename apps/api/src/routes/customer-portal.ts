@@ -221,8 +221,6 @@ customerPortalRouter.post("/subscriptions", async (req, res) => {
       subscriptions: subs.map((s) => {
         const amount = Number(s.amount ?? s.plan.amount);
         const interval = s.interval ?? s.plan.interval;
-        const refundable =
-          s.escrowBalance > 0n && !!s.settlementDeadline && s.settlementDeadline > new Date();
         return {
           id: s.subscriptionId,
           merchant: { name: s.merchant.name },
@@ -232,9 +230,6 @@ customerPortalRouter.post("/subscriptions", async (req, res) => {
           created_at: s.createdAt.toISOString(),
           current_period_end: s.currentPeriodEnd.toISOString(),
           trial_end: s.trialEnd ? s.trialEnd.toISOString() : null,
-          escrow_refundable: refundable,
-          refundable_until: refundable && s.settlementDeadline ? s.settlementDeadline.toISOString() : null,
-          refundable_amount: refundable ? Number(s.escrowBalance) : 0,
           permissions: {
             arc_subscription: !!s.onChainSubId,
             cross_chain_grants: s.renewalDelegations.length,
