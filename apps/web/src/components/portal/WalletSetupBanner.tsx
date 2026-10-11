@@ -335,8 +335,13 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
           >
             Subscribers can pay from
           </p>
+          {/* Arc is NOT in this list and cannot be. supportedSourceChains()
+              filters the key out whatever SUPPORTED_SOURCE_CHAINS says, because
+              Arc is where money settles — shown as the fixed payout chain just
+              above — not where it comes from. Recurring authority there is a
+              permit to a contract, not the ERC-7715 wallet permission this
+              platform redeems. */}
           <div className="flex flex-wrap items-center gap-3">
-            <span className="flex items-center gap-1.5"><ArcMark height={14} /><span style={{ fontSize: 12.5 }}>Arc</span></span>
             <span className="flex items-center gap-1.5"><BaseMark height={14} /><span style={{ fontSize: 12.5 }}>Base</span></span>
             <span className="flex items-center gap-1.5"><ArbitrumMark height={14} /><span style={{ fontSize: 12.5 }}>Arbitrum</span></span>
             <span className="flex items-center gap-1.5"><OptimismMark height={14} /><span style={{ fontSize: 12.5 }}>Optimism</span></span>
