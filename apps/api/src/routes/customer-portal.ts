@@ -198,6 +198,11 @@ customerPortalRouter.post("/subscriptions", async (req, res) => {
         chains: mandateGrants
           .filter((g) => g.sessionId === m.mandateId)
           .map((g) => ({ chain_id: g.chainId, period_amount: Number(g.periodAmount) })),
+        // What the developer ASKED for, which is not what was signed: a payer
+        // may skip chains at the authorization step, and until now the portal
+        // could not show that anything was missing. The difference between
+        // these two lists is what is still available to add.
+        chains_requested: m.chains,
         charges: m.charges.map((c) => ({
           charge_id: c.chargeId,
           amount: Number(c.amount),
@@ -483,6 +488,194 @@ customerPortalRouter.post("/subscriptions/:id/grant", async (req, res) => {
     return ok(res, { delegation_id: delegation.id, status: delegation.status });
   } catch (e) {
     return serverError(res, "portal/grant", e, "We couldn't save your renewal permission.");
+  }
+});
+
+/// Case-insensitive, because an address arrives spelled however the wallet
+/// that sent it chose to spell it.
+function sameAddress(a: string | null | undefined, b: string): boolean {
+  return !!a && a.toLowerCase() === b.toLowerCase();
+}
+
+const mandateGrantPlanSchema = z.intersection(
+  proofSchema,
+  z.object({ wallet: z.string().regex(ADDRESS_RE) })
+);
+const mandateGrantSchema = z.intersection(proofSchema, grantBodySchema);
+
+// ─── POST /customer/portal/mandates/:id/grant-plan ────────────────────────────
+//
+// The chains this mandate could still be authorized on.
+//
+// A payer may sign fewer chains than the developer asked for — the
+// authorization page lets them, and the grants are the truth about what is
+// redeemable. Until now that was permanent in practice: the authorization link
+// lasts 24 hours and then there was no way back to the ones they skipped,
+// short of asking the merchant for a whole new mandate.
+//
+// Only the unsigned ones come back. A chain already granted is deliberately
+// absent: re-signing it would mint a second on-chain delegation that nothing
+// can clean up, because only the payer's own wallet can disable one and that
+// costs them gas.
+customerPortalRouter.post("/mandates/:id/grant-plan", async (req, res) => {
+  const parsed = mandateGrantPlanSchema.safeParse(req.body);
+  if (!parsed.success) return err(res, "Invalid payload", 422);
+  const { email, email_token, wallet } = parsed.data;
+  if (!verifyEmailToken(email_token, email)) return err(res, "Verify your email first.", 403);
+
+  const normalized = normalizeEmail(email);
+  const m = await prisma.mandate.findFirst({
+    where: {
+      mandateId: req.params.id as string,
+      OR: [{ customer: { is: { email: normalized } } }, { verifiedEmail: normalized }],
+    },
+    select: {
+      id: true, mandateId: true, chains: true, maxAmount: true, interval: true,
+      periodDuration: true, status: true, expiresAt: true, walletAddress: true,
+    },
+  });
+  if (!m) return err(res, "Authorization not found", 404, "not_found");
+  if (m.status !== "active") return err(res, `This authorization is ${m.status}`, 409);
+  if (m.expiresAt.getTime() < Date.now()) {
+    return err(res, "This authorization has expired", 409, "mandate_expired");
+  }
+
+  // The same wallet or nothing. A different wallet holds none of this
+  // mandate's authority, and letting it add a chain would leave one
+  // authorization payable from two wallets with two independent ceilings.
+  if (m.walletAddress && !sameAddress(m.walletAddress, wallet)) {
+    return err(
+      res,
+      `This authorization pays from ${m.walletAddress.slice(0, 6)}…${m.walletAddress.slice(-4)}. ` +
+        `Connect that wallet to add a chain to it.`,
+      409,
+      "wallet_mismatch"
+    );
+  }
+
+  try {
+    const delegate = getDelegateAddress();
+    const payee = settlementIsSeparate() ? getSettlementAddress() : undefined;
+
+    const granted = await prisma.renewalDelegation.findMany({
+      where: { sessionId: m.mandateId, mode: "external", status: "active" },
+      select: { chainId: true },
+    });
+    const grantedChainIds = [...new Set(granted.map((g) => g.chainId))];
+
+    // Requested by the developer, still supported by us, and not already
+    // signed. All three conditions matter: a mandate created when four chains
+    // were supported should not offer a fifth now, and must not offer one the
+    // developer never asked for.
+    const requested = new Set(m.chains.map((c) => c.toLowerCase()));
+    const targets = supportedSourceChains()
+      .filter((src) => requested.has(src.key) && !grantedChainIds.includes(src.chain.id))
+      .map((src) => ({
+        chain_id: src.chain.id,
+        chain_key: src.key,
+        name: src.name,
+        token: src.usdc,
+        period_amount: m.maxAmount.toString(),
+        period_duration: m.periodDuration,
+        delegate,
+        payee,
+      }));
+
+    return ok(res, { targets, granted_chain_ids: grantedChainIds });
+  } catch (e) {
+    return serverError(res, "portal/mandate-grant-plan", e, "We couldn't work out what is still available.");
+  }
+});
+
+// ─── POST /customer/portal/mandates/:id/grant ─────────────────────────────────
+//
+// Persist one chain the payer has just signed for an existing mandate.
+customerPortalRouter.post("/mandates/:id/grant", async (req, res) => {
+  const parsed = mandateGrantSchema.safeParse(req.body);
+  if (!parsed.success) return err(res, "Invalid delegation grant", 422);
+  const d = parsed.data;
+  if (!verifyEmailToken(d.email_token, d.email)) return err(res, "Verify your email first.", 403);
+
+  const normalized = normalizeEmail(d.email);
+  const m = await prisma.mandate.findFirst({
+    where: {
+      mandateId: req.params.id as string,
+      OR: [{ customer: { is: { email: normalized } } }, { verifiedEmail: normalized }],
+    },
+    select: {
+      id: true, mandateId: true, merchantId: true, externalRef: true, chains: true,
+      periodDuration: true, status: true, expiresAt: true, walletAddress: true,
+    },
+  });
+  if (!m) return err(res, "Authorization not found", 404, "not_found");
+  if (m.status !== "active") return err(res, `This authorization is ${m.status}`, 409);
+  if (m.expiresAt.getTime() < Date.now()) {
+    return err(res, "This authorization has expired", 409, "mandate_expired");
+  }
+  if (m.walletAddress && !sameAddress(m.walletAddress, d.wallet_address)) {
+    return err(res, "That is not the wallet this authorization pays from.", 409, "wallet_mismatch");
+  }
+  if (!m.chains.map((c) => c.toLowerCase()).includes(chainKeyForId(d.chain_id) ?? "")) {
+    return err(res, "That chain was not part of this authorization.", 422, "chain_not_requested");
+  }
+
+  try {
+    // Already signed means already signed. The authorize page replaces a
+    // grant because a payer may be mid-flow and re-signing is how they fix a
+    // mistake; here the mandate is live and the existing grant may already
+    // have been charged this period, so replacing it would reset a ceiling
+    // the merchant has partly spent.
+    const existing = await prisma.renewalDelegation.findFirst({
+      where: { sessionId: m.mandateId, mode: "external", chainId: d.chain_id, status: "active" },
+      select: { id: true },
+    });
+    if (existing) {
+      return err(res, "That chain is already authorized.", 409, "chain_already_granted");
+    }
+
+    const terms = decodePeriodTransferTerms(d.context as Hex, d.token as Address);
+    if (!terms) {
+      return err(res, `Delegation has no erc20 period-transfer permission for token ${d.token}`, 422);
+    }
+    if (terms.periodDuration !== m.periodDuration) {
+      return err(
+        res,
+        `Granted period ${terms.periodDuration}s does not match the authorization's ${m.periodDuration}s`,
+        422,
+        "period_mismatch"
+      );
+    }
+
+    const identity = await delegationIdentity(d.chain_id, d.delegation_manager as Address, d.context as Hex);
+    const grant = await prisma.renewalDelegation.create({
+      data: {
+        mandateId: ids.mandate(),
+        grantId: ids.grant(),
+        sessionId: m.mandateId,
+        mode: "external",
+        merchantId: m.merchantId,
+        externalRef: m.externalRef,
+        salt: identity.salt,
+        delegationHash: identity.delegationHash,
+        walletAddress: d.wallet_address,
+        accountAddress: d.account_address ?? d.wallet_address,
+        delegateAddress: d.delegate_address,
+        chainId: d.chain_id,
+        token: d.token,
+        periodAmount: terms.periodAmount,
+        periodDuration: terms.periodDuration,
+        expiry: new Date((d.expiry || Math.floor(m.expiresAt.getTime() / 1000)) * 1000),
+        delegationManager: d.delegation_manager,
+        context: d.context,
+        dependencies: d.dependencies ?? [],
+        status: "active",
+      },
+    });
+
+    console.log(`[portal/mandate-grant] ${m.mandateId} gained chain ${d.chain_id}`);
+    return ok(res, { grant_id: grant.grantId, chain_id: grant.chainId, status: grant.status });
+  } catch (e) {
+    return serverError(res, "portal/mandate-grant", e, "We couldn't save that authorization.");
   }
 });
 

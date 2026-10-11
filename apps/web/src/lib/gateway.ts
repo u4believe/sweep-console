@@ -359,6 +359,9 @@ export interface PortalMandate {
   authorized_at: string | null;
   test_mode: boolean;
   chains: { chain_id: number; period_amount: number }[];
+  /// Chain keys the developer requested. A payer may have signed fewer, and
+  /// the difference is what the portal offers to add.
+  chains_requested: string[];
   charges: {
     charge_id: string;
     amount: number;
@@ -430,6 +433,35 @@ export function portalSaveGrant(
   body: Record<string, unknown>
 ): Promise<{ delegation_id: string; status: string }> {
   return request(`/customer/portal/subscriptions/${subscriptionId}/grant`, {
+    method: "POST",
+    body: JSON.stringify({ email, email_token: emailToken, ...body }),
+  });
+}
+
+/// The chains a mandate could still be authorized on.
+///
+/// Only the unsigned ones come back. A chain already granted is absent on
+/// purpose: re-signing it would mint a second on-chain delegation that only
+/// the payer's own wallet can remove, at their own cost.
+export function portalMandateGrantPlan(
+  email: string,
+  emailToken: string,
+  mandateId: string,
+  wallet: string
+): Promise<{ targets: GrantTarget[]; granted_chain_ids: number[] }> {
+  return request(`/customer/portal/mandates/${mandateId}/grant-plan`, {
+    method: "POST",
+    body: JSON.stringify({ email, email_token: emailToken, wallet }),
+  });
+}
+
+export function portalSaveMandateGrant(
+  email: string,
+  emailToken: string,
+  mandateId: string,
+  body: Record<string, unknown>
+): Promise<{ grant_id: string; chain_id: number; status: string }> {
+  return request(`/customer/portal/mandates/${mandateId}/grant`, {
     method: "POST",
     body: JSON.stringify({ email, email_token: emailToken, ...body }),
   });

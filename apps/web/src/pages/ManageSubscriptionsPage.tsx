@@ -22,6 +22,8 @@ import {
   type PortalSupportedChain,
   type PortalPayment,
   portalRevokeMandate,
+  portalMandateGrantPlan,
+  portalSaveMandateGrant,
   type PortalMandate,
 } from "@/lib/gateway";
 
@@ -296,6 +298,60 @@ export function ManageSubscriptionsPage() {
       setNotice(
         `${m.merchant.name} can no longer charge you. The permission you signed stays in your ` +
           `wallet until you remove it there — we simply will not redeem it.`
+      );
+      await reload();
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  /**
+   * Add a chain to a mandate the payer already signed.
+   *
+   * Only ever adds. A chain already granted is not offered, because replacing
+   * a live grant would reset a ceiling the merchant may have partly spent this
+   * period — and the old on-chain delegation would survive, redeemable, until
+   * the payer paid gas to disable it themselves.
+   */
+  const onGrantMandateChain = async (m: PortalMandate, chainId: number) => {
+    if (!address || !connectorClient) return pickWallet();
+    if (m.wallet_address && !walletMatches(address, m.wallet_address)) {
+      setError(
+        `This authorization pays from ${shortAddr(m.wallet_address)}. You're connected as ` +
+          `${shortAddr(address)} — switch to that wallet, because only it can add a chain to this one.`
+      );
+      pickWallet();
+      return;
+    }
+    setBusyId(`${m.mandate_id}:${chainId}`);
+    setError("");
+    setNotice("");
+    try {
+      const { targets } = await portalMandateGrantPlan(email.trim(), emailToken, m.mandate_id, address);
+      const target = targets.find((t) => t.chain_id === chainId);
+      if (!target) {
+        setError("That chain isn't available for this authorization any more.");
+        await reload();
+        return;
+      }
+      const supported = await getSupportedDelegationChainIds(connectorClient);
+      if (supported && !supported.includes(chainId)) {
+        setError("Your wallet can't authorize that chain.");
+        return;
+      }
+      const failures = await grantRenewalMandates(
+        address,
+        [target],
+        (input) => portalSaveMandateGrant(email.trim(), emailToken, m.mandate_id, input),
+        undefined,
+        m.merchant.name
+      );
+      setNotice(
+        failures.length > 0
+          ? "That chain wasn't authorized — nothing was signed."
+          : `${target.name} added. ${m.merchant.name} can now be paid from it too.`
       );
       await reload();
     } catch (e) {
@@ -611,9 +667,18 @@ export function ManageSubscriptionsPage() {
             : subs.find((x) => x.id === selectedId) ?? subs[0] ?? null;
           const needing = subs.filter(needsReauthorization);
           const activeCount = subs.filter((x) => !needsReauthorization(x) && x.status !== "past_due").length;
-          const intervals = new Set(subs.map((x) => x.plan.interval));
-          const uniform = intervals.size === 1 ? [...intervals][0] : null;
-          const maxTotal = subs.reduce((n, x) => n + x.plan.amount, 0);
+          // What has actually been taken, not what could be. Succeeded only:
+          // a pending charge has not left anyone's wallet, and a failed one
+          // never will. Both rails count, because both are on this page.
+          const spent =
+            subs.reduce(
+              (n, x) => n + x.payments.filter((p) => p.status === "succeeded").reduce((m, p) => m + p.amount, 0),
+              0
+            ) +
+            mandates.reduce(
+              (n, m) => n + m.charges.filter((c) => c.status === "succeeded").reduce((k, c) => k + c.amount, 0),
+              0
+            );
           const merchants = new Set([
             ...subs.map((x) => x.merchant.name),
             ...mandates.map((m) => m.merchant.name),
@@ -640,11 +705,7 @@ export function ManageSubscriptionsPage() {
                 <div style={{ marginLeft: "auto", display: "flex", border: "2px solid var(--color-text)" }}>
                   <Kpi label="Active" value={String(activeCount)} />
                   <Kpi label="Needs you" value={String(needing.length)} accent={needing.length > 0} />
-                  <Kpi
-                    label={uniform ? `${INTERVAL_NOUN[uniform] ?? uniform} max` : "Max / period"}
-                    value={fmtUsdc(maxTotal)}
-                    unit="USDC"
-                  />
+                  <Kpi label="Total spent" value={fmtUsdc(spent)} unit="USDC" />
                 </div>
               )}
             </div>
@@ -796,7 +857,11 @@ export function ManageSubscriptionsPage() {
                   <MandateDetail
                     key={selectedMandate.mandate_id}
                     mandate={selectedMandate}
+                    supportedChains={supportedChains}
+                    connected={address}
                     busyId={busyId}
+                    onGrantChain={onGrantMandateChain}
+                    onConnect={() => pickWallet()}
                     onAskCancel={(m) => setConfirmMandate(m)}
                   />
                 )}
@@ -895,15 +960,31 @@ export function ManageSubscriptionsPage() {
  */
 function MandateDetail({
   mandate,
+  supportedChains,
+  connected,
   busyId,
+  onGrantChain,
+  onConnect,
   onAskCancel,
 }: {
   mandate: PortalMandate;
+  supportedChains: PortalSupportedChain[];
+  connected?: string;
   busyId: string | null;
+  onGrantChain: (m: PortalMandate, chainId: number) => void | Promise<void>;
+  onConnect: () => void;
   onAskCancel: (m: PortalMandate) => void;
 }) {
   const per = PER_NOUN[mandate.interval] ?? mandate.interval;
   const busy = busyId === mandate.mandate_id;
+
+  const granted = new Map(mandate.chains.map((c) => [c.chain_id, c]));
+  // Only what the developer asked for. A chain they never requested is not
+  // this payer's to add, and offering it would create a grant no charge could
+  // ever use.
+  const requested = new Set((mandate.chains_requested ?? []).map((c) => c.toLowerCase()));
+  const rows = supportedChains.filter((c) => requested.has(c.chain_key.toLowerCase()));
+  const addable = rows.filter((c) => !granted.has(c.chain_id)).length;
 
   return (
     <section style={{ flex: "999 1 520px", minWidth: 0, animation: "swp-in .2s ease" }}>
@@ -919,8 +1000,8 @@ function MandateDetail({
           {mandate.test_mode && <span className="tag tag-neutral" style={{ marginLeft: "auto" }}>Test</span>}
         </div>
         <p style={{ fontSize: 12.5, color: "var(--color-neutral-700)", margin: "10px 0 0", maxWidth: "70ch" }}>
-          Authorized directly with {mandate.merchant.name}, not through a Sweep Console plan. They decide
-          when to charge within that ceiling; there is no fixed renewal date.
+          Authorized directly with {mandate.merchant.name}, not through a Sweep Console plan. The
+          ceiling resets each {per}; within one, they choose when to charge.
         </p>
       </div>
 
@@ -933,6 +1014,75 @@ function MandateDetail({
         />
         <Fact label="Wallet" value={mandate.wallet_address ?? "Unsigned"} mono />
       </div>
+
+      {rows.length > 0 && (
+        <div style={{ padding: "18px 24px", borderTop: "1px solid var(--color-divider)" }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>
+            <p style={{ ...UPPER, margin: 0 }}>Chains</p>
+            <span style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>
+              {addable > 0
+                ? `${addable} you haven't authorized yet. Adding one is free.`
+                : "Every chain this merchant asked for is authorized."}
+            </span>
+          </div>
+
+          <div style={{ borderTop: "1px solid var(--color-divider)", marginTop: 10 }}>
+            {rows.map((c) => {
+              const g = granted.get(c.chain_id);
+              const Mark = CHAIN_MARKS[c.chain_key];
+              const rowBusy = busyId === `${mandate.mandate_id}:${c.chain_id}`;
+              return (
+                <div
+                  key={c.chain_id}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 14, padding: "13px 0",
+                    borderBottom: "1px solid var(--color-divider)", flexWrap: "wrap",
+                  }}
+                >
+                  {Mark
+                    ? <Mark height={22} opacity={g ? 1 : 0.45} />
+                    : <span style={{ width: 22, height: 22, flex: "none", background: "var(--color-neutral-200)" }} />}
+                  <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 14.5, color: g ? undefined : "var(--color-neutral-700)" }}>
+                    {c.name}
+                  </span>
+                  <span style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>
+                    {g ? `up to ${fmtUsdc(g.period_amount)} ${mandate.currency} a ${per}` : "Not authorized"}
+                  </span>
+
+                  {rowBusy ? (
+                    <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, fontSize: 12.5, color: "var(--color-neutral-700)" }}>
+                      <Spinner size={13} />
+                      Confirm in your wallet…
+                    </span>
+                  ) : g ? (
+                    /* No switch. A signed grant cannot be taken back from here:
+                       only the wallet that made it can disable it on chain, and
+                       cancelling is what stops this merchant charging at all. */
+                    <span className="tag tag-outline" style={{ marginLeft: "auto" }}>Authorized</span>
+                  ) : connected ? (
+                    <button
+                      className="btn btn-secondary"
+                      style={{ marginLeft: "auto", flex: "none" }}
+                      onClick={() => void onGrantChain(mandate, c.chain_id)}
+                    >
+                      Authorize
+                    </button>
+                  ) : (
+                    <button className="btn btn-secondary" style={{ marginLeft: "auto", flex: "none" }} onClick={onConnect}>
+                      Connect wallet
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <p style={{ fontSize: 12, lineHeight: 1.65, color: "var(--color-neutral-700)", margin: "12px 0 0", maxWidth: "70ch" }}>
+            Adding a chain gives {mandate.merchant.name} another place to collect from, under the same
+            ceiling — it does not raise what they can take. An authorized chain stays authorized:
+            removing one means cancelling, or disabling the permission in your own wallet.
+          </p>
+        </div>
+      )}
 
       <div style={{ padding: "18px 24px", borderTop: "1px solid var(--color-divider)" }}>
         <button className="btn btn-secondary" disabled={busy} onClick={() => onAskCancel(mandate)}>
