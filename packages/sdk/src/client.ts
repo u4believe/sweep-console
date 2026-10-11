@@ -98,10 +98,12 @@ export class Sweep {
       return JSON.parse(text) as T;
     } catch {
       const looksLikeHtml = /^\s*<(!doctype|html)/i.test(text);
+
       throw new SweepError(
         looksLikeHtml
-          ? `Expected JSON from ${res.url} but got an HTML page. This usually means baseUrl points at the ` +
-            `website rather than the API — check the API base URL in your Sweep portal.`
+          ? `Expected JSON from ${res.url} but got an HTML page. Either baseUrl points at the website ` +
+            `rather than the API — api.sweepconsole.xyz, not www — or something between you and the API ` +
+            `answered instead of it.`
           : `Expected JSON from ${res.url} but got ${res.headers.get("content-type") ?? "an unknown type"}.`,
         { code: "invalid_response", status: res.status }
       );
@@ -138,6 +140,17 @@ export class Sweep {
         });
 
         if (res.ok) return (await this.parse<T>(res)) as T;
+
+        const blocked = edgeBlock(res);
+        if (blocked) {
+          throw new SweepError(
+            `Blocked before reaching the Sweep API: ${res.status} from a proxy in front of ` +
+              `${res.url}, answering HTML rather than JSON. Server-to-server requests trip bot ` +
+              `protection tuned for browsers, so this is infrastructure rather than your code. ` +
+              `Quote this trace id to support: ${blocked.trace}`,
+            { code: "blocked_upstream", status: res.status, reference: blocked.trace }
+          );
+        }
 
         // 5xx and 429 may succeed on a retry; a 4xx is a decision, not a blip.
         if ((res.status >= 500 || res.status === 429) && attempt < this.maxRetries) {
@@ -319,6 +332,31 @@ function toCharge(raw: any): Charge {
 
 function safeJson(res: Response): Promise<any> {
   return res.json().catch(() => null);
+}
+
+/**
+ * A proxy in front of the API refused the request before it got there.
+ *
+ * Server-to-server calls are what this catches. A request from a datacenter
+ * carries no browser fingerprint, so bot protection tuned for browsers treats
+ * it as exactly the thing it is looking for and answers a challenge page —
+ * HTML, with a 403, and a trace id of its own.
+ *
+ * Worth separating from every other 403, because nothing about the caller's
+ * code is wrong and no amount of re-reading their API key will help. The trace
+ * id is the one piece of information support actually needs.
+ */
+function edgeBlock(res: Response): { trace: string } | null {
+  if (res.status !== 403 && res.status !== 503) return null;
+  const trace =
+    res.headers.get("cf-ray") ??
+    res.headers.get("x-amz-cf-id") ??
+    res.headers.get("x-akamai-request-id");
+  if (!trace) return null;
+  // Our own 403s are JSON. An HTML body means something else answered.
+  const type = res.headers.get("content-type") ?? "";
+  if (type.includes("json")) return null;
+  return { trace };
 }
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
