@@ -1000,8 +1000,9 @@ function MandateDetail({
           {mandate.test_mode && <span className="tag tag-neutral" style={{ marginLeft: "auto" }}>Test</span>}
         </div>
         <p style={{ fontSize: 12.5, color: "var(--color-neutral-700)", margin: "10px 0 0", maxWidth: "70ch" }}>
-          Authorized directly with {mandate.merchant.name}, not through a Sweep Console plan. The
-          ceiling resets each {per}; within one, they choose when to charge.
+          Authorized directly with {mandate.merchant.name}, not through a Sweep Console plan. They can
+          take up to {fmtUsdc(mandate.max_amount)} {mandate.currency} per {per} — in one charge or
+          several — and nothing more until the next {per} begins.
         </p>
       </div>
 
