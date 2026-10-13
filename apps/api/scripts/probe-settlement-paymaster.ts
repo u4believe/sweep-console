@@ -58,7 +58,21 @@ import "dotenv/config";
  * this file — a shim that makes server code claim to be a browser is not free.
  */
 (globalThis as { window?: unknown }).window ??= {
-  location: { hostname: "sweep-console-probe", protocol: "https:" },
+  location: {
+    /**
+     * This is not cosmetic. The SDK sends this hostname to Circle as
+     *
+     *     X-AppInfo: platform=web;version=1.0.16;uri=<hostname>
+     *
+     * and Circle enforces the client key's allowed-domain against it. Measured
+     * on Base Sepolia with a real key: "www.sweepconsole.xyz" returns chainId
+     * 0x14a34, while the bare apex, docs., localhost and an unrelated domain
+     * all return 401 "Invalid credentials". The match is exact — no wildcard,
+     * no apex fallback — so this must equal the domain in Circle Console.
+     */
+    hostname: process.env.CIRCLE_CLIENT_DOMAIN ?? "www.sweepconsole.xyz",
+    protocol: "https:",
+  },
 };
 import {
   createPublicClient,
