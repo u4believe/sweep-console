@@ -85,6 +85,10 @@ import {
   type Hex,
   decodeEventLog,
   parseAbiItem,
+  getContract,
+  maxUint256,
+  parseErc6492Signature,
+  encodePacked,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -93,6 +97,39 @@ import { privateKeyToAccount } from "viem/accounts";
 const CHAIN_ID = 84532;
 const USDC: Address = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 const TOKEN_MESSENGER: Address = "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA";
+/**
+ * Circle Paymaster — the contract that charges gas in USDC.
+ *
+ * NOT the same thing as `paymaster: true`. That asks the bundler's transport
+ * for paymaster data, and Circle's transport answers with its own hosted
+ * sponsorship (Gas Station): billed to the Circle account at 5%, settlement
+ * stops if an invoice goes unpaid. Circle Paymaster has no API at all — it is
+ * a bare contract, needs no Circle account, and takes its fee in USDC from the
+ * sender at 10%, on Arbitrum and Base only.
+ *
+ * On the address: Circle's docs give 0x31BE08D3… for EntryPoint v0.7, while
+ * viem's guide uses 0x3BA9A96e… in an ARBITRUM Sepolia example. Both are
+ * deployed on Base Sepolia, but only the first holds an EntryPoint deposit
+ * (1.0068 ETH vs 0). A paymaster with no deposit cannot pay for gas, so the
+ * viem address would be rejected here. Checked on chain, not taken on trust.
+ */
+const CIRCLE_PAYMASTER_V07: Address = "0x31BE08D380A21fc740883c0BC434FcFc88740b58";
+
+/// How much USDC the permit lets the paymaster take. A ceiling, not a charge.
+const PERMIT_ALLOWANCE = parseUnits(process.env.PROBE_PERMIT ?? "1", 6);
+
+const EIP2612_ABI = [
+  { inputs: [], name: "name", outputs: [{ type: "string" }], stateMutability: "view", type: "function" },
+  { inputs: [], name: "version", outputs: [{ type: "string" }], stateMutability: "view", type: "function" },
+  {
+    inputs: [{ name: "owner", type: "address" }],
+    name: "nonces",
+    outputs: [{ type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;
+
 /// EntryPoint v0.7. Carries the paymaster that ran and what gas really cost.
 const USER_OP_EVENT = parseAbiItem(
   "event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)"
@@ -199,8 +236,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (usdc < parseUnits("1", 6)) {
-    console.log("Needs at least 1 USDC. Run with --fund for the address.");
+  // Enough to move, plus headroom for the paymaster to take its cut.
+  const required = parseUnits(process.env.PROBE_BURN ?? "0.50", 6) + parseUnits(process.env.PROBE_FEE ?? "0.01", 6) + parseUnits("0.05", 6);
+  if (usdc < required) {
+    console.log(`Needs at least ${formatUnits(required, 6)} USDC. Run with --fund for the address,`);
+    console.log("or shrink the run with PROBE_BURN / PROBE_FEE.");
     return;
   }
   if (eth > 0n) {
@@ -211,8 +251,13 @@ async function main(): Promise<void> {
 
   // Settlement's real batch: approve the messenger, burn toward Arc, and send
   // the platform fee on. Amounts are tiny; the shape is what is being tested.
-  const burnAmount = parseUnits("0.50", 6);
-  const feeAmount = parseUnits("0.01", 6);
+  /**
+   * Sizes are adjustable because repeated runs drain the account and topping
+   * up a testnet faucet is slower than turning a dial. Nothing here depends on
+   * the amount — the batch either composes or it does not.
+   */
+  const burnAmount = parseUnits(process.env.PROBE_BURN ?? "0.50", 6);
+  const feeAmount = parseUnits(process.env.PROBE_FEE ?? "0.01", 6);
   const treasury = (process.env.PLATFORM_TREASURY_ADDRESS ?? owner.address) as Address;
   const mintRecipient = `0x${"0".repeat(24)}${owner.address.slice(2)}` as Hex;
 
@@ -237,9 +282,91 @@ async function main(): Promise<void> {
     },
   ];
 
-  const bundler = createBundlerClient({ account: smartAccount, chain, transport, paymaster: true });
+  /**
+   * Circle Paymaster, built by hand.
+   *
+   * The sender signs an EIP-2612 permit letting the paymaster pull USDC, and
+   * that signature IS the paymasterData. Two things about doing it from a
+   * smart account rather than an EOA:
+   *
+   *   · USDC must accept the permit through ERC-1271, since the signer is a
+   *     contract. That only works once the account is deployed — a first
+   *     UserOperation cannot pay for its own deployment this way.
+   *   · the account's signTypedData takes the SDK's raw-sign path, so the
+   *     owner needs `sign`, not just `signMessage`. privateKeyToAccount has
+   *     it; a KMS-backed viem account built with toAccount() would not, and
+   *     this is exactly where that would break.
+   */
+  const circlePaymaster = {
+    async getPaymasterData() {
+      const token = getContract({ client: publicClient, address: USDC, abi: EIP2612_ABI });
+      const [name, version, nonce] = await Promise.all([
+        token.read.name(),
+        token.read.version(),
+        token.read.nonces([smartAccount.address]),
+      ]);
 
-  console.log("Sending one UserOperation with all three calls, paymaster: true …");
+      const wrapped = await (smartAccount as any).signTypedData({
+        domain: { name, version, chainId: chain.id, verifyingContract: USDC },
+        types: {
+          Permit: [
+            { name: "owner", type: "address" },
+            { name: "spender", type: "address" },
+            { name: "value", type: "uint256" },
+            { name: "nonce", type: "uint256" },
+            { name: "deadline", type: "uint256" },
+          ],
+        },
+        primaryType: "Permit",
+        message: {
+          owner: smartAccount.address,
+          spender: CIRCLE_PAYMASTER_V07,
+          value: PERMIT_ALLOWANCE,
+          nonce,
+          deadline: maxUint256,
+        },
+      });
+      // Undeployed accounts sign ERC-6492-wrapped; unwrap or the permit reverts.
+      const { signature } = parseErc6492Signature(wrapped);
+
+      return {
+        paymaster: CIRCLE_PAYMASTER_V07,
+        paymasterData: encodePacked(
+          ["uint8", "address", "uint256", "bytes"],
+          [0, USDC, PERMIT_ALLOWANCE, signature]
+        ),
+        paymasterVerificationGasLimit: 200_000n,
+        /**
+         * NOT the 15_000 that viem's guide uses. This paymaster rejects that
+         * with PostOpGasLimitTooLow(uint256,uint256) — selector 0x5ff4afc1,
+         * which surfaces only as a bare "AA33 reverted" through the bundler.
+         * Measured by calling validatePaymasterUserOp directly as the
+         * EntryPoint: 15_000 reverts, 40_000 passes. 65_000 leaves room.
+         */
+        paymasterPostOpGasLimit: 65_000n,
+        isFinal: true,
+      };
+    },
+  };
+
+  /**
+   * --gas-station reverts to Circle's hosted sponsorship, for comparison.
+   * Default is Circle Paymaster, which is the one that charges USDC and so the
+   * one whose cost this probe exists to measure.
+   */
+  const useGasStation = process.argv.includes("--gas-station");
+  const bundler = createBundlerClient({
+    account: smartAccount,
+    chain,
+    transport,
+    paymaster: useGasStation ? true : circlePaymaster,
+  });
+
+  console.log(
+    useGasStation
+      ? "Sending one UserOperation, Gas Station sponsorship (paymaster: true) …"
+      : `Sending one UserOperation, Circle Paymaster ${CIRCLE_PAYMASTER_V07} …`
+  );
   const t0 = Date.now();
   let hash: Hex;
   try {
@@ -311,19 +438,26 @@ async function main(): Promise<void> {
 
   console.log();
   if (receipt.success && ethAfter === 0n) {
-    console.log("PASS on the mechanism. Settlement's approve + depositForBurn + fee transfer");
-    console.log("ran as ONE atomic UserOperation from an account holding no ETH at all.");
-    console.log("That was the question, and the answer is yes.");
+    console.log("PASS. Settlement's approve + depositForBurn + fee transfer ran as ONE");
+    console.log("atomic UserOperation from an account holding no ETH at all.");
     console.log();
-    console.log("What this run did NOT measure: the cost. Gas was sponsored rather than");
-    console.log("charged in USDC, so the surcharge never applied. Mainnet will bill it —");
-    console.log("to the Circle account, not to this wallet's USDC — and testnet gas prices");
-    console.log("cannot predict what that comes to.");
+    if (gasInUsdc > 0n) {
+      console.log(`Gas was CHARGED IN USDC: ${formatUnits(gasInUsdc, 6)} drawn from the account's own`);
+      console.log("balance, no Circle account and no invoice involved.");
+      console.log();
+      console.log("Two things this does NOT settle. Testnet gas is nothing like mainnet, so");
+      console.log("the figure above predicts no cost. And a draw against this wallet is");
+      console.log("exactly what the exact-amount fee arithmetic cannot absorb — settlement");
+      console.log("is computed to land at zero, so the gas has to come from somewhere that");
+      console.log("is not the swept balance.");
+    } else {
+      console.log("Gas was SPONSORED, not charged — see the note above. The cost question");
+      console.log("is untouched by this run.");
+    }
     console.log();
-    console.log("Still to decide, and the probe cannot: the fee arithmetic currently leaves");
-    console.log("settlement at exactly zero, and a paymaster draw breaks that — see the");
-    console.log("'exact rather than a balance sweep' note in cctp-activate.ts. And every");
-    console.log("existing grant pins the old EOA as payee, so both run until those expire.");
+    console.log();
+    console.log("Every existing grant pins the old settlement EOA as payee, so the two run");
+    console.log("side by side until those expire. Nothing here shortens that.");
   } else {
     console.log("FAIL. Read the receipt above before building anything on this.");
   }
