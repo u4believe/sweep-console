@@ -35,6 +35,31 @@
 // 2027-10-11 on the current testnet grants.
 
 import "dotenv/config";
+
+/**
+ * Circle's modular SDK does not run in Node without this.
+ *
+ * fetchFromApi — the function behind EVERY call it makes — begins:
+ *
+ *     const hostname = window?.location?.hostname || "unknown";
+ *
+ * Optional chaining does not protect an UNDECLARED identifier. `window?.x`
+ * still throws ReferenceError when nothing named window exists, which in Node
+ * is always, so the request never leaves the process. The line directly above
+ * it guards properly with `typeof window !== "undefined"`, so this is an
+ * oversight rather than a decision — the SDK is written for browsers and
+ * nothing stops it working on a server except this.
+ *
+ * Declaring the global is enough: with it, the same call reaches Circle and
+ * comes back "Invalid credentials" on a placeholder key, which is the API
+ * answering rather than the process failing.
+ *
+ * Before relying on this in anything but a probe, see the note at the end of
+ * this file — a shim that makes server code claim to be a browser is not free.
+ */
+(globalThis as { window?: unknown }).window ??= {
+  location: { hostname: "sweep-console-probe", protocol: "https:" },
+};
 import {
   createPublicClient,
   defineChain,
@@ -120,7 +145,20 @@ async function main(): Promise<void> {
   // The question the scope flagged: does toCircleSmartAccount accept a plain
   // privateKeyToAccount as owner, or only a wallet-derived local account? Both
   // are viem LocalAccounts, so it should — this is the line that proves it.
-  const smartAccount = await toCircleSmartAccount({ client: publicClient, owner });
+  let smartAccount: { address: Address };
+  try {
+    smartAccount = await toCircleSmartAccount({ client: publicClient, owner });
+  } catch (e) {
+    const msg = (e as Error).message ?? "";
+    if (/invalid credentials/i.test(msg)) {
+      throw new Error(
+        "Circle rejected the client key. CIRCLE_CLIENT_KEY must be a CLIENT key from " +
+          "Circle Console → Keys → Create a key → Client Key. It is not the same thing " +
+          "as CIRCLE_API_KEY, which this repo already uses for user-controlled wallets."
+      );
+    }
+    throw e;
+  }
   const address = smartAccount.address as Address;
 
   const direct = createPublicClient({ chain, transport: http() });
@@ -232,6 +270,18 @@ async function main(): Promise<void> {
     console.log("FAIL. Read the receipt above before building anything on this.");
   }
 }
+
+/**
+ * On shipping the window shim.
+ *
+ * It is fine here: one process, one purpose, nothing else running. It is not
+ * obviously fine in the API, where a global named `window` is how plenty of
+ * libraries decide they are in a browser — and some of them then reach for
+ * localStorage, or pick a bundle, or skip a Node-only code path. If this
+ * becomes production code the shim wants to be scoped to the Circle calls
+ * rather than set once at boot, and the better answer is to ask Circle to
+ * guard that line as they already guard the one above it.
+ */
 
 main().catch((e) => {
   console.error(e instanceof Error ? e.message : e);
