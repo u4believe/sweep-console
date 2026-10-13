@@ -83,6 +83,8 @@ import {
   parseUnits,
   type Address,
   type Hex,
+  decodeEventLog,
+  parseAbiItem,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -91,6 +93,11 @@ import { privateKeyToAccount } from "viem/accounts";
 const CHAIN_ID = 84532;
 const USDC: Address = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 const TOKEN_MESSENGER: Address = "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA";
+/// EntryPoint v0.7. Carries the paymaster that ran and what gas really cost.
+const USER_OP_EVENT = parseAbiItem(
+  "event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)"
+);
+
 const ARC_DOMAIN = 26;
 
 const ERC20_ABI = [
@@ -269,12 +276,49 @@ async function main(): Promise<void> {
   const gasInUsdc = spent > moved ? spent - moved : 0n;
   console.log();
   console.log(`  moved on purpose   ${formatUnits(moved, 6)} USDC`);
-  console.log(`  paid for gas       ${formatUnits(gasInUsdc, 6)} USDC   (includes the 10% surcharge)`);
+  console.log(`  paid for gas       ${formatUnits(gasInUsdc, 6)} USDC`);
+
+  /**
+   * Which paymaster product actually ran — the two differ in who pays and how
+   * much, and the balances alone cannot tell them apart.
+   *
+   * Circle Paymaster pulls USDC from the sender via an EIP-2612 permit and adds
+   * 10%. Gas Station sponsors from the Circle account and adds ~5%. If gas drew
+   * no USDC, the second one ran, and a zero here means "sponsored" rather than
+   * "free" — the bill exists, it is just not on chain.
+   */
+  const opEvent = receipt.logs
+    .map((log: { data: Hex; topics: [] }) => {
+      try {
+        return decodeEventLog({ abi: [USER_OP_EVENT], data: log.data, topics: log.topics });
+      } catch {
+        return null;
+      }
+    })
+    .find((d: { eventName?: string } | null) => d?.eventName === "UserOperationEvent");
+
+  if (opEvent) {
+    const { paymaster, actualGasCost } = opEvent.args as { paymaster: Address; actualGasCost: bigint };
+    console.log(`  paymaster          ${paymaster}`);
+    console.log(`  gas cost on chain  ${formatUnits(actualGasCost, 18)} ETH, paid by the paymaster`);
+    if (gasInUsdc === 0n && actualGasCost > 0n) {
+      console.log();
+      console.log("  NOTE: no USDC was taken for gas, so this was SPONSORED (Gas Station),");
+      console.log("  not Circle Paymaster charging USDC. The 10% surcharge was never");
+      console.log("  exercised here, and this run says nothing about what it costs.");
+    }
+  }
 
   console.log();
   if (receipt.success && ethAfter === 0n) {
-    console.log("PASS. Settlement's whole batch ran from an account with no ETH, paid for in");
-    console.log("USDC out of the balance it was already holding. The mechanism works.");
+    console.log("PASS on the mechanism. Settlement's approve + depositForBurn + fee transfer");
+    console.log("ran as ONE atomic UserOperation from an account holding no ETH at all.");
+    console.log("That was the question, and the answer is yes.");
+    console.log();
+    console.log("What this run did NOT measure: the cost. Gas was sponsored rather than");
+    console.log("charged in USDC, so the surcharge never applied. Mainnet will bill it —");
+    console.log("to the Circle account, not to this wallet's USDC — and testnet gas prices");
+    console.log("cannot predict what that comes to.");
     console.log();
     console.log("Still to decide, and the probe cannot: the fee arithmetic currently leaves");
     console.log("settlement at exactly zero, and a paymaster draw breaks that — see the");
