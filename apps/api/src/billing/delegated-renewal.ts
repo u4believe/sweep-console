@@ -23,7 +23,6 @@ import { selectPaymentChain } from "../lib/gateway/selector";
 import { chainKeyForId, getSourceChain } from "../lib/gateway/chains";
 import {
   redeemPeriodicTransfer,
-  getDelegateAddress,
   decodePeriodTransferTerms,
   mandateCovers,
   periodicTransferExecution,
