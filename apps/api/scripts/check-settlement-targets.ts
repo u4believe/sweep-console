@@ -56,7 +56,7 @@ async function main(): Promise<void> {
     byChain.set(g.chainId, row);
   }
 
-  console.log("chain          grants  pin the EOA  could go gasless  still needs ETH until");
+  console.log("chain          grants  pin the EOA  could use the MSCA  stuck on the EOA until");
   for (const [chainId, r] of [...byChain].sort((a, b) => a[0] - b[0])) {
     const key = chainKeyForId(chainId) ?? String(chainId);
     const needsEth = r.total - r.gasless;
@@ -71,7 +71,7 @@ async function main(): Promise<void> {
     { total: 0, gasless: 0 }
   );
   console.log();
-  console.log(`${totals.gasless} of ${totals.total} active grants could settle without ETH today.`);
+  console.log(`${totals.gasless} of ${totals.total} active grants could settle through the MSCA today.`);
   console.log(`${totals.total - totals.gasless} could not, and no configuration changes that.`);
 
   // Sanity: the live routing must agree with the hypothetical above wherever
@@ -102,10 +102,10 @@ async function main(): Promise<void> {
  */
 function chainSettlesViaMscaIfEnabled(chainId: number): boolean {
   const key = chainKeyForId(chainId);
-  // Circle Paymaster exists at EntryPoint v0.7 — the only version the modular
-  // wallet speaks — on Base and Arbitrum only. Optimism's is v0.8.
-  if (key === "base" || key === "arbitrum") return true;
-  if (key === "optimism") return false;
+  // All three settle through the MSCA now. Whether gas comes from USDC or ETH
+  // differs by chain, but the ADDRESS does not, and the address is what
+  // decides whether a grant can be redeemed into it.
+  if (key === "base" || key === "arbitrum" || key === "optimism") return true;
   // Anything else (Arc, or a chain added later) is not a settlement source.
   return chainSettlesViaMsca(chainId);
 }

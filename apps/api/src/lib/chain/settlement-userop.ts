@@ -54,7 +54,8 @@ import { getSettlementAccount } from "./signers";
 import {
   bundlerUrlFor,
   circlePaymasterV07,
-  settlementPaysOwnGas,
+  chainPaysOwnGas,
+  chainUsesPaymaster,
   settlementGasFloor,
   settlementMscaAddress,
   settlementPermitCeiling,
@@ -201,9 +202,10 @@ export async function settleViaUserOp(input: SettleUserOpInput): Promise<SettleU
     args: [account.address],
   });
   const preexisting = balanceNow > input.grossAmount ? balanceNow - input.grossAmount : 0n;
-  // Nothing is taken from the USDC balance when gas comes out of ETH, so
-  // there is no floor to maintain and the platform keeps its whole fee.
-  const floor = settlementPaysOwnGas() ? 0n : settlementGasFloor();
+  // Nothing is taken from the USDC balance when gas comes out of ETH, so on a
+  // self-funded chain there is no floor to maintain and the platform keeps its
+  // whole fee. The thing to watch there is the ETH, not the USDC.
+  const floor = chainPaysOwnGas(input.chainId) ? 0n : settlementGasFloor();
   const toppedUp = preexisting >= floor ? 0n : floor - preexisting;
 
   const platformShare = input.grossAmount - input.amount;
@@ -223,7 +225,13 @@ export async function settleViaUserOp(input: SettleUserOpInput): Promise<SettleU
     });
   }
 
+  /**
+   * Null on a chain with no v0.7 paymaster — Optimism — where the account
+   * funds its own gas in ETH instead. Same account, same address, different
+   * way of paying for the operation.
+   */
   const paymasterAddress = circlePaymasterV07(input.chainId);
+  const usePaymaster = chainUsesPaymaster(input.chainId) && paymasterAddress !== null;
   const permitAmount = settlementPermitCeiling();
 
   const paymaster = {
@@ -248,7 +256,7 @@ export async function settleViaUserOp(input: SettleUserOpInput): Promise<SettleU
         primaryType: "Permit",
         message: {
           owner: account.address,
-          spender: paymasterAddress,
+          spender: paymasterAddress!,
           value: permitAmount,
           nonce,
           deadline: maxUint256,
@@ -256,7 +264,7 @@ export async function settleViaUserOp(input: SettleUserOpInput): Promise<SettleU
       });
       const { signature } = parseErc6492Signature(wrapped);
       return {
-        paymaster: paymasterAddress,
+        paymaster: paymasterAddress!,
         paymasterData: encodePacked(
           ["uint8", "address", "uint256", "bytes"],
           [0, input.token, permitAmount, signature]
@@ -270,18 +278,17 @@ export async function settleViaUserOp(input: SettleUserOpInput): Promise<SettleU
   };
 
   /**
-   * No paymaster means the account funds the operation from its own ETH: the
+   * Without a paymaster the account funds the operation from its own ETH: the
    * EntryPoint asks for missingAccountFunds during validation and the account
-   * pays it. So the MSCA needs an ETH balance on this chain, and settlement
-   * stops when it empties.
+   * pays it. So the MSCA needs an ETH balance on that chain, and settlement
+   * stops there when it empties.
    */
-  const selfFunded = settlementPaysOwnGas();
 
   const bundler = createBundlerClient({
     account: account as unknown as CrossViem,
     chain,
     client: publicClient,
-    ...(selfFunded ? {} : { paymaster }),
+    ...(usePaymaster ? { paymaster } : {}),
     transport: http(bundlerUrlFor(input.chainId)),
     userOperation: {
       /**

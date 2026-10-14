@@ -55,13 +55,28 @@ import { chainKeyForId } from "../gateway/chains";
 import { getSettlementAddress } from "./signers";
 
 /**
- * Source chains with a Circle Paymaster at EntryPoint v0.7.
+ * Source chains that settle through the MSCA. All of them.
  *
- * Optimism is absent because its paymaster is v0.8 only and the modular wallet
- * cannot speak v0.8. If Circle ships v0.8 support in the SDK, or a v0.7
- * paymaster on Optimism, adding it here is the whole change.
+ * The account's address is the same everywhere — CREATE2 over one factory,
+ * one implementation, one owner and one salt, none of which vary by chain —
+ * so using it on every chain means every grant pins the SAME payee, and every
+ * chain gets the same atomic batch and the same 2D-nonce parallelism.
+ *
+ * Whether gas is paid in USDC or ETH is a separate question, answered below.
+ * Conflating the two is what kept Optimism on the EOA and left settlement
+ * split across two addresses for no benefit.
  */
-const MSCA_CHAIN_KEYS = new Set(["base", "arbitrum"]);
+const MSCA_CHAIN_KEYS = new Set(["base", "arbitrum", "optimism"]);
+
+/**
+ * Source chains with a Circle Paymaster at EntryPoint v0.7 — the only version
+ * the modular wallet speaks.
+ *
+ * Optimism is absent because its paymaster is v0.8 only. That costs ETH at the
+ * MSCA there, not a different settlement address. If Circle ships v0.8 in the
+ * SDK, or a v0.7 paymaster on Optimism, adding it here is the whole change.
+ */
+const V07_PAYMASTER_CHAIN_KEYS = new Set(["base", "arbitrum"]);
 
 /**
  * The settlement MSCA, pinned in config rather than derived.
@@ -192,7 +207,7 @@ export function settlementTargetFor(chainId: number, context: Hex): SettlementTa
 }
 
 /**
- * Whether the MSCA pays its own gas in ETH instead of using Circle Paymaster.
+ * Whether this chain's MSCA uses Circle Paymaster, or funds its own gas in ETH.
  *
  * The paymaster is optional; the BUNDLER is not. An MSCA is reachable only
  * through the EntryPoint — its validation plugin answers NotImplemented for a
@@ -208,8 +223,16 @@ export function settlementTargetFor(chainId: number, context: Hex): SettlementTa
  * against the operational cost of an ETH balance that halts settlement when it
  * runs dry.
  */
-export function settlementPaysOwnGas(): boolean {
-  return process.env.SETTLEMENT_MSCA_SELF_FUNDED === "true";
+export function chainUsesPaymaster(chainId: number): boolean {
+  // A global override, for running every chain on ETH without editing code.
+  if (process.env.SETTLEMENT_MSCA_SELF_FUNDED === "true") return false;
+  const key = chainKeyForId(chainId);
+  return !!key && V07_PAYMASTER_CHAIN_KEYS.has(key);
+}
+
+/** The inverse, named for the thing that has to be funded. */
+export function chainPaysOwnGas(chainId: number): boolean {
+  return !chainUsesPaymaster(chainId);
 }
 
 /**
@@ -255,10 +278,12 @@ export function settlementPermitCeiling(): bigint {
  * One address per network generation. Verified on chain rather than taken from
  * the docs: the mainnet contract holds 0.0382 ETH of v0.7 EntryPoint deposit on
  * Base and 0.0419 on Arbitrum, each configured for that chain's native USDC.
- * Neither is deployed on Optimism at v0.7, which is why Optimism is not in
- * MSCA_CHAIN_KEYS.
+ * Returns null where there is none — Optimism — and the caller funds that
+ * chain's operations with ETH instead.
  */
-export function circlePaymasterV07(chainId: number): Address {
+export function circlePaymasterV07(chainId: number): Address | null {
+  const key = chainKeyForId(chainId);
+  if (!key || !V07_PAYMASTER_CHAIN_KEYS.has(key)) return null;
   const testnet = new Set([84532, 421614]);
   return getAddress(
     testnet.has(chainId)
