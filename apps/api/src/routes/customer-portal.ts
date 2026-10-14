@@ -14,6 +14,7 @@ import type { Address, Hex } from "viem";
 import { prisma } from "../lib/prisma";
 import { ok, err, serverError } from "../lib/response";
 import { fireWebhook } from "../lib/webhooks/delivery";
+import { notifyGrantAdded } from "../lib/rail-grant-events";
 import { ids } from "../lib/ids";
 import { verifyEmailToken, normalizeEmail } from "../lib/checkout/identity";
 import { revokeSubscription } from "../lib/subscriptions/revoke";
@@ -674,6 +675,18 @@ customerPortalRouter.post("/mandates/:id/grant", async (req, res) => {
     });
 
     console.log(`[portal/mandate-grant] ${m.mandateId} gained chain ${d.chain_id}`);
+
+    /**
+     * This route fired nothing at all, which is how a merchant's picture of a
+     * mandate could only ever shrink. A payer adding a chain here is adding a
+     * way for the merchant's own charges to succeed, and they could not see it.
+     */
+    void notifyGrantAdded({
+      mandateId: m.mandateId,
+      chainId: grant.chainId,
+      grantId: grant.grantId,
+    });
+
     return ok(res, { grant_id: grant.grantId, chain_id: grant.chainId, status: grant.status });
   } catch (e) {
     return serverError(res, "portal/mandate-grant", e, "We couldn't save that authorization.");

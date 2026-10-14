@@ -101,9 +101,9 @@ m.grantedChains;  // ["base"] — what they signed, and what a charge can draw f
 ```
 
 They can add the rest later by reopening the same link, or from their Sweep
-portal, while the mandate is live. **No webhook fires when they do** —
-`mandate.authorized` is sent once and deliberately not repeated — so re-read
-`grantedChains` if you keep your own copy of it.
+portal, while the mandate is live. That fires **`grant.added`**, carrying the
+whole chargeable set as `granted_chains`. `mandate.authorized` is sent once and
+deliberately not repeated, so `grant.added` is the one to listen for.
 
 ::: tip Label the button "Subscribe", not "Pay"
 What they are signing is standing authority with a ceiling. Someone who reads

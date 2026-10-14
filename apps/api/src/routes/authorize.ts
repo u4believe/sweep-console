@@ -24,6 +24,7 @@ import { decodePeriodTransferTerms, delegationIdentity } from "../lib/chain/dele
 import { getRelayerAddress, getSettlementAddress, settlementIsSeparate } from "../lib/chain/signers";
 import { delegateAddressForNewGrant } from "../lib/chain/delegate-msca";
 import { sendRailAuthorizationEmail } from "../lib/email/rail-authorization";
+import { notifyGrantAdded } from "../lib/rail-grant-events";
 import { supportedSourceChains } from "../lib/gateway/chains";
 import { fireWebhook } from "../lib/webhooks/delivery";
 import {
@@ -418,6 +419,22 @@ authorizeRouter.post("/authorize/:mandate_id/grant", async (req, res) => {
       : await prisma.renewalDelegation.create({
         data: { ...data, mandateId: ids.mandate(), grantId: ids.grant() },
       });
+
+    /**
+     * A chain joining a mandate that is ALREADY live.
+     *
+     * `existing` means a re-signature, which replaces a grant and changes
+     * nothing about what is chargeable. A pending mandate is mid-first-
+     * authorization, and notifyGrantAdded declines those itself so
+     * mandate.authorized stays the single event for the opening batch.
+     */
+    if (!existing) {
+      void notifyGrantAdded({
+        mandateId: m.mandateId,
+        chainId: grant.chainId,
+        grantId: grant.grantId,
+      });
+    }
 
     return ok(res, { grant_id: grant.grantId, chain_id: grant.chainId, status: grant.status });
   } catch (e) {

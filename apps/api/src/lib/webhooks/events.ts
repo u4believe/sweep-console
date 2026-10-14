@@ -31,6 +31,7 @@ export const WEBHOOK_EVENTS = [
   "mandate.authorized",
   "mandate.revoked",
   "grant.revoked",
+  "grant.added",
   "mandate.expiring",
   "mandate.expired",
   "charge.succeeded",
@@ -54,6 +55,8 @@ export const WEBHOOK_EVENT_DESCRIPTIONS: Record<WebhookEventType, string> = {
     "An authorization is finished: its last chain is gone, so no further charge can be collected. Stop serving.",
   "grant.revoked":
     "A payer withdrew ONE chain's permission. The authorization survives on its remaining chains \u2014 keep serving unless remaining_chains is empty.",
+  "grant.added":
+    "A payer authorized an EXTRA chain on a live mandate. More ways for a charge to succeed; nothing to stop.",
   "mandate.expiring":
     "A mandate reaches its expiry date soon. Ask the payer to re-authorize before charges start failing.",
   "mandate.expired":
@@ -71,6 +74,7 @@ export const RAIL_EVENTS = [
   "mandate.authorized",
   "mandate.revoked",
   "grant.revoked",
+  "grant.added",
   // mandate.expiring and mandate.expired were each listed TWICE here, which the
   // portal's picker rendered as duplicate checkboxes. The file's own opening
   // note is about three copies of "which events exist" disagreeing; a list

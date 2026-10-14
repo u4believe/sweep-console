@@ -26,6 +26,7 @@ These only fire for accounts the rail is enabled on.
 | `mandate.authorized` | A payer signed. Carries the `chain_ids` actually granted — start charging on this, not on the redirect. Also `verified_email` and `wallet_reused` |
 | `mandate.revoked` | The authorization is **finished** — nothing left to charge on any chain. Stop serving. `revoked_by` is `"merchant"` or `"payer"`; `on_chain` is always false |
 | `grant.revoked` | A payer withdrew **one chain's** permission in their wallet. The authorization survives on the rest — read `remaining_chains` before you act |
+| `grant.added` | A payer authorized an **extra chain** on a live mandate, from the link or their portal. More ways for a charge to succeed; nothing to stop. Carries `granted_chains` |
 | `mandate.expiring` | Within the warning window of `expires_at` (7 days by default). Carries `days_remaining`. Sent once, not daily |
 | `mandate.expired` | Passed its expiry and can no longer be charged. Sent once |
 | `charge.succeeded` | A pull settled on Arc. Carries `source_chain` and the Arc `tx_hash` |
@@ -67,6 +68,26 @@ const onRevoke = async (e) => {
 You do not have to choose a chain yourself — a charge picks from whatever is
 still granted and funded. `remaining_chains` is there so your own records match
 ours, and so an empty one is unmistakable.
+
+## On `grant.added`
+
+The mirror of `grant.revoked`: a payer authorized a chain they skipped earlier,
+either by reopening the authorization link or from their Sweep portal. Nothing
+to stop and no action required — it means one more way for your charges to
+succeed.
+
+It carries `granted_chains`, the whole chargeable set after the change, so the
+same write works for either direction:
+
+```ts
+"grant.added":   async (e) => db.mandates.setChains(e.data.mandate_id, e.data.granted_chains),
+"grant.revoked": async (e) => db.mandates.setChains(e.data.mandate_id, e.data.remaining_chains),
+```
+
+It does **not** fire during the first authorization — a payer signing three
+chains at checkout produces one `mandate.authorized` carrying all three in
+`chain_ids`, and three `grant.added` beside it would describe the same thing
+twice. Nor on a re-signature, which replaces a grant rather than adding one.
 
 `revoked_by` matters on `mandate.revoked`: your own `DELETE` and your payer
 walking away want different handling, and without it the two are
