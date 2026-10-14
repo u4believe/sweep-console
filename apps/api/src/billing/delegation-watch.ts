@@ -33,7 +33,7 @@ import { createPublicClient, http, type Address, type Hex } from "viem";
 import { rpcUrlForChain } from "../lib/chain/delegation";
 import { chainKeyForId, supportedSourceChains } from "../lib/gateway/chains";
 import { getPlatformAccount, getRelayerAccount, getSettlementAddress } from "../lib/chain/signers";
-import { SIMPLE_7702_IMPLEMENTATION, chainSettlesViaUserOp } from "../lib/chain/settlement-target";
+
 
 /**
  * Implementations that are fine to see, beyond the one we delegate to
@@ -99,19 +99,24 @@ function watchedAddresses(): { address: Address; role: string }[] {
 /**
  * What SHOULD be delegated on this chain.
  *
- * Only settlement is ever delegated by this codebase, and only where the
- * UserOp path is switched on for that chain. Everything else should be a plain
- * EOA, and settlement should be one too while the flag is off.
+ * Nothing. Settlement runs as a Circle MSCA — a separate contract address, not
+ * a delegation — so this codebase never points any of these keys anywhere, and
+ * every one of them should be a plain EOA.
+ *
+ * The settlement EOA is watched most closely of all, because it OWNS the MSCA.
+ * A hostile implementation sitting on an owner key is the one delegation that
+ * could plausibly reach the account's funds, depending on whether the MSCA
+ * validates an EOA owner by ECDSA recovery or by ERC-1271 — and an
+ * implementation answering isValidSignature for anything would be game over
+ * under the second. Not relying on which it is, is cheaper than proving it.
  *
  * Derived rather than stored. A baseline written to a table would need a
  * migration, would need seeding, and — worse — would record whatever was there
  * when it was first run, which on this deployment would have enshrined the
  * MetaMask delegation as the expected state.
  */
-function expectedFor(role: string, chainId: number): string | null {
-  if (role !== "settlement") return null;
-  if (!chainSettlesViaUserOp(chainId)) return null;
-  return SIMPLE_7702_IMPLEMENTATION.toLowerCase();
+function expectedFor(_role: string, _chainId: number): string | null {
+  return null;
 }
 
 /**

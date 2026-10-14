@@ -36,7 +36,7 @@ import {
   getUsdcAddress,
 } from "../chain/contract";
 import { redeemPeriodicTransfer, relayerBridgeToArc } from "../chain/delegation";
-import { chainSettlesViaUserOp } from "../chain/settlement-target";
+import { chainSettlesViaMsca } from "../chain/settlement-target";
 import { settleViaUserOp } from "../chain/settlement-userop";
 import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../gateway/cctp";
 import { getSettlementAddress } from "../chain/signers";
@@ -260,7 +260,7 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
      * in USDC and needs no native token on the source chain.
      */
     const treasury = treasuryAddress();
-    const viaUserOp = !!treasury && chainSettlesViaUserOp(source.chain.id);
+    const viaUserOp = !!treasury && chainSettlesViaMsca(source.chain.id);
     let burnTxHash: Hex;
     let maxFee: bigint;
     if (viaUserOp) {

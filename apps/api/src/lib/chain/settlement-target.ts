@@ -1,84 +1,194 @@
 /**
- * Whether settlement on a given chain can pay its gas in USDC.
+ * Which account settles a payment, and whether it pays gas in USDC.
  *
- * This file used to be much longer. It carried machinery for deciding which of
- * two ADDRESSES a grant could be redeemed into, because the first plan put
- * settlement behind a Circle modular wallet — a counterfactual account at a
- * new address, which the 14 of 27 live grants that pin the settlement EOA as
- * payee could never be redeemed into. All of that is gone, because EIP-7702
- * makes the question disappear.
+ * Settlement runs as a Circle Modular Smart Contract Account — a counterfactual
+ * ERC-4337 account owned by the settlement key — rather than as the key's own
+ * EOA. Two properties follow, and they are the reason for choosing it over the
+ * EIP-7702 alternative that an earlier version of this file described:
  *
- * A 7702 account's address IS the EOA's address. Delegating the existing
- * settlement key leaves 0x1e1B4CD8… exactly where it was; every grant that
- * pins it keeps working, on every chain, immediately. Nothing has to expire
- * and nothing has to be re-signed. So there is no target to choose and no
- * payee caveat to decode — only the question below.
+ *   ROTATION. The address is derived from the factory and a salt, not from the
+ *   owner's key, so the owner can be replaced while the address stays put. A
+ *   7702 account's address IS its key's address, so rotating the key moves the
+ *   address and strands every grant that pins it.
  *
- * WHAT IS LEFT TO DECIDE
+ *   NO HIJACK. There is no EOA key with inherent authority over a contract
+ *   address, so nobody can point it somewhere else by signing an
+ *   authorization. A 7702 account can be re-delegated by anyone who can make
+ *   its key sign — which is not hypothetical here: three of this deployment's
+ *   keys were already delegated to MetaMask's delegator without the codebase
+ *   doing it. Upgrades to the MSCA go through its own validation plugin;
+ *   measured, a direct upgradeToAndCall reverts RuntimeValidationFailed even
+ *   from the account's own address, so Circle cannot change it either.
  *
- * Circle Paymaster is deployed at one address per network generation and
- * covers all three source chains at EntryPoint v0.8: measured on testnet,
- * 1.6708 ETH of deposit on Base Sepolia, 1.6782 on OP Sepolia and 2.4599 on
- * Arbitrum Sepolia, each holding that chain's own USDC; on mainnet
- * 0x0578cFB2… is deployed and unpaused on Base, Arbitrum and Optimism alike.
+ * WHAT IT COSTS, AND WHY IT IS AFFORDABLE HERE
  *
- * So the chain list is all three, and the flag is the only real gate. The
- * per-chain shape is kept anyway because the deployment is Circle's to change,
- * and a chain dropping off should be one line here rather than a hunt.
+ * The MSCA is a NEW address, so grants that pin the settlement EOA as payee
+ * cannot be redeemed into it and must keep using the direct path. Fourteen of
+ * the twenty-seven live grants do. All twenty-seven are on testnet and can be
+ * revoked, and mainnet has none yet, so the overlap costs a testnet cleanup
+ * rather than a year of parallel paths.
  *
- * WHAT THIS DOES NOT BUY
+ * CHAIN COVERAGE
  *
- * Rotation. Simple7702Account has no owner storage — no owner(), getOwner() or
- * owners() — and validates against the account's own key. More fundamentally,
- * an EOA that has delegated can still sign a fresh authorization pointing
- * somewhere else, so the original key keeps ultimate authority over the
- * address whatever implementation sits behind it. A leaked settlement key is
- * not answered by rotating anything; it is answered by the key never being
- * extractable, which is a KMS question, not a 7702 one.
+ * Circle's modular wallet is pinned to EntryPoint v0.7 — the SDK defines only
+ * ENTRY_POINT_07 and a deployed account returns the v0.7 address. Circle
+ * Paymaster exists at v0.7 only on Base and Arbitrum; Optimism's is v0.8 only.
+ * So Optimism cannot be gasless with this account and keeps the direct EOA
+ * path and its ETH. That is a Circle version gap, not a deployment one.
+ *
+ * NO CIRCLE API IN THE PATH
+ *
+ * toCircleSmartAccount works against an ordinary RPC client — verified, same
+ * address, same EntryPoint, signing intact. So this needs no Circle client
+ * key, no modular transport, and none of the `window` shim their browser-first
+ * SDK otherwise forces into a server. The paymaster is addressed as a plain
+ * contract, and the bundler is whoever you pay.
  */
 
-import { getAddress, type Address } from "viem";
+import {
+  decodeAbiParameters,
+  getAddress,
+  type Address,
+  type Hex,
+} from "viem";
 import { chainKeyForId } from "../gateway/chains";
 import { getSettlementAddress } from "./signers";
 
 /**
- * Source chains where Circle Paymaster is deployed at EntryPoint v0.8.
+ * Source chains with a Circle Paymaster at EntryPoint v0.7.
  *
- * Keyed by chainKey so testnet and mainnet share a row. All three are listed
- * because all three are covered — unlike the v0.7 paymaster, which reaches
- * only Base and Arbitrum and is why the Circle modular wallet could not serve
- * Optimism at all.
+ * Optimism is absent because its paymaster is v0.8 only and the modular wallet
+ * cannot speak v0.8. If Circle ships v0.8 support in the SDK, or a v0.7
+ * paymaster on Optimism, adding it here is the whole change.
  */
-const PAYMASTER_CHAIN_KEYS = new Set(["base", "arbitrum", "optimism"]);
+const MSCA_CHAIN_KEYS = new Set(["base", "arbitrum"]);
+
+/**
+ * The settlement MSCA, pinned in config rather than derived.
+ *
+ * toCircleSmartAccount computes it with an RPC round trip, and the grant path
+ * should not make a network call to learn an address that never changes. It is
+ * the same on every chain — CREATE2 with one factory and one salt — so a
+ * single value covers all of them. Derive it once with
+ * scripts/settlement-msca-address.ts.
+ */
+export function settlementMscaAddress(): Address | null {
+  const raw = process.env.SETTLEMENT_MSCA_ADDRESS;
+  if (!raw) return null;
+  try {
+    return getAddress(raw);
+  } catch {
+    console.warn("[settlement] SETTLEMENT_MSCA_ADDRESS is not an address — ignoring it");
+    return null;
+  }
+}
 
 /**
  * Off unless explicitly switched on.
  *
- * This changes how settlement transacts — one batched UserOperation through a
- * third-party bundler instead of two direct transactions — on a live money
- * path. A deployment that merely has the variables present should not start
- * doing it.
+ * This moves where subscriber money is redeemed to. A deployment that merely
+ * has the variables present must not start doing it.
  */
-export function settlementUserOpEnabled(): boolean {
-  return process.env.SETTLEMENT_USEROP_ENABLED === "true";
+export function settlementMscaEnabled(): boolean {
+  return process.env.SETTLEMENT_MSCA_ENABLED === "true";
 }
 
-/** True when settlement on this chain should batch through the paymaster. */
-export function chainSettlesViaUserOp(chainId: number): boolean {
-  if (!settlementUserOpEnabled()) return false;
+/** True when this chain can settle through the MSCA and its paymaster. */
+export function chainSettlesViaMsca(chainId: number): boolean {
+  if (!settlementMscaEnabled()) return false;
+  if (!settlementMscaAddress()) return false;
   const key = chainKeyForId(chainId);
-  return !!key && PAYMASTER_CHAIN_KEYS.has(key);
+  return !!key && MSCA_CHAIN_KEYS.has(key);
+}
+
+const DELEGATION_ABI_PARAMS = [
+  {
+    type: "tuple[]",
+    components: [
+      { name: "delegate", type: "address" },
+      { name: "delegator", type: "address" },
+      { name: "authority", type: "bytes32" },
+      {
+        name: "caveats",
+        type: "tuple[]",
+        components: [
+          { name: "enforcer", type: "address" },
+          { name: "terms", type: "bytes" },
+          { name: "args", type: "bytes" },
+        ],
+      },
+      { name: "salt", type: "uint256" },
+      { name: "signature", type: "bytes" },
+    ],
+  },
+] as const;
+
+/**
+ * Does this grant's calldata rule name `candidate` as the recipient?
+ *
+ * The payee is not a column — it is encoded into an AllowedCalldataEnforcer's
+ * terms as part of the ERC-20 transfer the grant will accept — so the question
+ * is answered by decoding, needing no migration or backfill.
+ *
+ * Substring rather than field extraction, deliberately: the terms hold whole
+ * calldata and the recipient's offset depends on the enforcer's layout, so
+ * searching for the address avoids hard-coding an offset a future enforcer
+ * would silently break. A 20-byte address colliding by accident inside a
+ * 68-byte transfer payload is not a realistic worry.
+ *
+ * A context that will not decode returns false, and the caller treats that as
+ * "do not use the new path" — the safe direction.
+ */
+export function grantPins(context: Hex, candidate: Address): boolean {
+  const needle = candidate.toLowerCase().slice(2);
+  try {
+    const [delegations] = decodeAbiParameters(DELEGATION_ABI_PARAMS, context);
+    return delegations.some((d) => d.caveats.some((c) => c.terms.toLowerCase().includes(needle)));
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Where redeemed funds land. Unchanged by any of this, and that is the point.
+ * The address a NEW grant on this chain should name as payee.
  *
- * Kept as a named function rather than letting call sites reach for
- * getSettlementAddress() directly, so that the one place this could ever stop
- * being true is this one.
+ * Base and Arbitrum name the MSCA, so the grant redeems straight into the
+ * account that can pay its own gas. Optimism, and every chain while the flag
+ * is off, names the EOA exactly as before.
  */
-export function settlementPayeeFor(_chainId: number): Address {
-  return getSettlementAddress();
+export function settlementPayeeFor(chainId: number): Address {
+  const msca = settlementMscaAddress();
+  return chainSettlesViaMsca(chainId) && msca ? msca : getSettlementAddress();
+}
+
+export type SettlementTarget = {
+  /** Where to redeem into, and the account that then bridges and pays the fee. */
+  address: Address;
+  /** True when that account batches through the paymaster and needs no ETH. */
+  viaMsca: boolean;
+};
+
+/**
+ * How to settle an EXISTING grant.
+ *
+ * The grant decides, not the configuration. One that pins the settlement EOA
+ * is redeemed into the EOA whatever the flag says, because
+ * AllowedCalldataEnforcer reverts a redemption that goes anywhere else. Only a
+ * grant pinning the MSCA — or pinning nothing, which the oldest generation
+ * does — may take the batched path.
+ */
+export function settlementTargetFor(chainId: number, context: Hex): SettlementTarget {
+  const eoa = getSettlementAddress();
+  const msca = settlementMscaAddress();
+
+  if (!chainSettlesViaMsca(chainId) || !msca) {
+    return { address: eoa, viaMsca: false };
+  }
+  // An explicit pin on the EOA outranks the chain policy — the enforcer wins.
+  if (grantPins(context, eoa)) {
+    return { address: eoa, viaMsca: false };
+  }
+  return { address: msca, viaMsca: true };
 }
 
 /**
@@ -86,16 +196,15 @@ export function settlementPayeeFor(_chainId: number): Address {
  *
  * Settlement is designed to end each payment at zero, which leaves the
  * paymaster nothing to take. Rather than fund a float by hand, each payment
- * tops the account up towards this floor out of the PLATFORM'S OWN FEE — never
- * out of the merchant's share — and stops once the floor is reached. An
- * account already at the floor contributes nothing and the platform receives
- * its fee in full.
+ * tops the account toward this floor out of the PLATFORM'S OWN FEE — never the
+ * merchant's share — and stops once it is reached, so an account already at
+ * the floor gives up nothing.
  *
- * Measured gas for one settlement batch: 0.006384 USDC on Base Sepolia,
- * 0.002703 on OP Sepolia, 0.016562 on Arbitrum Sepolia. The default floor is
- * several times the worst of those, because running dry does not mean a
- * cheaper settlement — it means the UserOperation reverts and the payment does
- * not happen.
+ * Measured gas for one batch on Base Sepolia: 0.027255 USDC including the
+ * account's one-off deployment, and well under half that afterwards. The
+ * default is comfortably above both, because running dry does not mean a
+ * cheaper settlement — it means the operation reverts and the payment does not
+ * happen.
  */
 export function settlementGasFloor(): bigint {
   const raw = process.env.SETTLEMENT_GAS_FLOOR_USDC;
@@ -111,57 +220,48 @@ export function settlementGasFloor(): bigint {
 /**
  * The permit ceiling handed to Circle Paymaster.
  *
- * An allowance, not a charge — the paymaster takes only the gas it actually
- * used. It has to exceed the worst plausible gas cost or validation fails, and
- * it is capped well below any real balance so a compromised paymaster could
- * not drain the account.
+ * An allowance, not a charge — only the gas actually used is taken. It must
+ * exceed the worst plausible cost or validation fails, and stays well below a
+ * real balance so a compromised paymaster could not drain the account.
  */
 export function settlementPermitCeiling(): bigint {
   return settlementGasFloor() * 2n;
 }
 
 /**
- * The implementation a 7702 settlement account delegates to.
+ * Circle Paymaster at EntryPoint v0.7 — the version the modular wallet speaks.
  *
- * viem hardcodes this inside toSimple7702SmartAccount and does not export it,
- * so it is mirrored here rather than read — the delegation monitor needs to
- * know the expected pointer without constructing an account, and an env var
- * for a value that is really a property of the library would just be a way to
- * get it wrong.
- *
- * settleViaUserOp asserts the account viem builds actually points here, so a
- * viem upgrade that moves it fails loudly at settlement rather than quietly
- * teaching the monitor to expect the wrong address.
+ * One address per network generation. Verified on chain rather than taken from
+ * the docs: the mainnet contract holds 0.0382 ETH of v0.7 EntryPoint deposit on
+ * Base and 0.0419 on Arbitrum, each configured for that chain's native USDC.
+ * Neither is deployed on Optimism at v0.7, which is why Optimism is not in
+ * MSCA_CHAIN_KEYS.
  */
-export const SIMPLE_7702_IMPLEMENTATION: Address = "0xe6Cae83BdE06E4c305530e199D7217f42808555B";
-
-/** Circle Paymaster v0.8, one address per network generation. */
-export function circlePaymasterV08(chainId: number): Address {
-  const testnet = new Set([84532, 11155420, 421614]);
+export function circlePaymasterV07(chainId: number): Address {
+  const testnet = new Set([84532, 421614]);
   return getAddress(
     testnet.has(chainId)
-      ? "0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966"
-      : "0x0578cFB241215b77442a541325d6A4E6dFE700Ec"
+      ? "0x31BE08D380A21fc740883c0BC434FcFc88740b58"
+      : "0x6C973eBe80dCD8660841D4356bf15c32460271C9"
   );
 }
 
 /**
  * The bundler to submit through.
  *
- * Required when the UserOp path is on, and deliberately not defaulted to a
- * public endpoint: Circle's own bundler serves only EntryPoint v0.7, so this
- * is a real third-party dependency that someone has to choose and pay for
- * rather than something to fall back into silently on a money path.
+ * Required when the MSCA path is on, and deliberately not defaulted to a
+ * public endpoint — this is a real third-party dependency someone must choose
+ * and pay for, not something to fall back into silently on a money path.
+ * Circle's own bundler would serve v0.7, but using it would drag the client
+ * key and the browser-only SDK back in for no gain.
  *
  * Per-chain override first, since providers price and rate-limit per chain.
  */
 export function bundlerUrlFor(chainId: number): string {
-  const specific = process.env[`BUNDLER_URL_${chainId}`];
-  const general = process.env.BUNDLER_URL;
-  const url = specific ?? general;
+  const url = process.env[`BUNDLER_URL_${chainId}`] ?? process.env.BUNDLER_URL;
   if (!url) {
     throw new Error(
-      `settlement UserOp path is on for chain ${chainId} but no bundler is configured — ` +
+      `settlement MSCA path is on for chain ${chainId} but no bundler is configured — ` +
         `set BUNDLER_URL_${chainId} or BUNDLER_URL`
     );
   }

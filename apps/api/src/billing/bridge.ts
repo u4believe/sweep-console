@@ -26,7 +26,7 @@ import type { BridgeTransfer } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { chainKeyForId, getSourceChain, ARC_DOMAIN } from "../lib/gateway/chains";
 import { relayerBridgeToArc } from "../lib/chain/delegation";
-import { chainSettlesViaUserOp } from "../lib/chain/settlement-target";
+import { chainSettlesViaMsca } from "../lib/chain/settlement-target";
 import { settleViaUserOp } from "../lib/chain/settlement-userop";
 import { payFeeToTreasury, treasuryAddress } from "../lib/chain/fee-payout";
 import { getSettlementAddress } from "../lib/chain/signers";
@@ -100,7 +100,7 @@ export async function advanceBridge(bridge: BridgeTransfer, settle: SettleBridge
      * nothing to fold in and the direct path's warning is the better
      * behaviour.
      */
-    if (treasury && chainSettlesViaUserOp(b.chainId)) {
+    if (treasury && chainSettlesViaMsca(b.chainId)) {
       const settled = await settleViaUserOp({
         chainId: b.chainId,
         token: source.usdc,

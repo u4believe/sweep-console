@@ -45,16 +45,17 @@ import {
   type Address,
   type Hex,
 } from "viem";
-import { createBundlerClient, toSimple7702SmartAccount } from "viem/account-abstraction";
+import { createBundlerClient } from "viem/account-abstraction";
+import { toCircleSmartAccount } from "@circle-fin/modular-wallets-core";
 import { burnParams, type BurnSpeed } from "../gateway/cctp";
 import { chainKeyForId } from "../gateway/chains";
 import { burnCalls, rpcUrlForChain, sourceDomainFor, type BurnCallParams } from "./delegation";
 import { getSettlementAccount } from "./signers";
 import {
-  SIMPLE_7702_IMPLEMENTATION,
   bundlerUrlFor,
-  circlePaymasterV08,
+  circlePaymasterV07,
   settlementGasFloor,
+  settlementMscaAddress,
   settlementPermitCeiling,
 } from "./settlement-target";
 
@@ -89,6 +90,24 @@ const EIP2612_ABI = [
     type: "function",
   },
 ] as const;
+
+/**
+ * The seam between two copies of viem.
+ *
+ * This workspace resolves three viem versions (2.23.2, 2.52.2, 2.55.11) and
+ * the Circle SDK's types were built against a different one than apps/api
+ * uses. Nothing is actually incompatible at runtime — the probe runs fine, the
+ * same account address comes back, the same signatures verify — but
+ * structurally viem's Client, LocalAccount and SmartAccount do not unify
+ * across copies, so the compiler rejects values that are in fact correct.
+ *
+ * Confined to this one alias so the lie is in a single named place rather than
+ * sprinkled as `any` through the call sites. The real fix is a pnpm override
+ * pinning one viem across the workspace, which is a dependency change for its
+ * own commit rather than something to smuggle into a settlement path.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type CrossViem = any;
 
 export interface SettleUserOpInput extends BurnCallParams {
   chainId: number;
@@ -129,14 +148,36 @@ export async function settleViaUserOp(input: SettleUserOpInput): Promise<SettleU
   const publicClient = createPublicClient({ chain, transport: http(rpcUrlForChain(input.chainId)) });
 
   const owner = getSettlementAccount();
-  const account = await toSimple7702SmartAccount({ client: publicClient, owner });
 
-  // The address must not have moved. Every grant that pins settlement as payee
-  // depends on it, so this is asserted rather than assumed — a mismatch means
-  // funds would be redeemed somewhere this code cannot spend from.
-  if (account.address.toLowerCase() !== owner.address.toLowerCase()) {
+  /**
+   * Built against an ordinary RPC client, not Circle's modular transport.
+   *
+   * toCircleSmartAccount only needs a client to read with, so a plain http
+   * transport produces the same address and the same EntryPoint. That keeps
+   * the Circle client key, their API's availability, and the `window` shim
+   * their browser-first SDK otherwise requires all out of this path.
+   */
+  const account = await toCircleSmartAccount({
+    client: publicClient as unknown as CrossViem,
+    owner: owner as unknown as CrossViem,
+  });
+
+  /**
+   * The account must be the address grants were told to pay.
+   *
+   * Config names it so the grant path need not make a network call; this is
+   * where the two are reconciled. A mismatch means funds have been redeemed to
+   * an address this code is not about to spend from, so it refuses rather than
+   * settling from the wrong account.
+   */
+  const expected = settlementMscaAddress();
+  if (!expected) {
+    throw new Error("SETTLEMENT_MSCA_ADDRESS is not set but the MSCA path is on");
+  }
+  if (account.address.toLowerCase() !== expected.toLowerCase()) {
     throw new Error(
-      `7702 account ${account.address} is not the settlement address ${owner.address} — refusing to settle`
+      `Circle MSCA derives to ${account.address} but SETTLEMENT_MSCA_ADDRESS says ${expected} — ` +
+        `refusing to settle. The owner key or Circle's factory has changed.`
     );
   }
 
@@ -179,7 +220,7 @@ export async function settleViaUserOp(input: SettleUserOpInput): Promise<SettleU
     });
   }
 
-  const paymasterAddress = circlePaymasterV08(input.chainId);
+  const paymasterAddress = circlePaymasterV07(input.chainId);
   const permitAmount = settlementPermitCeiling();
 
   const paymaster = {
@@ -226,7 +267,7 @@ export async function settleViaUserOp(input: SettleUserOpInput): Promise<SettleU
   };
 
   const bundler = createBundlerClient({
-    account,
+    account: account as unknown as CrossViem,
     chain,
     client: publicClient,
     paymaster,
@@ -257,61 +298,15 @@ export async function settleViaUserOp(input: SettleUserOpInput): Promise<SettleU
   });
 
   /**
-   * Delegate if, and only if, the account is not already pointing at OUR
-   * implementation.
+   * No authorization, and no deployment step.
    *
-   * "Has code" is the wrong question, and asking it that way is what the first
-   * version of this did. The settlement key on Base Sepolia was already
-   * delegated — to MetaMask's EIP7702StatelessDeleGator v1.3.0, picked up at
-   * some point from connecting the address in a wallet. That contract is bound
-   * to EntryPoint v0.7, so a v0.8 operation reaches it and reverts with
-   * NotEntryPoint(), surfacing as the unhelpful "AA23 reverted 0xd663742a".
-   * Skipping the authorization because code was present is precisely how a
-   * settlement would have failed in production.
-   *
-   * A 7702 delegation pointer is 23 bytes: 0xef0100 followed by the
-   * implementation address. Comparing that tail is the real check.
-   *
-   * signAuthorization is the one method a remote signer must add beyond
-   * `sign`: viem's toAccount() does not provide it, so a KMS-backed owner
-   * lacking it fails here rather than at startup.
+   * A counterfactual account is deployed by its own first UserOperation via
+   * initCode, which viem builds from the account — so an MSCA holding nothing
+   * but USDC brings itself into existence on first settlement. There is no
+   * EIP-7702 delegation here at all, which is the point: nothing about this
+   * address can be repointed by whoever holds a key.
    */
-  const code = await publicClient.getCode({ address: account.address });
-  const wanted = account.authorization.address.toLowerCase();
-
-  // The monitor expects this exact implementation without building an account,
-  // so a viem upgrade that moves it must not pass silently here.
-  if (wanted !== SIMPLE_7702_IMPLEMENTATION.toLowerCase()) {
-    throw new Error(
-      `viem delegates to ${wanted} but SIMPLE_7702_IMPLEMENTATION says ` +
-        `${SIMPLE_7702_IMPLEMENTATION} — update the constant, or delegation-watch will ` +
-        `report every settlement account as hijacked`
-    );
-  }
-  const delegatedTo =
-    code && code.toLowerCase().startsWith("0xef0100") ? `0x${code.slice(8)}`.toLowerCase() : null;
-
-  if (delegatedTo && delegatedTo !== wanted) {
-    console.warn(
-      `[settlement/userop] ${account.address} is delegated to ${delegatedTo}, not ${wanted} — re-delegating. ` +
-        `Anything relying on the previous implementation stops working at this address.`
-    );
-  }
-
-  const authorization =
-    delegatedTo === wanted
-      ? undefined
-      : await owner.signAuthorization({
-          address: account.authorization.address,
-          chainId: input.chainId,
-          nonce: await publicClient.getTransactionCount({ address: account.address }),
-        });
-
-  const hash = await bundler.sendUserOperation({
-    account,
-    ...(authorization ? { authorization } : {}),
-    calls,
-  });
+  const hash = await bundler.sendUserOperation({ account: account as unknown as CrossViem, calls });
   const receipt = await bundler.waitForUserOperationReceipt({ hash });
   if (!receipt.success) {
     throw new Error(`settlement UserOperation reverted: ${receipt.receipt.transactionHash}`);

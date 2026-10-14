@@ -15,17 +15,17 @@ import "dotenv/config";
 import { prisma } from "../src/lib/prisma";
 import { chainKeyForId } from "../src/lib/gateway/chains";
 import { getSettlementAddress } from "../src/lib/chain/signers";
-import { chainSupportsPaymaster, grantPins, settlementTargetFor } from "../src/lib/chain/settlement-target";
+import { chainSettlesViaMsca, grantPins, settlementTargetFor } from "../src/lib/chain/settlement-target";
 import type { Hex } from "viem";
 
 async function main(): Promise<void> {
   const eoa = getSettlementAddress();
-  const smart = process.env.SETTLEMENT_SMART_ADDRESS;
-  const enabled = process.env.SETTLEMENT_PAYMASTER_ENABLED === "true";
+  const smart = process.env.SETTLEMENT_MSCA_ADDRESS;
+  const enabled = process.env.SETTLEMENT_MSCA_ENABLED === "true";
 
   console.log(`settlement EOA            ${eoa}`);
-  console.log(`SETTLEMENT_SMART_ADDRESS  ${smart ?? "(unset)"}`);
-  console.log(`paymaster flag            ${enabled ? "on" : "off"}`);
+  console.log(`SETTLEMENT_MSCA_ADDRESS   ${smart ?? "(unset)"}`);
+  console.log(`MSCA flag                 ${enabled ? "on" : "off"}`);
   console.log();
 
   const grants = await prisma.renewalDelegation.findMany({
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
     // rather than the current setting — otherwise a run with the flag off
     // prints all zeros and answers nothing.
     const wouldBeGasless =
-      chainSupportsPaymasterIfEnabled(g.chainId) && !grantPins(g.context as Hex, eoa);
+      chainSettlesViaMscaIfEnabled(g.chainId) && !grantPins(g.context as Hex, eoa);
     if (wouldBeGasless) row.gasless++;
     if (!row.lastExpiry || g.expiry > row.lastExpiry) row.lastExpiry = g.expiry;
     byChain.set(g.chainId, row);
@@ -81,8 +81,8 @@ async function main(): Promise<void> {
     let disagreements = 0;
     for (const g of grants) {
       const live = settlementTargetFor(g.chainId, g.context as Hex);
-      const expected = chainSupportsPaymasterIfEnabled(g.chainId) && !grantPins(g.context as Hex, eoa);
-      if (live.viaPaymaster !== expected) disagreements++;
+      const expected = chainSettlesViaMscaIfEnabled(g.chainId) && !grantPins(g.context as Hex, eoa);
+      if (live.viaMsca !== expected) disagreements++;
     }
     console.log(
       disagreements === 0
@@ -95,17 +95,19 @@ async function main(): Promise<void> {
 /**
  * The chain policy, asked as though the flag were on.
  *
- * chainSupportsPaymaster() folds the flag and the configured address into its
+ * chainSettlesViaMsca() folds the flag and the configured address into its
  * answer, which is right for routing and wrong for a report whose job is to
  * say what WOULD happen. This asks only the part that configuration cannot
  * change: whether Circle Paymaster is deployed on that chain.
  */
-function chainSupportsPaymasterIfEnabled(chainId: number): boolean {
+function chainSettlesViaMscaIfEnabled(chainId: number): boolean {
   const key = chainKeyForId(chainId);
+  // Circle Paymaster exists at EntryPoint v0.7 — the only version the modular
+  // wallet speaks — on Base and Arbitrum only. Optimism's is v0.8.
   if (key === "base" || key === "arbitrum") return true;
   if (key === "optimism") return false;
   // Anything else (Arc, or a chain added later) is not a settlement source.
-  return chainSupportsPaymaster(chainId);
+  return chainSettlesViaMsca(chainId);
 }
 
 main()

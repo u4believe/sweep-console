@@ -11,7 +11,7 @@ import { getSourceChain } from "../src/lib/gateway/chains";
 import { getTokenMessenger } from "../src/lib/gateway/cctp";
 import { treasuryAddress } from "../src/lib/chain/fee-payout";
 import { getSettlementAddress } from "../src/lib/chain/signers";
-import { chainSettlesViaUserOp } from "../src/lib/chain/settlement-target";
+import { chainSettlesViaMsca } from "../src/lib/chain/settlement-target";
 import { settleViaUserOp } from "../src/lib/chain/settlement-userop";
 
 async function main() {
@@ -20,8 +20,8 @@ async function main() {
   if (!treasury) throw new Error("PLATFORM_TREASURY_ADDRESS is not set");
 
   console.log("settlement address :", getSettlementAddress());
-  console.log("chain settles via UserOp?", chainSettlesViaUserOp(source.chain.id));
-  if (!chainSettlesViaUserOp(source.chain.id)) {
+  console.log("chain settles via MSCA?", chainSettlesViaMsca(source.chain.id));
+  if (!chainSettlesViaMsca(source.chain.id)) {
     console.log("  -> flag off or chain unsupported; nothing to exercise.");
     return;
   }
