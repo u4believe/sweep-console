@@ -7,6 +7,7 @@
 // settlement-window escrow), and enable/revoke the cross-chain renewal grant per
 // subscription. Email is the identity anchor, so no checkout session is involved.
 
+import { settlementPayeeAddress } from "../lib/chain/settlement-target";
 import { Router } from "express";
 import { z } from "zod";
 import type { Address, Hex } from "viem";
@@ -325,7 +326,7 @@ customerPortalRouter.post("/subscriptions/:id/grant-plan", async (req, res) => {
   // an address the delegate already controls constrains nothing — a thief redeems
   // into it and spends from it with the same key — and would leave a caveat in the
   // signed context implying a protection that is not there.
-  const payee = settlementIsSeparate() ? getSettlementAddress() : undefined;
+  const payee = settlementIsSeparate() ? settlementPayeeAddress() : undefined;
 
     // Every supported source chain, regardless of current USDC balance — see
     // the equivalent checkout-side grant-plan in routes/delegation.ts.
@@ -555,7 +556,7 @@ customerPortalRouter.post("/mandates/:id/grant-plan", async (req, res) => {
 
   try {
     const delegate = getDelegateAddress();
-    const payee = settlementIsSeparate() ? getSettlementAddress() : undefined;
+    const payee = settlementIsSeparate() ? settlementPayeeAddress() : undefined;
 
     const granted = await prisma.renewalDelegation.findMany({
       where: { sessionId: m.mandateId, mode: "external", status: "active" },

@@ -36,7 +36,7 @@ import {
   getUsdcAddress,
 } from "../chain/contract";
 import { redeemPeriodicTransfer, relayerBridgeToArc } from "../chain/delegation";
-import { chainSettlesViaMsca } from "../chain/settlement-target";
+import { settlementTargetFor } from "../chain/settlement-target";
 import { settleViaUserOp } from "../chain/settlement-userop";
 import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../gateway/cctp";
 import { getSettlementAddress } from "../chain/signers";
@@ -225,6 +225,8 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
     // AllowedCalldataEnforcer:invalid-calldata — which is what this path did
     // after the split moved the other two redemption sites and left this one
     // behind. Grants without a payee accept either, so both generations work.
+    const settlementTarget = settlementTargetFor(mandate.chainId, mandate.context as Hex);
+
     await setSweepStatus(sweepDbId, "depositing");
     await redeemPeriodicTransfer({
       chainId: mandate.chainId,
@@ -232,7 +234,10 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
       context: mandate.context as Hex,
       delegate: mandate.delegateAddress as Address,
       token: source.usdc,
-      recipient: getSettlementAddress(),
+      // Whatever THIS grant pins, which is not always the same address: a grant
+      // signed before the MSCA names the EOA and a newer one names the MSCA,
+      // and AllowedCalldataEnforcer reverts a redeem that goes anywhere else.
+      recipient: settlementTarget.address,
       amount,
     });
 
@@ -260,7 +265,10 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
      * in USDC and needs no native token on the source chain.
      */
     const treasury = treasuryAddress();
-    const viaUserOp = !!treasury && chainSettlesViaMsca(source.chain.id);
+    // Follow the GRANT, not just the chain. Deciding this from the chain alone
+    // sent the pull to the EOA and then tried to burn from the MSCA, which
+    // holds nothing — a subscriber's money moved and the settle reverted.
+    const viaUserOp = !!treasury && settlementTarget.viaMsca;
     let burnTxHash: Hex;
     let maxFee: bigint;
     if (viaUserOp) {

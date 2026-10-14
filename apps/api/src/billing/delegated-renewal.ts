@@ -28,6 +28,7 @@ import {
   periodicTransferExecution,
 } from "../lib/chain/delegation";
 import { ownerOfDelegateMsca, redeemBatchViaSelfBundler } from "../lib/chain/delegate-msca";
+import { settlementTargetFor } from "../lib/chain/settlement-target";
 import { periodConsumed } from "../lib/rail";
 import { advanceBridge } from "./bridge";
 import { payFeeToTreasury } from "../lib/chain/fee-payout";
@@ -507,7 +508,11 @@ async function redeemPrepared(prepared: PreparedRenewal[], outcomes: RenewalOutc
             context: p.chosenMandate.context as Hex,
             // Settlement, not the delegate: new grants pin `payee` there and
             // older ones carry no payee caveat and accept it just the same.
-            ...periodicTransferExecution(source.usdc, getSettlementAddress(), p.amount),
+            ...periodicTransferExecution(
+              source.usdc,
+              settlementTargetFor(p.chosenMandate.chainId, p.chosenMandate.context as Hex).address,
+              p.amount
+            ),
             ref: p.sub.id,
           })),
         });
@@ -553,7 +558,11 @@ async function redeemPrepared(prepared: PreparedRenewal[], outcomes: RenewalOutc
           context: p.chosenMandate.context as Hex,
           delegate: p.chosenMandate.delegateAddress as Address,
           token: source.usdc,
-          recipient: getSettlementAddress(),
+          // Whatever this grant pins — see the note in cctp-activate.ts.
+          recipient: settlementTargetFor(
+            p.chosenMandate.chainId,
+            p.chosenMandate.context as Hex
+          ).address,
           // Still the full period in one redemption: splitting it would double
           // the redeem gas and the enforcer counts both against the same period
           // cap anyway. The fee moves on in the next step instead.

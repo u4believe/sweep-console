@@ -51,7 +51,7 @@ import {
   type Address,
   type Hex,
 } from "viem";
-import { chainKeyForId } from "../gateway/chains";
+import { chainKeyForId, supportedSourceChains } from "../gateway/chains";
 import { getSettlementAddress } from "./signers";
 
 /**
@@ -174,6 +174,37 @@ export function grantPins(context: Hex, candidate: Address): boolean {
 export function settlementPayeeFor(chainId: number): Address {
   const msca = settlementMscaAddress();
   return chainSettlesViaMsca(chainId) && msca ? msca : getSettlementAddress();
+}
+
+/**
+ * The payee for a grant plan that covers several chains at once.
+ *
+ * Every grant site computes ONE payee for a plan spanning every supported
+ * source chain, which works because an MSCA's address is chain-independent —
+ * CREATE2 over one factory, one implementation, one owner and a fixed salt.
+ *
+ * It only works while every source chain settles through it. If coverage were
+ * ever mixed, a single pinned payee would name an address that one chain's
+ * settlement never uses, and that chain's redeems would revert
+ * AllowedCalldataEnforcer after the subscriber's money had already moved. So
+ * this refuses rather than guessing — a loud failure at grant time is worth a
+ * great deal more than a silent one at collection time.
+ */
+export function settlementPayeeAddress(): Address {
+  const msca = settlementMscaAddress();
+  if (!msca || !settlementMscaEnabled()) return getSettlementAddress();
+
+  const notCovered = supportedSourceChains()
+    .filter((s) => !chainSettlesViaMsca(s.chain.id))
+    .map((s) => chainKeyForId(s.chain.id) ?? String(s.chain.id));
+  if (notCovered.length > 0) {
+    throw new Error(
+      `settlement uses the MSCA on some source chains but not ${notCovered.join(", ")}, so one ` +
+        `payee cannot be pinned across a multi-chain grant. Align MSCA_CHAIN_KEYS with the ` +
+        `supported source chains, or turn SETTLEMENT_MSCA_ENABLED off.`
+    );
+  }
+  return msca;
 }
 
 export type SettlementTarget = {

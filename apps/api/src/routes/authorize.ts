@@ -13,6 +13,7 @@
 // and the period before signing, and nothing downstream re-confirms it. Every
 // field the page needs to say that plainly is returned below.
 
+import { settlementPayeeAddress } from "../lib/chain/settlement-target";
 import { Router } from "express";
 import { z } from "zod";
 import type { Address, Hex } from "viem";
@@ -112,7 +113,7 @@ function targetsFor(m: MandateForPage) {
   // an address the delegate already controls constrains nothing — a thief redeems
   // into it and spends from it with the same key — and would leave a caveat in the
   // signed context implying a protection that is not there.
-  const payee = settlementIsSeparate() ? getSettlementAddress() : undefined;
+  const payee = settlementIsSeparate() ? settlementPayeeAddress() : undefined;
   const targets: {
     chain_id: number;
     chain_key: string;

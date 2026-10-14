@@ -5,6 +5,7 @@
 // completeCheckoutSession later links it to the Subscription. The relayer reads
 // these rows to redeem renewals — no further subscriber interaction.
 
+import { settlementPayeeAddress } from "../lib/chain/settlement-target";
 import { Router } from "express";
 import { z } from "zod";
 import type { Address, Hex } from "viem";
@@ -59,7 +60,7 @@ delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, re
   // an address the delegate already controls constrains nothing — a thief redeems
   // into it and spends from it with the same key — and would leave a caveat in the
   // signed context implying a protection that is not there.
-  const payee = settlementIsSeparate() ? getSettlementAddress() : undefined;
+  const payee = settlementIsSeparate() ? settlementPayeeAddress() : undefined;
 
     const target = (chainId: number, key: string, name: string, token: string) => ({
       chain_id: chainId,

@@ -26,7 +26,7 @@ import type { BridgeTransfer } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { chainKeyForId, getSourceChain, ARC_DOMAIN } from "../lib/gateway/chains";
 import { relayerBridgeToArc } from "../lib/chain/delegation";
-import { chainSettlesViaMsca } from "../lib/chain/settlement-target";
+import { settlementTargetFor } from "../lib/chain/settlement-target";
 import { settleViaUserOp } from "../lib/chain/settlement-userop";
 import { payFeeToTreasury, treasuryAddress } from "../lib/chain/fee-payout";
 import { getSettlementAddress } from "../lib/chain/signers";
@@ -100,7 +100,30 @@ export async function advanceBridge(bridge: BridgeTransfer, settle: SettleBridge
      * nothing to fold in and the direct path's warning is the better
      * behaviour.
      */
-    if (treasury && chainSettlesViaMsca(b.chainId)) {
+    /**
+     * The grant decides, so the grant has to be read.
+     *
+     * This had only the chain to go on and settled through the MSCA whenever
+     * the chain supported it — including for funds that had been pulled to the
+     * EOA, which meant burning from an account holding nothing. BridgeTransfer
+     * records which RenewalDelegation was pulled, so the address its payee
+     * caveat names is recoverable.
+     */
+    const pulledFrom = await prisma.renewalDelegation.findUnique({
+      where: { id: b.mandateId },
+      select: { chainId: true, context: true },
+    });
+    const target = pulledFrom
+      ? settlementTargetFor(pulledFrom.chainId, pulledFrom.context as Hex)
+      : null;
+    if (!target) {
+      console.warn(
+        `[bridge] ${b.id} references mandate ${b.mandateId}, which no longer exists — ` +
+          `settling the direct way, which is where its funds are`
+      );
+    }
+
+    if (treasury && target?.viaMsca) {
       const settled = await settleViaUserOp({
         chainId: b.chainId,
         token: source.usdc,
