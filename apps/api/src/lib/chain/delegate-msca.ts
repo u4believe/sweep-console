@@ -60,7 +60,7 @@ import {
   type Hex,
   type LocalAccount,
 } from "viem";
-import { toPackedUserOperation } from "viem/account-abstraction";
+import { getUserOperationHash, toPackedUserOperation } from "viem/account-abstraction";
 import { toCircleSmartAccount } from "@circle-fin/modular-wallets-core";
 import { getRelayerAccount, type RelayerMode } from "./signers";
 import { rpcUrlForChain } from "./delegation";
@@ -132,6 +132,20 @@ const MSCA_EXECUTE_ABI = [
  * while too little reverts the whole batch — and a reverted batch is a renewal
  * that did not happen.
  */
+const REDEEM_DELEGATIONS_ABI = [
+  {
+    name: "redeemDelegations",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "permissionContexts", type: "bytes[]" },
+      { name: "modes", type: "bytes32[]" },
+      { name: "executionCallDatas", type: "bytes[]" },
+    ],
+    outputs: [],
+  },
+] as const;
+
 const CALL_GAS = 700_000n;
 const VERIFICATION_GAS = 300_000n;
 const PRE_VERIFICATION_GAS = 80_000n;
@@ -290,19 +304,7 @@ export async function redeemViaSelfBundler(
   }
 
   const redeemCall = encodeFunctionData({
-    abi: [
-      {
-        name: "redeemDelegations",
-        type: "function",
-        stateMutability: "nonpayable",
-        inputs: [
-          { name: "permissionContexts", type: "bytes[]" },
-          { name: "modes", type: "bytes32[]" },
-          { name: "executionCallDatas", type: "bytes[]" },
-        ],
-        outputs: [],
-      },
-    ] as const,
+    abi: REDEEM_DELEGATIONS_ABI,
     functionName: "redeemDelegations",
     args: [[input.context], [input.mode], [input.executionCallData]],
   });
@@ -396,4 +398,214 @@ export async function redeemViaSelfBundler(
   }
 
   return { txHash, blockNumber: receipt.blockNumber };
+}
+
+
+export interface BatchRedeemItem {
+  delegationManager: Address;
+  context: Hex;
+  executionCallData: Hex;
+  mode: Hex;
+  /** The caller's own identifier, used to hand results back. */
+  ref: string;
+}
+
+export interface BatchRedeemOutcome {
+  txHash: Hex;
+  blockNumber: bigint;
+  /** One entry per item, keyed by its ref. Absent means no event was found. */
+  results: Map<string, { success: boolean }>;
+}
+
+/**
+ * Redeem several grants in ONE transaction.
+ *
+ * This is where self-bundling pays for itself. An MSCA delegate costs about
+ * 134k of fixed overhead plus 38.5k per operation, measured, so a single
+ * redeem runs 172k against the 37k an EOA transaction used. Batched, the fixed
+ * part amortises: 5 due renewals come to 65k each, 20 to 45k, 50 to 41k. The
+ * ERC-4337 premium that buys a rotatable delegate address is paid once per
+ * pass rather than once per subscriber.
+ *
+ * ONE OPERATION FAILING DOES NOT FAIL THE OTHERS, which is the whole reason
+ * this returns a map instead of throwing. The EntryPoint runs each operation
+ * independently, charges for it, and reports its own success — so a batch of
+ * twenty where one grant's period was already spent settles nineteen. Results
+ * are matched by userOpHash, the indexed topic on UserOperationEvent, rather
+ * than by position: the EntryPoint is not obliged to emit in submission order,
+ * and guessing would attribute one subscriber's failure to another.
+ */
+export async function redeemBatchViaSelfBundler(input: {
+  chainId: number;
+  delegate: Address;
+  owner: LocalAccount;
+  items: BatchRedeemItem[];
+}): Promise<BatchRedeemOutcome> {
+  if (input.items.length === 0) throw new Error("redeemBatchViaSelfBundler called with no items");
+
+  const rpc = rpcUrlForChain(input.chainId);
+  const chain = defineChain({
+    id: input.chainId,
+    name: `chain-${input.chainId}`,
+    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+    rpcUrls: { default: { http: [rpc] } },
+  });
+  const publicClient = createPublicClient({ chain, transport: http(rpc) });
+  const submitter = createWalletClient({ account: input.owner, chain, transport: http(rpc) });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const account = await toCircleSmartAccount({ client: publicClient as any, owner: input.owner as any });
+  if (account.address.toLowerCase() !== input.delegate.toLowerCase()) {
+    throw new Error(
+      `grants name delegate ${input.delegate} but the owner key derives MSCA ${account.address} — refusing to redeem`
+    );
+  }
+
+  const fees = await publicClient.estimateFeesPerGas();
+  const maxFeePerGas = fees.maxFeePerGas;
+  const maxPriorityFeePerGas = fees.maxPriorityFeePerGas;
+
+  // The EntryPoint checks the deposit covers EVERY operation's worst case before
+  // running any of them, so this scales with the batch.
+  const perOp = (CALL_GAS + VERIFICATION_GAS + PRE_VERIFICATION_GAS) * maxFeePerGas;
+  const required = perOp * BigInt(input.items.length);
+  const deposit = await publicClient.readContract({
+    address: ENTRY_POINT,
+    abi: ENTRY_POINT_ABI,
+    functionName: "balanceOf",
+    args: [account.address],
+  });
+  if (deposit < required) {
+    const top = required * 3n > depositFloor() ? required * 3n : depositFloor();
+    console.warn(
+      `[delegate/self-bundler] ${account.address} deposit ${formatEther(deposit)} ETH under the ` +
+        `${formatEther(required)} needed for ${input.items.length} ops — depositing ${formatEther(top)}`
+    );
+    const hash = await withNonce(input.owner.address, input.chainId, publicClient, (nonce) =>
+      submitter.sendTransaction({
+        to: ENTRY_POINT,
+        value: top,
+        data: encodeFunctionData({ abi: ENTRY_POINT_ABI, functionName: "depositTo", args: [account.address] }),
+        nonce,
+      })
+    );
+    const r = await publicClient.waitForTransactionReceipt({ hash });
+    if (r.status !== "success") throw new Error(`EntryPoint deposit failed: ${hash}`);
+  }
+
+  // Sequential nonces in key 0. handleOps validates every operation before it
+  // executes any, and each validation bumps the account's nonce, so N+0, N+1 …
+  // in one batch is legal — confirmed on chain rather than assumed.
+  const startNonce = await publicClient.readContract({
+    address: ENTRY_POINT,
+    abi: ENTRY_POINT_ABI,
+    functionName: "getNonce",
+    args: [account.address, 0n],
+  });
+
+  type PackedOp = {
+    sender: Address;
+    nonce: bigint;
+    initCode: Hex;
+    callData: Hex;
+    accountGasLimits: Hex;
+    preVerificationGas: bigint;
+    gasFees: Hex;
+    paymasterAndData: Hex;
+    signature: Hex;
+  };
+  const ops: PackedOp[] = [];
+  const hashToRef = new Map<string, string>();
+
+  for (let i = 0; i < input.items.length; i++) {
+    const item = input.items[i]!;
+    const redeemCall = encodeFunctionData({
+      abi: REDEEM_DELEGATIONS_ABI,
+      functionName: "redeemDelegations",
+      args: [[item.context], [item.mode], [item.executionCallData]],
+    });
+    const callData = encodeFunctionData({
+      abi: MSCA_EXECUTE_ABI,
+      functionName: "execute",
+      args: [item.delegationManager, 0n, redeemCall],
+    });
+    const unpacked = {
+      sender: account.address,
+      nonce: startNonce + BigInt(i),
+      callData,
+      callGasLimit: CALL_GAS,
+      verificationGasLimit: VERIFICATION_GAS,
+      preVerificationGas: PRE_VERIFICATION_GAS,
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+      signature: "0x" as Hex,
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const signature = await account.signUserOperation(unpacked as any);
+    const signed = { ...unpacked, signature };
+
+    const userOpHash = getUserOperationHash({
+      chainId: input.chainId,
+      entryPointAddress: ENTRY_POINT,
+      entryPointVersion: "0.7",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      userOperation: signed as any,
+    });
+    hashToRef.set(userOpHash.toLowerCase(), item.ref);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const p = toPackedUserOperation(signed as any);
+    ops.push({
+      sender: p.sender,
+      nonce: p.nonce,
+      initCode: (p.initCode ?? "0x") as Hex,
+      callData: p.callData,
+      accountGasLimits: packTwo(VERIFICATION_GAS, CALL_GAS),
+      preVerificationGas: PRE_VERIFICATION_GAS,
+      gasFees: packTwo(maxPriorityFeePerGas, maxFeePerGas),
+      paymasterAndData: (p.paymasterAndData ?? "0x") as Hex,
+      signature: p.signature,
+    });
+  }
+
+  const outerGas =
+    (CALL_GAS + VERIFICATION_GAS + PRE_VERIFICATION_GAS) * BigInt(input.items.length) + 300_000n;
+
+  const txHash = await withNonce(input.owner.address, input.chainId, publicClient, (n) =>
+    submitter.sendTransaction({
+      to: ENTRY_POINT,
+      data: encodeFunctionData({
+        abi: ENTRY_POINT_ABI,
+        functionName: "handleOps",
+        args: [ops, input.owner.address],
+      }),
+      gas: outerGas,
+      nonce: n,
+    })
+  );
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+  if (receipt.status !== "success") {
+    throw new Error(`handleOps reverted for the whole batch on chain ${input.chainId}: ${txHash}`);
+  }
+
+  const results = new Map<string, { success: boolean }>();
+  for (const log of receipt.logs) {
+    if (log.address.toLowerCase() !== ENTRY_POINT.toLowerCase()) continue;
+    try {
+      const d = decodeEventLog({ abi: [USER_OP_EVENT], data: log.data, topics: log.topics });
+      if (d.eventName !== "UserOperationEvent") continue;
+      const { userOpHash, success } = d.args as { userOpHash: Hex; success: boolean };
+      const ref = hashToRef.get(userOpHash.toLowerCase());
+      if (ref) results.set(ref, { success });
+    } catch {
+      // Not a UserOperationEvent. The EntryPoint emits others.
+    }
+  }
+
+  console.log(
+    `[delegate/self-bundler] chain ${input.chainId}: ${input.items.length} redeems in one tx, ` +
+      `${[...results.values()].filter((r) => r.success).length} succeeded — ${txHash}`
+  );
+
+  return { txHash, blockNumber: receipt.blockNumber, results };
 }

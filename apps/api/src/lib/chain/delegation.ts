@@ -188,6 +188,29 @@ export interface RedeemResult {
 const SINGLE_DEFAULT_MODE =
   "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex;
 
+/**
+ * The execution calldata and mode a periodic-transfer redeem uses.
+ *
+ * Exported so a BATCHED redeem builds byte-identical calldata to the single
+ * one. Two code paths each encoding "transfer this much to that address" is
+ * exactly the kind of duplication that drifts and then reverts on chain for
+ * reasons nobody can see in a diff.
+ */
+export function periodicTransferExecution(
+  token: Address,
+  recipient: Address,
+  amount: bigint
+): { executionCallData: Hex; mode: Hex } {
+  const call = transferCall(token, recipient, amount);
+  return {
+    executionCallData: encodePacked(
+      ["address", "uint256", "bytes"],
+      [call.target, call.value, call.callData]
+    ),
+    mode: SINGLE_DEFAULT_MODE,
+  };
+}
+
 function transferCall(token: Address, recipient: Address, amount: bigint) {
   return {
     target: token,
