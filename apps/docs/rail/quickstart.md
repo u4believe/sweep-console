@@ -44,7 +44,7 @@ app.post("/subscribe/usdc", async (req, res) => {
     email: req.user.email,                 // prefilled for them, and editable
     maxAmount: usdc("15.00"),              // the CEILING, not the price
     interval: "monthly",
-    chains: ["base", "arbitrum", "optimism"],
+    chains: ["base", "arbitrum", "optimism"],  // offer all three — they pick
     expiresAt: new Date("2027-01-01"),
   });
 
@@ -88,6 +88,22 @@ single charge or several — and not a cent more without asking again.
 
 Give it headroom. A mandate at exactly your current price leaves you no room for
 a plan change, and raising the ceiling needs a second signature.
+
+**And they choose the chains.** The page shows the ones you offered, all selected
+to begin with, and the payer can deselect any before signing — each one is a
+separate wallet signature. So `chains` is a maximum rather than a promise: offer
+everything you support, and read back what you actually got.
+
+```ts
+const m = await sweep.mandates.retrieve(mandateId);
+m.chains;         // ["base", "arbitrum", "optimism"] — what you offered
+m.grantedChains;  // ["base"] — what they signed, and what a charge can draw from
+```
+
+They can add the rest later by reopening the same link, or from their Sweep
+portal, while the mandate is live. **No webhook fires when they do** —
+`mandate.authorized` is sent once and deliberately not repeated — so re-read
+`grantedChains` if you keep your own copy of it.
 
 ::: tip Label the button "Subscribe", not "Pay"
 What they are signing is standing authority with a ceiling. Someone who reads

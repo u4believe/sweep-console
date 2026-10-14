@@ -7,7 +7,9 @@ Send the payer to `authorization_url`. They connect a wallet and sign one
 all selected to begin with, and they can deselect any before signing — so a
 mandate offered on three chains is often live on one or two. Each selected chain
 is a separate signature, and they can add the rest later by reopening the link
-while it is still valid.
+while it is still valid, or from their Sweep portal. No webhook fires when they
+do — `mandate.authorized` is sent once — so re-read `granted_chains` rather
+than relying on a copy.
 
 The grants are the truth about what is redeemable, not the `chains` you sent.
 Read `granted_chains` on the mandate, or `chain_ids` on `mandate.authorized`.
