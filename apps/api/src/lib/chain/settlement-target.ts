@@ -10,12 +10,23 @@
  *
  * TWO INDEPENDENT CONSTRAINTS, AND THEY ARE OFTEN CONFUSED
  *
- *   1. The CHAIN. Circle Paymaster is deployed on Base and Arbitrum and not on
- *      Optimism. Verified on chain rather than read from a table: the mainnet
- *      contract 0x6C973eBe… answers on Base Mainnet (0.0382 ETH of EntryPoint
- *      deposit, token = native USDC) and Arbitrum One (0.0419 ETH, native
- *      USDC), and has no code at all on OP Mainnet. So Optimism keeps the EOA
- *      and keeps needing ETH. That is a Circle deployment fact, not a choice.
+ *   1. The ENTRYPOINT VERSION — not, as an earlier version of this comment
+ *      claimed, whether Circle Paymaster reaches Optimism. It does. Circle
+ *      Paymaster v0.8 (0x0578cFB2…) is deployed, funded and unpaused on OP
+ *      Mainnet, Base Mainnet and Arbitrum One alike, each holding that chain's
+ *      native USDC.
+ *
+ *      What does not reach Optimism is CIRCLE'S MODULAR WALLET, which is
+ *      hardcoded to EntryPoint v0.7 — the SDK defines only ENTRY_POINT_07 and
+ *      mentions 0.8 nowhere, and a deployed account agrees: ENTRY_POINT()
+ *      returns 0x0000000071727De22E5E9d8BAf0edAc6f37da032. A v0.7 account
+ *      cannot submit through the v0.8 EntryPoint.
+ *
+ *      Base and Arbitrum also have a v0.7 paymaster (0x6C973eBe… on mainnet),
+ *      so the pairing works there. Optimism's paymaster is v0.8 only, so
+ *      Circle's own wallet cannot use Circle's own paymaster on it. Optimism
+ *      keeps the EOA because of that version gap, and a v0.8-capable account
+ *      would close it.
  *
  *   2. The GRANT. A grant signed with a payee rule pins the recipient into a
  *      caveat, and redeeming anywhere else reverts with
