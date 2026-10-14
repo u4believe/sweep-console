@@ -247,6 +247,39 @@ async function main(): Promise<void> {
     client: publicClient,
     paymaster,
     transport: http(BUNDLER_URL(cfg.id)),
+    userOperation: {
+      /**
+       * Ask the bundler what it will accept, and only then the chain.
+       *
+       * Bundlers set their own floors and do not agree on them. Arbitrum
+       * Sepolia via Pimlico rejects anything under 120000 wei of priority fee
+       * — "Invalid fields set on User Operation", which says nothing about
+       * fees until you read the details — while the same code passes on Base
+       * and OP Sepolia with a zero priority fee. That divergence is the cost
+       * of a third-party bundler in miniature, and it is why this asks rather
+       * than assumes.
+       *
+       * pimlico_getUserOperationGasPrice is vendor-specific, so a provider
+       * that does not implement it falls through to the chain's own estimate.
+       */
+      estimateFeesPerGas: async ({ bundlerClient }) => {
+        try {
+          const price = (await bundlerClient.request({
+            method: "pimlico_getUserOperationGasPrice",
+          } as never)) as { standard: { maxFeePerGas: Hex; maxPriorityFeePerGas: Hex } };
+          return {
+            maxFeePerGas: BigInt(price.standard.maxFeePerGas),
+            maxPriorityFeePerGas: BigInt(price.standard.maxPriorityFeePerGas),
+          };
+        } catch {
+          const fees = await publicClient.estimateFeesPerGas();
+          return {
+            maxFeePerGas: fees.maxFeePerGas,
+            maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+          };
+        }
+      },
+    },
   });
 
   /**
@@ -288,7 +321,10 @@ async function main(): Promise<void> {
     hash = await bundler.sendUserOperation({ account, ...(authorization ? { authorization } : {}), calls });
   } catch (e) {
     console.log("\nFAIL at send. That is the answer, not an accident:");
-    console.log(`  ${(e as Error).message.split("\n").slice(0, 4).join("\n  ")}`);
+    const err = e as Error & { details?: string; shortMessage?: string };
+    console.log(`  ${err.shortMessage ?? err.message.split("\n")[0]}`);
+    // The useful sentence is almost always in `details`, not the headline.
+    if (err.details) console.log(`  details: ${err.details}`);
     return;
   }
 
