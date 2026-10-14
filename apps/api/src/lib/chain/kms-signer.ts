@@ -39,6 +39,7 @@
 import {
   hashMessage,
   hashTypedData,
+  getAddress,
   keccak256,
   recoverAddress,
   serializeTransaction,
@@ -245,7 +246,7 @@ export const digestOf = toHex;
  *
  * ADDING A PROVIDER
  *
- *   aws      @aws-sdk/client-kms. Create the key with KeySpec
+ *   aws      IMPLEMENTED below. Create the key with KeySpec
  *            ECC_SECG_P256K1 and KeyUsage SIGN_VERIFY. Sign with
  *            MessageType: "DIGEST" and SigningAlgorithm:
  *            "ECDSA_SHA_256"; the response's Signature is the DER this
@@ -274,9 +275,98 @@ export function kmsSignerFromEnv(role: "hosted" | "external" | "settlement"): Re
     );
   }
 
+  if (provider === "aws") return awsKmsSigner(keyId, address);
+
   throw new Error(
     `no KMS adapter is implemented for KMS_PROVIDER=${provider}. The signer interface and all the ` +
       `signature handling are ready — see the notes above kmsSignerFromEnv for what each provider's ` +
-      `adapter has to do. Until one exists, leave KMS_PROVIDER unset to use the local key.`
+      `adapter has to do. Supported today: aws.`
   );
+}
+
+/**
+ * One KMS client per process.
+ *
+ * The SDK pools connections and resolves credentials on construction, so
+ * building one per signature would add a credential lookup to every redeem.
+ * Imported lazily so a deployment with no KMS configured never loads it.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let kmsClient: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function awsClient(): Promise<any> {
+  if (kmsClient) return kmsClient;
+  const { KMSClient } = await import("@aws-sdk/client-kms");
+  const region = process.env.KMS_REGION ?? process.env.AWS_REGION;
+  if (!region) {
+    throw new Error("KMS_PROVIDER=aws needs a region — set KMS_REGION or AWS_REGION");
+  }
+  kmsClient = new KMSClient({ region });
+  return kmsClient;
+}
+
+/**
+ * AWS KMS, signing a digest with a secp256k1 key.
+ *
+ * MessageType "DIGEST" matters: the default is "RAW", which would have KMS
+ * hash the 32 bytes again and sign the wrong thing — producing a valid
+ * signature over the wrong message, which recovers to no address we know and
+ * so fails in toEthSignature rather than silently. SigningAlgorithm is
+ * ECDSA_SHA_256 even though nothing is being hashed here; it selects the
+ * curve's signature scheme, not a hash step.
+ *
+ * The response's Signature is ASN.1 DER, which derToRS already handles, and
+ * the recovery id and low-s normalisation happen in toEthSignature. So this
+ * adapter is genuinely only the transport.
+ */
+function awsKmsSigner(keyId: string, address: Address): RemoteSigner {
+  return {
+    address,
+    async signDigest(digest: Hex): Promise<Hex> {
+      const { SignCommand } = await import("@aws-sdk/client-kms");
+      const client = await awsClient();
+      const out = await client.send(
+        new SignCommand({
+          KeyId: keyId,
+          Message: Buffer.from(digest.slice(2), "hex"),
+          MessageType: "DIGEST",
+          SigningAlgorithm: "ECDSA_SHA_256",
+        })
+      );
+      if (!out.Signature) {
+        throw new Error(`AWS KMS returned no signature for key ${keyId}`);
+      }
+      return `0x${Buffer.from(out.Signature).toString("hex")}` as Hex;
+    },
+  };
+}
+
+/**
+ * The Ethereum address of an AWS KMS secp256k1 key, for KMS_ADDRESS_*.
+ *
+ * GetPublicKey returns a DER SubjectPublicKeyInfo wrapping an uncompressed
+ * point. The address is the last 20 bytes of keccak256 over the 64 bytes of
+ * X||Y — note that the leading 0x04 uncompressed-point marker is NOT hashed,
+ * which is the usual way this comes out one byte wrong.
+ *
+ * Called by a script, not on a request path: the address belongs in config so
+ * that account construction stays synchronous.
+ */
+export async function awsKmsAddress(keyId: string): Promise<Address> {
+  const { GetPublicKeyCommand } = await import("@aws-sdk/client-kms");
+  const client = await awsClient();
+  const out = await client.send(new GetPublicKeyCommand({ KeyId: keyId }));
+  if (!out.PublicKey) throw new Error(`AWS KMS returned no public key for ${keyId}`);
+
+  const der = Buffer.from(out.PublicKey);
+  // The uncompressed point is the final 65 bytes, starting with 0x04. Found by
+  // position rather than by walking the SPKI structure, because the prefix
+  // varies with how the curve is named and the tail does not.
+  const marker = der.lastIndexOf(0x04);
+  const point = der.subarray(marker, marker + 65);
+  if (point.length !== 65 || point[0] !== 0x04) {
+    throw new Error("could not find an uncompressed EC point in the KMS public key");
+  }
+  const hash = keccak256(`0x${point.subarray(1).toString("hex")}` as Hex);
+  return getAddress(`0x${hash.slice(-40)}`);
 }

@@ -16,6 +16,7 @@
     "relayer:key": "tsx scripts/relayer-key.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-kms": "^3.1151.0",
     "@circle-fin/adapter-viem-v2": "^1.0.0",
     "@circle-fin/app-kit": "^1.0.0",
     "@panva/hkdf": "^1.2.1",
