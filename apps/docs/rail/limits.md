@@ -49,6 +49,10 @@ authorization change and nothing for the payer to do.
 ## A failed charge does not cancel anything
 
 The mandate stays `active`. Nothing about the rail cancels an authorization on
-your behalf — only the payer, from their wallet, or you, via
+your behalf — only the payer, from their wallet or their portal, or you, via
 `DELETE /v1/mandates/:id`, which is idempotent and fires `mandate.revoked` with
 `revoked_by: "merchant"`.
+
+A payer disabling ONE chain in their wallet does not end the authorization: you
+get `grant.revoked`, and the mandate keeps charging on whatever is left. It
+only turns into `mandate.revoked` when the last chain goes.

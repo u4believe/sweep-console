@@ -19,30 +19,66 @@ link. You call no API for these; the webhook is the whole integration.
 
 ## The payment rail
 
-These four only fire for accounts the rail is enabled on.
+These only fire for accounts the rail is enabled on.
 
 | | |
 | --- | --- |
 | `mandate.authorized` | A payer signed. Carries the `chain_ids` actually granted — start charging on this, not on the redirect. Also `verified_email` and `wallet_reused` |
-| `mandate.revoked` | An authorization stopped being redeemable. `revoked_by` is `"merchant"` or `"payer"`; `on_chain` is always false |
+| `mandate.revoked` | The authorization is **finished** — nothing left to charge on any chain. Stop serving. `revoked_by` is `"merchant"` or `"payer"`; `on_chain` is always false |
+| `grant.revoked` | A payer withdrew **one chain's** permission in their wallet. The authorization survives on the rest — read `remaining_chains` before you act |
 | `mandate.expiring` | Within the warning window of `expires_at` (7 days by default). Carries `days_remaining`. Sent once, not daily |
 | `mandate.expired` | Passed its expiry and can no longer be charged. Sent once |
 | `charge.succeeded` | A pull settled on Arc. Carries `source_chain` and the Arc `tx_hash` |
 | `charge.failed` | A pull could not be collected. Carries `failure_code` — `insufficient_funds`, `mandate_period_consumed` and so on |
 
-## On `mandate.revoked`
+## On `mandate.revoked` and `grant.revoked`
+
+**Only one of these means stop serving.** A payer can authorize you on three
+chains and later disable one in their wallet; the other two still pay. That is
+`grant.revoked`, and deactivating the customer on it cuts off someone who is
+still paying you.
+
+`mandate.revoked` fires when the last chain goes — or when you `DELETE` the
+mandate, or the payer stops it from their portal. Nothing is left to charge.
+
+Both carry the same two fields, so one handler covers either:
+
+| | |
+| --- | --- |
+| `remaining_chains` | Chain keys still chargeable. `[]` on `mandate.revoked` |
+| `mandate_still_active` | `false` only when the authorization is finished |
+
+```ts
+// One handler, both events. Act on the field, not the event name.
+const onRevoke = async (e) => {
+  if (e.data.mandate_still_active) {
+    // One chain left the set. Still chargeable — Sweep picks from what remains.
+    await db.mandates.setChains(e.data.mandate_id, e.data.remaining_chains);
+    return;
+  }
+  if (e.data.revoked_by === "payer") await winback(e.externalRef);
+  await db.users.deactivate(e.externalRef);
+};
+
+"grant.revoked":   onRevoke,
+"mandate.revoked": onRevoke,
+```
+
+You do not have to choose a chain yourself — a charge picks from whatever is
+still granted and funded. `remaining_chains` is there so your own records match
+ours, and so an empty one is unmistakable.
+
+`revoked_by` matters on `mandate.revoked`: your own `DELETE` and your payer
+walking away want different handling, and without it the two are
+indistinguishable. It is absent on `grant.revoked`, which only ever comes from
+the payer's wallet.
 
 Revoking never disables anything on chain. `disableDelegation` is
 `onlyDeleGator`, so only the payer's own wallet can remove the permission —
 which is why `on_chain` is always `false`. What a revoke guarantees is that
 Sweep will not redeem it again.
 
-`revoked_by` matters: your own `DELETE` and your payer walking away want
-different handling, and without it the two are indistinguishable.
-
-```ts
-"mandate.revoked": async (e) => {
-  if (e.data.revoked_by === "payer") await winback(e.externalRef);
-  await db.users.deactivate(e.externalRef);
-}
-```
+A wallet-side withdrawal is invisible to us until we look, so `grant.revoked`
+arrives after the daily reconciliation rather than the moment the payer acts.
+A charge attempted in between fails with `mandate_period_consumed` or an
+on-chain refusal, not silently.

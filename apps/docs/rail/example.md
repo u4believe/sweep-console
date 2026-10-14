@@ -92,6 +92,14 @@ app.post(
       await db.users.update(e.externalRef, { dunning: e.data.failure_code });
     },
 
+    // One chain leaving is not the authorization ending. grant.revoked fires
+    // when a payer disables one chain in their wallet and the rest still pay;
+    // mandate.revoked fires when nothing is left. Acting on the field rather
+    // than the event name means one handler is correct for both.
+    "grant.revoked": async (e) => {
+      await db.users.update(e.externalRef, { chains: e.data.remaining_chains });
+    },
+
     "mandate.revoked": async (e) => {
       await db.users.update(e.externalRef, { usdcActive: false });
     },
