@@ -761,6 +761,11 @@ customerPortalRouter.post("/mandates/:id/revoke", async (req, res) => {
         revoked_at: revokedAt.toISOString(),
         revoked_by: "payer",
         on_chain: false,
+        /// Always empty on this event: the payer stopped the whole
+        /// authorization, not one chain. Present so a developer can handle
+        /// mandate.revoked and grant.revoked with the same code.
+        remaining_chains: [],
+        mandate_still_active: false,
       }
     ).catch((e: unknown) => console.error("[portal/mandate-revoke] webhook failed:", e));
 

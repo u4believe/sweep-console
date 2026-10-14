@@ -296,6 +296,10 @@ mandatesRouter.delete("/:id", verifyApiKey, requireExternalRail, async (req, res
     // handling their own cleanup differently from a payer walking away needs to
     // be able to tell the two apart.
     revoked_by: "merchant",
+    /// Always empty here: a DELETE closes the whole authorization. Present so
+    /// one handler covers mandate.revoked and grant.revoked alike.
+    remaining_chains: [],
+    mandate_still_active: false,
     // Says plainly what this did and did not do: the grants stay signed on-chain
     // and only the subscriber's own wallet can disable them. We refuse to redeem.
     on_chain: false,

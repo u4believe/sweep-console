@@ -19,6 +19,7 @@
 import type { Address, Hex } from "viem";
 import { prisma } from "../lib/prisma";
 import { delegationIdentity, isDelegationDisabled } from "../lib/chain/delegation";
+import { chainKeyForId } from "../lib/gateway/chains";
 import { fireWebhook } from "../lib/webhooks/delivery";
 
 export interface ReconcileOutcome {
@@ -148,6 +149,50 @@ export async function reconcileMandatesOnce(): Promise<ReconcileOutcome[]> {
       outcomes.push({ mandateId: id, chainId, result: "revoked" });
       console.log(`[reconcile] ${id} disabled on chain ${chainId} — marked revoked`);
 
+      /**
+       * What is left decides which event this is.
+       *
+       * One chain leaving is not the authorization ending: a mandate signed on
+       * three chains is still chargeable on the other two. This used to fire
+       * `mandate.revoked` for each one, so a developer doing the obvious thing
+       * on receipt cut off a customer who was still paying — the same
+       * entitlement drift the pass exists to prevent, pointing the other way.
+       *
+       * Counted AFTER the update above, so the row just revoked is excluded.
+       */
+      const remaining = await prisma.renewalDelegation.findMany({
+        where: {
+          ...(c.m.mode === "external"
+            ? { sessionId: c.m.sessionId ?? undefined, mode: "external" }
+            : { mandateId: c.m.mandateId ?? undefined }),
+          status: "active",
+        },
+        select: { chainId: true },
+      });
+      const remainingChains = remaining
+        .map((r) => chainKeyForId(r.chainId) ?? String(r.chainId))
+        .sort();
+      const lastOneGone = remaining.length === 0;
+
+      /**
+       * The mandate row itself, once nothing is left to redeem.
+       *
+       * Without this a rail mandate whose every chain the payer disabled stayed
+       * "active" for ever: a charge against it failed cleanly with no_grants,
+       * but the portal showed the payer an live authorization and the API told
+       * the developer the same. The hosted side has a grantless sweep for this;
+       * the rail had none.
+       */
+      if (lastOneGone && c.m.mode === "external" && c.m.sessionId) {
+        const closed = await prisma.mandate.updateMany({
+          where: { mandateId: c.m.sessionId, status: { in: ["pending", "active"] } },
+          data: { status: "revoked", revokedAt: new Date() },
+        });
+        if (closed.count > 0) {
+          console.log(`[reconcile] ${id}: last chain gone — mandate marked revoked`);
+        }
+      }
+
       // The merchant learns now rather than at the next failed charge. Without
       // this their system keeps believing the subscriber is payable, which is
       // the entitlement-drift problem in its purest form.
@@ -156,16 +201,21 @@ export async function reconcileMandatesOnce(): Promise<ReconcileOutcome[]> {
           c.m.merchantId,
           c.m.subscription?.externalRef ?? c.m.externalRef ?? "",
           c.m.merchant.merchantId,
-          "mandate.revoked",
+          lastOneGone ? "mandate.revoked" : "grant.revoked",
           {
             mandate_id: id,
-            // Which chain's grant went. A mandate signed on several chains stays
-            // chargeable on the others, so this is not "the mandate is dead" —
-            // it is one chain leaving the set.
             chain_id: chainId,
             grant_id: c.m.grantId,
             subscription_id: c.m.subscription?.subscriptionId ?? null,
             reason: "disabled_on_chain",
+            /**
+             * Both of these are here so a developer can act correctly without
+             * having read the docs, which is the only way this gets acted on
+             * correctly. They are also on `mandate.revoked` — where they read
+             * `[]` and `false` — so one handler can cover both events.
+             */
+            remaining_chains: remainingChains,
+            mandate_still_active: !lastOneGone,
           }
         ).catch((e) => console.error(`[reconcile] webhook failed for ${id}:`, e));
       }

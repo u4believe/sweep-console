@@ -13,6 +13,12 @@
 // thing that ever produced — a charge now settles straight to the merchant's
 // wallet, so the platform never holds funds it could give back. Add them here
 // when something does fire them.
+//
+// AND AN EVENT'S NAME IS PART OF ITS CONTRACT. mandate.revoked used to fire for
+// EVERY chain a payer disabled, while the mandate stayed chargeable on the
+// others — so a developer who did the obvious thing on receiving it cut off a
+// customer who was still paying. grant.revoked now carries that case and
+// mandate.revoked means what it says: the authorization is finished.
 
 export const WEBHOOK_EVENTS = [
   "checkout.session.completed",
@@ -24,6 +30,7 @@ export const WEBHOOK_EVENTS = [
   "payment.failed",
   "mandate.authorized",
   "mandate.revoked",
+  "grant.revoked",
   "mandate.expiring",
   "mandate.expired",
   "charge.succeeded",
@@ -44,7 +51,9 @@ export const WEBHOOK_EVENT_DESCRIPTIONS: Record<WebhookEventType, string> = {
   "mandate.authorized":
     "A subscriber authorized recurring payments from their wallet on the external rail.",
   "mandate.revoked":
-    "A subscriber withdrew a renewal authorization in their wallet — future charges on that chain will fail.",
+    "An authorization is finished: its last chain is gone, so no further charge can be collected. Stop serving.",
+  "grant.revoked":
+    "A payer withdrew ONE chain's permission. The authorization survives on its remaining chains \u2014 keep serving unless remaining_chains is empty.",
   "mandate.expiring":
     "A mandate reaches its expiry date soon. Ask the payer to re-authorize before charges start failing.",
   "mandate.expired":
@@ -61,8 +70,11 @@ export const WEBHOOK_EVENT_DESCRIPTIONS: Record<WebhookEventType, string> = {
 export const RAIL_EVENTS = [
   "mandate.authorized",
   "mandate.revoked",
-  "mandate.expiring",
-  "mandate.expired",
+  "grant.revoked",
+  // mandate.expiring and mandate.expired were each listed TWICE here, which the
+  // portal's picker rendered as duplicate checkboxes. The file's own opening
+  // note is about three copies of "which events exist" disagreeing; a list
+  // disagreeing with itself is the same failure in miniature.
   "mandate.expiring",
   "mandate.expired",
   "charge.succeeded",
