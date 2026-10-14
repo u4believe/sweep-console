@@ -221,3 +221,62 @@ export async function localTestSigner(privateKey: Hex): Promise<RemoteSigner> {
 
 /** Hex for a digest, so callers need not import toHex just for this. */
 export const digestOf = toHex;
+
+
+/**
+ * Resolve a KMS-backed signer for a named role from configuration.
+ *
+ * No provider adapter is wired yet — that needs an account and a decision, and
+ * the SDK differs by provider. What is here is the dispatch and the shape, so
+ * adding one is a function body rather than a redesign.
+ *
+ * Two variables per role, for example for the hosted delegate:
+ *
+ *   KMS_PROVIDER=aws                       (aws | gcp | turnkey)
+ *   KMS_KEY_HOSTED=<the provider's key id>
+ *   KMS_ADDRESS_HOSTED=0x…                 (the key's Ethereum address)
+ *
+ * THE ADDRESS IS CONFIGURED, NOT FETCHED, on purpose. Reading a public key is
+ * an async call, and every caller of getRelayerAccount() is synchronous — an
+ * address in config keeps it that way. It is not taken on trust either:
+ * toEthSignature refuses to return a signature that does not recover to this
+ * address, so a wrong one fails loudly at the first signature rather than
+ * producing something a chain will reject for no stated reason.
+ *
+ * ADDING A PROVIDER
+ *
+ *   aws      @aws-sdk/client-kms. Create the key with KeySpec
+ *            ECC_SECG_P256K1 and KeyUsage SIGN_VERIFY. Sign with
+ *            MessageType: "DIGEST" and SigningAlgorithm:
+ *            "ECDSA_SHA_256"; the response's Signature is the DER this
+ *            module already parses. GetPublicKey once to learn the
+ *            address for KMS_ADDRESS_*.
+ *
+ *   gcp      @google-cloud/kms. Key purpose ASYMMETRIC_SIGN, algorithm
+ *            EC_SIGN_SECP256K1_SHA256. asymmetricSign returns DER in
+ *            `signature`.
+ *
+ *   turnkey  @turnkey/sdk-server. Returns r and s directly, so return
+ *            them as { r, s } and the DER path is skipped entirely.
+ */
+export function kmsSignerFromEnv(role: "hosted" | "external" | "settlement"): RemoteSigner | null {
+  const provider = process.env.KMS_PROVIDER;
+  if (!provider) return null;
+
+  const suffix = role.toUpperCase();
+  const keyId = process.env[`KMS_KEY_${suffix}`];
+  const address = process.env[`KMS_ADDRESS_${suffix}`] as Address | undefined;
+  if (!keyId || !address) {
+    throw new Error(
+      `KMS_PROVIDER=${provider} is set but KMS_KEY_${suffix} and KMS_ADDRESS_${suffix} are not — ` +
+        `refusing to fall back to a local key for ${role}, because silently using the key a KMS was ` +
+        `configured to replace is the one outcome nobody wants`
+    );
+  }
+
+  throw new Error(
+    `no KMS adapter is implemented for KMS_PROVIDER=${provider}. The signer interface and all the ` +
+      `signature handling are ready — see the notes above kmsSignerFromEnv for what each provider's ` +
+      `adapter has to do. Until one exists, leave KMS_PROVIDER unset to use the local key.`
+  );
+}

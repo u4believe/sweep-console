@@ -23,6 +23,8 @@
 // accountForDelegate() below is for.
 
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
+import type { LocalAccount } from "viem";
+import { kmsSignerFromEnv, toKmsAccount } from "./kms-signer";
 import type { Address, Hex } from "viem";
 
 export type RelayerMode = "hosted" | "external";
@@ -35,6 +37,20 @@ const cache = new Map<string, PrivateKeyAccount>();
 // only derived at the first send, an unprefixed key boots fine and then fails at
 // the first redeem — hours later, on a real charge. Normalise, and say which
 // variable is wrong when it still cannot be read.
+/**
+ * A role's signing account, from a KMS when one is configured.
+ *
+ * Checked before the private key so that configuring a KMS actually takes
+ * effect — a fallback that quietly preferred the local key would leave the
+ * thing a KMS exists to prevent in place while the configuration suggested
+ * otherwise. kmsSignerFromEnv throws rather than returning null when it is
+ * half-configured, for the same reason.
+ */
+function kmsAccountFor(role: "hosted" | "external" | "settlement"): LocalAccount | null {
+  const signer = kmsSignerFromEnv(role);
+  return signer ? toKmsAccount(signer) : null;
+}
+
 function accountFor(privateKey: string, name: string): PrivateKeyAccount {
   const cached = cache.get(privateKey);
   if (cached) return cached;
@@ -57,7 +73,7 @@ function platformKey(): string {
 }
 
 /// The platform relayer on Arc — submits CCTP mints and pays their gas.
-export function getPlatformAccount(): PrivateKeyAccount {
+export function getPlatformAccount(): LocalAccount {
   return accountFor(platformKey(), "PLATFORM_PRIVATE_KEY");
 }
 
@@ -67,7 +83,9 @@ export function getPlatformAccount(): PrivateKeyAccount {
  * Both fall through to the platform key when unset, so an unconfigured deployment
  * behaves exactly as it did before this module existed.
  */
-export function getRelayerAccount(mode: RelayerMode = "hosted"): PrivateKeyAccount {
+export function getRelayerAccount(mode: RelayerMode = "hosted"): LocalAccount {
+  const kms = kmsAccountFor(mode);
+  if (kms) return kms;
   if (mode === "external" && process.env.EXTERNAL_RELAYER_PRIVATE_KEY) {
     return accountFor(process.env.EXTERNAL_RELAYER_PRIVATE_KEY, "EXTERNAL_RELAYER_PRIVATE_KEY");
   }
@@ -96,7 +114,9 @@ export function getRelayerAddress(mode: RelayerMode = "hosted"): Address {
  * than failing at the first redemption, but it also means the split is not in
  * effect until SETTLEMENT_PRIVATE_KEY is set — see settlementIsSeparate().
  */
-export function getSettlementAccount(): PrivateKeyAccount {
+export function getSettlementAccount(): LocalAccount {
+  const kms = kmsAccountFor("settlement");
+  if (kms) return kms;
   const key = process.env.SETTLEMENT_PRIVATE_KEY;
   return key ? accountFor(key, "SETTLEMENT_PRIVATE_KEY") : getRelayerAccount("hosted");
 }
@@ -134,7 +154,7 @@ export function knownDelegates(): Address[] {
  * key would produce a confusing on-chain revert instead of naming the real problem,
  * which is a relayer key that was rotated or removed while grants still pointed at it.
  */
-export function accountForDelegate(delegate: Address): PrivateKeyAccount {
+export function accountForDelegate(delegate: Address): LocalAccount {
   const want = delegate.toLowerCase();
   for (const account of [
     getPlatformAccount(),
