@@ -17,6 +17,7 @@ interface MerchantProfile {
   walletType: string;
   addressVerifiedAt: string | null;
   isLive: boolean;
+  railChargeReceipts: boolean;
   createdAt: string;
 }
 
@@ -44,6 +45,9 @@ export function SettingsPage() {
   const [savingName, setSavingName] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
   const [nameError, setNameError] = useState("");
+  const [receipts, setReceipts] = useState(false);
+  const [savingReceipts, setSavingReceipts] = useState(false);
+  const [receiptsError, setReceiptsError] = useState("");
 
   // The tab lives in the URL so a reload, a back button, or a link someone
   // pastes to a teammate all land on the same panel.
@@ -54,7 +58,7 @@ export function SettingsPage() {
     fetch(`${API_URL}/portal/me`, { credentials: "include" })
       .then((r) => r.json())
       .then((json: { data?: MerchantProfile; error?: { message?: string } }) => {
-        if (json.data) { setProfile(json.data); setName(json.data.name); }
+        if (json.data) { setProfile(json.data); setName(json.data.name); setReceipts(json.data.railChargeReceipts); }
         else setError(json.error?.message ?? "Failed to load profile");
       })
       .catch(() => setError("Could not reach the API server"));
@@ -66,6 +70,40 @@ export function SettingsPage() {
       .then((json: { data?: WebhookSummary[] }) => setWebhooks(json.data ?? []))
       .catch(() => setWebhooks([]));
   }, []);
+
+  /**
+   * Optimistic, then corrected from the response.
+   *
+   * A checkbox that waits on a round trip before moving feels broken, and the
+   * only thing at stake is whether an email goes out — so it flips at once and
+   * reverts with a message if the save failed.
+   */
+  async function saveReceipts(enabled: boolean) {
+    setReceiptsError(""); setSavingReceipts(true); setReceipts(enabled);
+    try {
+      const res = await fetch(`${API_URL}/portal/me/rail-receipts`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        data?: { railChargeReceipts: boolean };
+        error?: { message?: string };
+      };
+      if (!res.ok || !json.data) {
+        setReceipts(!enabled);
+        setReceiptsError(json.error?.message ?? "Could not save that.");
+        return;
+      }
+      setReceipts(json.data.railChargeReceipts);
+    } catch {
+      setReceipts(!enabled);
+      setReceiptsError("Could not reach the API server.");
+    } finally {
+      setSavingReceipts(false);
+    }
+  }
 
   async function saveName() {
     setNameError(""); setNameSaved(false); setSavingName(true);
@@ -158,6 +196,10 @@ export function SettingsPage() {
           saving={savingName}
           saved={nameSaved}
           saveError={nameError}
+          receipts={receipts}
+          onReceipts={saveReceipts}
+          savingReceipts={savingReceipts}
+          receiptsError={receiptsError}
         />
       )}
 
@@ -186,6 +228,7 @@ export function SettingsPage() {
 
 function AccountTab({
   profile, webhooks, name, setName, onSave, saving, saved, saveError,
+  receipts, onReceipts, savingReceipts, receiptsError,
 }: {
   profile: MerchantProfile;
   webhooks: WebhookSummary[] | null;
@@ -195,6 +238,10 @@ function AccountTab({
   saving: boolean;
   saved: boolean;
   saveError: string;
+  receipts: boolean;
+  onReceipts: (enabled: boolean) => void;
+  savingReceipts: boolean;
+  receiptsError: string;
 }) {
   const walletReady = Boolean(profile.walletAddress && profile.addressVerifiedAt);
   const webhooksReady = (webhooks ?? []).some((w) => w.deliveryCount > 0);
@@ -237,6 +284,39 @@ function AccountTab({
           </div>
           {saved && <p className="m-0" style={{ fontSize: 12, color: "var(--color-accent-700)", marginTop: 6 }}>Saved.</p>}
           {saveError && <p className="m-0" style={{ fontSize: 12, color: "var(--color-accent-700)", marginTop: 6 }}>{saveError}</p>}
+
+          {/* Rail receipts. Off by default, because on the rail the developer's
+              own app is the front door: they already receive charge.succeeded,
+              and a second receipt from our domain lands beside theirs. The copy
+              says which email this is NOT, since the authorization email is the
+              one payers actually need and is not a setting. */}
+          <div style={{ marginTop: 26, borderTop: "1px solid var(--color-divider)", paddingTop: 18, maxWidth: 480 }}>
+            <label className="flex items-start gap-3" style={{ cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={receipts}
+                disabled={savingReceipts}
+                onChange={(e) => onReceipts(e.target.checked)}
+                style={{ marginTop: 3, flexShrink: 0 }}
+              />
+              <span>
+                <span style={{ fontSize: 14, fontWeight: 500 }}>
+                  Email my payers a receipt for every charge
+                </span>
+                <span className="block" style={{ fontSize: 12.5, color: "var(--color-neutral-700)", marginTop: 4 }}>
+                  Payment-rail charges only. Off by default because most apps send their own receipt, and
+                  two for one payment is worse than one. Leaving this off does not leave payers with
+                  nothing: everyone gets one email when they authorize you, with the limit they agreed
+                  to and how to stop the charges.
+                </span>
+              </span>
+            </label>
+            {receiptsError && (
+              <p className="m-0" style={{ fontSize: 12, color: "var(--color-accent-700)", marginTop: 6 }}>
+                {receiptsError}
+              </p>
+            )}
+          </div>
 
           <dl className="m-0" style={{ marginTop: 26, borderTop: "1px solid var(--color-divider)" }}>
             {[

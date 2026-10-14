@@ -134,6 +134,7 @@ portalRouter.get("/me", async (req, res) => {
         addressVerifiedAt: true,
         pendingWalletAddress: true,
         isLive: true,
+        railChargeReceipts: true,
         createdAt: true,
       },
     });
@@ -1453,6 +1454,42 @@ portalRouter.get("/payments", async (req, res) => {
 });
 
 // ─── GET /portal/webhooks ─────────────────────────────────────────────────────
+
+/**
+ * Should Sweep email this merchant's RAIL payers a receipt for every charge?
+ *
+ * Off by default. On the rail the developer's app is the front door: they own
+ * the customer relationship, they already receive charge.succeeded, and a
+ * second receipt from noreply@sweepconsole.com arrives beside their own from a
+ * domain the payer may not recognise.
+ *
+ * It does NOT control the authorization email, which is sent once when a
+ * mandate goes live and carries the ceiling, the period and the link to stop
+ * the charges. That one is a payer's record of a standing permission over
+ * their own wallet, which is not a merchant setting.
+ *
+ * Hosted subscriptions are unaffected either way — a subscriber there checks
+ * out and manages through Sweep, so a receipt comes from somewhere they have
+ * already been.
+ */
+portalRouter.patch("/me/rail-receipts", async (req, res) => {
+  const dbId = (req as PortalRequest).merchantDbId;
+  const parsed = z.object({ enabled: z.boolean() }).safeParse(req.body);
+  if (!parsed.success) return err(res, "Send { enabled: true | false }", 422);
+  try {
+    const updated = await prisma.merchant.update({
+      where: { id: dbId },
+      data: { railChargeReceipts: parsed.data.enabled },
+      select: { railChargeReceipts: true },
+    });
+    console.log(
+      `[portal/rail-receipts] ${dbId} set railChargeReceipts=${updated.railChargeReceipts}`
+    );
+    return ok(res, { data: updated });
+  } catch (e) {
+    return serverError(res, "portal/rail-receipts", e, "We couldn't save that preference.");
+  }
+});
 
 portalRouter.get("/webhooks", async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
