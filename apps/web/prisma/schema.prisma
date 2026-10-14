@@ -19,7 +19,17 @@ model Merchant {
   testKeyHash          String? // HMAC hash of active test_ API key (null = no key yet)
   testKeyName          String    @default("Default")
   testKeyPrefix        String? // first 16 chars of the key for display (e.g. "test_a1b2c3d4e5f6")
-  liveKeyHash          String? // HMAC hash of live_ API key (unused in beta)
+  // The live key, mirroring the three test columns above. A merchant holds both
+  // at once — the test key keeps working after they go live, which is the point
+  // of having two.
+  //
+  // auth.ts already looks a key up by the column its prefix implies and already
+  // refuses a live_ key whose merchant is not `isLive`. What is missing is
+  // issuance: nothing writes liveKeyHash, and portal.ts mints ids.apiKey(false)
+  // only.
+  liveKeyHash          String? // HMAC hash of active live_ API key (null = no key yet)
+  liveKeyName          String    @default("Default")
+  liveKeyPrefix        String? // first 16 chars, for display (e.g. "live_a1b2c3d4e5f6")
   webhookSecret        String // HMAC-SHA256 signing secret for webhook deliveries
   walletAddress        String? // merchant's payout wallet on Arc
   walletType           String    @default("external") // "circle" | "external"
