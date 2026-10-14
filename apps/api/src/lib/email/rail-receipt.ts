@@ -11,6 +11,7 @@
 
 import { prisma } from "../prisma";
 import { sendEmail, railChargeReceiptEmailHtml, type RailChargeReceiptData } from "../email";
+import { manageUrl } from "../email-shell";
 
 /// Display names for Charge.chain, which stores the gateway's own chain keys.
 const CHAIN_NAMES: Record<string, string> = {
@@ -39,7 +40,7 @@ export async function sendRailChargeReceipt(chargeDbId: string): Promise<void> {
       select: {
         chargeId: true, amount: true, currency: true, status: true, description: true,
         chain: true, txHash: true, createdAt: true,
-        merchant: { select: { name: true } },
+        merchant: { select: { name: true, railChargeReceipts: true } },
         mandate: {
           select: {
             email: true, verifiedEmail: true, walletAddress: true,
@@ -49,6 +50,25 @@ export async function sendRailChargeReceipt(chargeDbId: string): Promise<void> {
       },
     });
     if (!charge) return;
+
+    /**
+     * Off unless this merchant asked for it.
+     *
+     * On the rail the developer's app is the front door — they own the
+     * customer relationship, they already have charge.succeeded, and a
+     * receipt from us arrives beside theirs from a domain the payer may not
+     * recognise. A merchant who wants us to send it turns it on.
+     *
+     * The payer is not left without a record: the authorization email sent
+     * when the mandate went live carries the ceiling, the interval and the
+     * link to cancel, which is the part nothing else provides.
+     */
+    if (!charge.merchant.railChargeReceipts) {
+      console.log(
+        `[rail-receipt] ${charge.chargeId}: ${charge.merchant.name} has rail receipts off — not sent`
+      );
+      return;
+    }
 
     // Only a charge that actually took money. A pending one has not moved funds
     // yet — unlike a hosted first payment, nothing is escrowed here, so there is
@@ -96,7 +116,8 @@ export async function sendRailChargeReceipt(chargeDbId: string): Promise<void> {
         `, settled on Arc${charge.txHash ? ` (tx ${charge.txHash})` : ""}. ` +
         `You authorized up to ${data.ceiling} ${charge.currency} per ` +
         `${{ daily: "day", weekly: "week", monthly: "month", yearly: "year" }[charge.mandate.interval] ?? charge.mandate.interval}. ` +
-        `To stop future charges, revoke the permission in your wallet.`,
+        `To stop future charges, cancel at ${manageUrl()} or revoke the permission in ` +
+        `your wallet.`,
     });
 
     console.log(`[rail-receipt] sent ${charge.chargeId} to ${to}`);

@@ -496,10 +496,13 @@ export function railChargeReceiptEmailHtml(d: RailChargeReceiptData): string {
     merchantName: d.merchantName,
     kicker: "Payment taken",
     title: `${d.merchantName} charged ${d.amount} ${d.currency}`,
-    // /manage is keyed on subscriptions, which a mandate payer has none of.
+    // /manage lists rail mandates too, matched on the address the payer proved
+    // at the OTP step. It did not when this template was written, which is why
+    // the copy below used to send a payer to the merchant and nowhere else.
     footerContact:
       `Questions about this charge? Contact ${esc(d.merchantName)} directly — they set the amount and ` +
-      `decide when to charge. Sweep Console moved the funds and never held them.`,
+      `decide when to charge. Sweep Console moved the funds and never held them. ` +
+      `To stop future charges, cancel at ${manageUrl()}.`,
     body:
       heroAmount(
         d.amount,
@@ -532,9 +535,76 @@ export function railChargeReceiptEmailHtml(d: RailChargeReceiptData): string {
           `is no fixed next-charge date.`
       ) +
       fineprint(
-        `Didn't expect this? The permission lives in your wallet, not with us: revoke it there and no ` +
-        `further charge can be collected. Past charges settle directly to ${esc(d.merchantName)} and are not ` +
+        `Didn't expect this? Cancel at ${manageUrl()}, or revoke the permission in your wallet — either ` +
+        `stops further charges. Past charges settle directly to ${esc(d.merchantName)} and are not ` +
         `reversible by Sweep Console — ask them for a refund.`
+      ),
+  });
+}
+
+export interface RailAuthorizationData {
+  merchantName: string;
+  ceiling: string;
+  currency: string;
+  interval: string;
+  walletAddress: string | null;
+  expiresAt: Date;
+  manageUrl: string;
+}
+
+/**
+ * Sent once, when a rail authorization goes live.
+ *
+ * The rail's per-charge receipt is off unless a merchant asks for it, because
+ * the developer owns that relationship and usually sends their own. This is
+ * the piece that cannot be delegated to them: a payer has granted a standing
+ * permission over their own wallet, and needs a durable record of who holds
+ * it, how much it allows, and how to take it back.
+ *
+ * So the cancel route is the point of the email, not a footnote. Both routes
+ * are given — the portal and the wallet — because the portal is the one most
+ * payers can actually use, and the earlier copy named only the wallet.
+ *
+ * It deliberately does not promise a next-charge date. The developer sets the
+ * schedule; Sweep only executes it, and inventing a date here would be the
+ * same false certainty the authorization page was corrected for.
+ */
+export function railAuthorizationEmailHtml(d: RailAuthorizationData): string {
+  const noun = INTERVAL_NOUN[d.interval] ?? d.interval;
+  return shell({
+    preheader: `${d.merchantName} can now charge up to ${d.ceiling} ${d.currency} per ${noun}.`,
+    sender: "notice",
+    merchantName: d.merchantName,
+    kicker: "Authorization active",
+    title: `You authorized ${d.merchantName}`,
+    footerContact:
+      `${esc(d.merchantName)} sets the amount and decides when to charge. Sweep Console moves the ` +
+      `funds and never holds them.`,
+    body:
+      lede(
+        `${esc(d.merchantName)} can now charge your wallet, up to the limit below, until you stop it.`
+      ) +
+      panel(
+        "Your authorization",
+        `Up to ${esc(d.ceiling)} ${esc(d.currency)} per ${esc(noun)}`,
+        `That is the total ${esc(d.merchantName)} can take in any one ${esc(noun)} — in a single charge ` +
+          `or several. They choose when, so there is no fixed charge date.`
+      ) +
+      detailRows(
+        [
+          { k: "Merchant", v: esc(d.merchantName) },
+          d.walletAddress ? { k: "Paying from", v: mono(esc(shortAddress(d.walletAddress))) } : null,
+          { k: "Expires on its own", v: esc(DATE.format(d.expiresAt)) },
+        ].filter((r): r is { k: string; v: string } => r !== null)
+      ) +
+      button("Manage or cancel", d.manageUrl) +
+      fallbackUrl("Manage or cancel", d.manageUrl) +
+      fineprint(
+        `Two ways to stop it, either is enough: cancel at ${emailLink(
+          d.manageUrl.replace(/^https?:\/\//, ""),
+          d.manageUrl
+        )}, or revoke the permission in your wallet. Keep this email — it is the only record we send ` +
+          `unless ${esc(d.merchantName)} asks us to receipt each charge.`
       ),
   });
 }

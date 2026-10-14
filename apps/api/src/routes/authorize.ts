@@ -23,6 +23,7 @@ import { ok, err, serverError } from "../lib/response";
 import { decodePeriodTransferTerms, delegationIdentity } from "../lib/chain/delegation";
 import { getRelayerAddress, getSettlementAddress, settlementIsSeparate } from "../lib/chain/signers";
 import { delegateAddressForNewGrant } from "../lib/chain/delegate-msca";
+import { sendRailAuthorizationEmail } from "../lib/email/rail-authorization";
 import { supportedSourceChains } from "../lib/gateway/chains";
 import { fireWebhook } from "../lib/webhooks/delivery";
 import {
@@ -494,6 +495,20 @@ authorizeRouter.post("/authorize/:mandate_id/complete", async (req, res) => {
       },
       select: { mandateId: true, status: true, maxAmount: true, interval: true, expiresAt: true },
     });
+
+    /**
+     * The payer's one durable record of what they just granted.
+     *
+     * Per-charge receipts are off unless a merchant opts in, so without this a
+     * payer's only contact from Sweep would be the one-time code they typed a
+     * minute ago — nothing to find weeks later when they want the charging to
+     * stop. This carries the ceiling, the period and the cancel link.
+     *
+     * Not awaited and never fatal: the authorization is signed and on chain by
+     * now, and a slow mail provider must not turn a completed authorization
+     * into a failed request.
+     */
+    void sendRailAuthorizationEmail(m.id);
 
     // Does another live mandate at this merchant already sit behind this
     // wallet? Not blocked: one person paying for two seats, or a household or

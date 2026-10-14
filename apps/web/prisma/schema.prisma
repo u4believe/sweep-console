@@ -30,6 +30,25 @@ model Merchant {
   walletNonceExpiresAt DateTime? // nonce validity window
   usdcBalance          String    @default("0") // cached USDC balance, refreshed by webhooks
   balanceUpdatedAt     DateTime? // when usdcBalance was last written
+  /// Should Sweep email this merchant's RAIL payers a receipt per charge?
+  ///
+  /// Off by default, and that is the considered position rather than an
+  /// unfinished one. On the rail the developer's app is the front door: they
+  /// own the customer relationship, they already receive charge.succeeded, and
+  /// most will send their own receipt — which a payer cannot deduplicate
+  /// against ours. Worse, the content is merchant-branded while the sender is
+  /// noreply@sweepconsole.com, so a payer who knows the merchant and not us
+  /// reads an unfamiliar domain announcing a charge against their wallet.
+  ///
+  /// Hosted subscriptions are not affected: a subscriber there checks out
+  /// through Sweep and manages through Sweep, so the receipt comes from
+  /// somewhere they have been.
+  ///
+  /// What a rail payer gets regardless is ONE authorization email when the
+  /// mandate goes live, carrying the ceiling, the interval and the link to
+  /// cancel. That is the piece they cannot get anywhere else.
+  railChargeReceipts   Boolean   @default(false)
+
   // ─── Step-up authentication ────────────────────────────────────────────────
   // Proof that a destructive portal action was taken by the account owner, not
   // by whoever happens to be holding a stolen session cookie. Two factors only:
