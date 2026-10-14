@@ -5,6 +5,7 @@ import { reconcileMandatesOnce } from "./reconcile-mandates";
 import { runMandateExpiryOnce } from "./mandate-expiry";
 import { resumeChargeBridges } from "./direct-charge";
 import { revokeOrphanGrantsOnce } from "../lib/subscriptions/orphan-grants";
+import { checkRelayerDelegationsOnce } from "./delegation-watch";
 
 // Registers every billing cron job. Pure side-effect-on-call (no auto-start on
 // import) so it can be driven from TWO places without double-registering:
@@ -97,6 +98,21 @@ export function startBillingEngine(): void {
 
   cron.schedule("*/10 * * * *", async () => {
     await retryWebhooks().catch((e) => console.error("[cron] retryWebhooks error:", e));
+  });
+
+  /**
+   * Watch the relayer keys for an EIP-7702 delegation nobody asked for.
+   *
+   * Cheap — one getCode per address per source chain, no writes — so it runs
+   * often. The window that matters is between a key being pointed at a hostile
+   * implementation and somebody noticing, and settlement only notices when it
+   * next settles, by which point a subscriber's money is already in the
+   * account.
+   */
+  cron.schedule("*/10 * * * *", async () => {
+    await checkRelayerDelegationsOnce().catch((e) =>
+      console.error("[cron] delegationWatch error:", e)
+    );
   });
 
   console.log(`[billing] Cron jobs registered (billing pass: "${renewalSchedule}"). Engine running.`);

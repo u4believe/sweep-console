@@ -120,6 +120,21 @@ export function settlementPermitCeiling(): bigint {
   return settlementGasFloor() * 2n;
 }
 
+/**
+ * The implementation a 7702 settlement account delegates to.
+ *
+ * viem hardcodes this inside toSimple7702SmartAccount and does not export it,
+ * so it is mirrored here rather than read — the delegation monitor needs to
+ * know the expected pointer without constructing an account, and an env var
+ * for a value that is really a property of the library would just be a way to
+ * get it wrong.
+ *
+ * settleViaUserOp asserts the account viem builds actually points here, so a
+ * viem upgrade that moves it fails loudly at settlement rather than quietly
+ * teaching the monitor to expect the wrong address.
+ */
+export const SIMPLE_7702_IMPLEMENTATION: Address = "0xe6Cae83BdE06E4c305530e199D7217f42808555B";
+
 /** Circle Paymaster v0.8, one address per network generation. */
 export function circlePaymasterV08(chainId: number): Address {
   const testnet = new Set([84532, 11155420, 421614]);

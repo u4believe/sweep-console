@@ -51,6 +51,7 @@ import { chainKeyForId } from "../gateway/chains";
 import { burnCalls, rpcUrlForChain, sourceDomainFor, type BurnCallParams } from "./delegation";
 import { getSettlementAccount } from "./signers";
 import {
+  SIMPLE_7702_IMPLEMENTATION,
   bundlerUrlFor,
   circlePaymasterV08,
   settlementGasFloor,
@@ -277,6 +278,16 @@ export async function settleViaUserOp(input: SettleUserOpInput): Promise<SettleU
    */
   const code = await publicClient.getCode({ address: account.address });
   const wanted = account.authorization.address.toLowerCase();
+
+  // The monitor expects this exact implementation without building an account,
+  // so a viem upgrade that moves it must not pass silently here.
+  if (wanted !== SIMPLE_7702_IMPLEMENTATION.toLowerCase()) {
+    throw new Error(
+      `viem delegates to ${wanted} but SIMPLE_7702_IMPLEMENTATION says ` +
+        `${SIMPLE_7702_IMPLEMENTATION} — update the constant, or delegation-watch will ` +
+        `report every settlement account as hijacked`
+    );
+  }
   const delegatedTo =
     code && code.toLowerCase().startsWith("0xef0100") ? `0x${code.slice(8)}`.toLowerCase() : null;
 
