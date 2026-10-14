@@ -516,7 +516,7 @@ type Call = { target: Address; value: bigint; callData: Hex };
 /// The CCTP source domain for a chain, or undefined when it is not a source
 /// chain we know — in which case the fee cannot be quoted and burnParams falls
 /// back to its configured ceiling.
-function sourceDomainFor(chainId: number): number | undefined {
+export function sourceDomainFor(chainId: number): number | undefined {
   const key = chainKeyForId(chainId);
   if (!key || key === "arc") return undefined;
   try {
@@ -529,7 +529,7 @@ function sourceDomainFor(chainId: number): number | undefined {
 /// Takes the resolved fee rather than computing it, so the caller holds the one
 /// maxFee this burn used and the fee remittance can net off that exact number
 /// instead of recomputing it and hoping the two agree.
-function burnCalls(
+export function burnCalls(
   input: BurnCallParams,
   { maxFee, minFinalityThreshold }: { maxFee: bigint; minFinalityThreshold: number }
 ): { approve: Call; burn: Call; burnAmount: bigint } {

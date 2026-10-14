@@ -20,7 +20,7 @@ import { ERC20_ABI } from "./abi";
 import { accountForDelegate } from "./signers";
 import { rpcUrlForChain } from "./delegation";
 
-function treasuryAddress(): Address | null {
+export function treasuryAddress(): Address | null {
   const t = process.env.PLATFORM_TREASURY_ADDRESS;
   return t && /^0x[0-9a-fA-F]{40}$/.test(t.trim()) ? (t.trim() as Address) : null;
 }

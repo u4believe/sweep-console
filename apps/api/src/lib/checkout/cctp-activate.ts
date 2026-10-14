@@ -36,9 +36,11 @@ import {
   getUsdcAddress,
 } from "../chain/contract";
 import { redeemPeriodicTransfer, relayerBridgeToArc } from "../chain/delegation";
+import { chainSettlesViaUserOp } from "../chain/settlement-target";
+import { settleViaUserOp } from "../chain/settlement-userop";
 import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../gateway/cctp";
 import { getSettlementAddress } from "../chain/signers";
-import { payFeeToTreasury } from "../chain/fee-payout";
+import { payFeeToTreasury, treasuryAddress } from "../chain/fee-payout";
 import { ARC_DOMAIN, chainKeyForId, getSourceChain } from "../gateway/chains";
 import { selectPaymentChain } from "../gateway/selector";
 
@@ -249,24 +251,56 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
     //    wallet. Settlement absorbs the bridge fee out of the platform's own cut,
     //    so the merchant receives the full share.
     await setSweepStatus(sweepDbId, "bridging");
-    const { burnTxHash, maxFee } = await relayerBridgeToArc({
-      chainId: source.chain.id,
-      token: source.usdc,
-      tokenMessenger: getTokenMessenger(chosenKey),
-      amount: merchantShare,
-      destinationDomain: ARC_DOMAIN,
-      mintRecipient: payout,
-      speed: "fast",
-    });
+
+    /**
+     * One atomic UserOperation where the chain supports it.
+     *
+     * The batch carries the fee remittance too, so the payFeeToTreasury below
+     * is skipped on this path — see the comment there. Settlement pays its gas
+     * in USDC and needs no native token on the source chain.
+     */
+    const treasury = treasuryAddress();
+    const viaUserOp = !!treasury && chainSettlesViaUserOp(source.chain.id);
+    let burnTxHash: Hex;
+    let maxFee: bigint;
+    if (viaUserOp) {
+      const settled = await settleViaUserOp({
+        chainId: source.chain.id,
+        token: source.usdc,
+        tokenMessenger: getTokenMessenger(chosenKey),
+        amount: merchantShare,
+        destinationDomain: ARC_DOMAIN,
+        mintRecipient: payout,
+        speed: "fast",
+        grossAmount: amount,
+        treasury: treasury!,
+      });
+      burnTxHash = settled.burnTxHash;
+      maxFee = settled.maxFee;
+    } else {
+      ({ burnTxHash, maxFee } = await relayerBridgeToArc({
+        chainId: source.chain.id,
+        token: source.usdc,
+        tokenMessenger: getTokenMessenger(chosenKey),
+        amount: merchantShare,
+        destinationDomain: ARC_DOMAIN,
+        mintRecipient: payout,
+        speed: "fast",
+      }));
+    }
     // The platform's share, net of what the burn just cost. Exact rather than a
     // balance sweep, so a concurrent collection's funds are never touched and
     // settlement is left holding nothing.
-    await payFeeToTreasury({
-      chainId: source.chain.id,
-      token: source.usdc,
-      from: getSettlementAddress(),
-      amount: fee - maxFee,
-    });
+    // Already remitted inside the batch on the UserOp path, along with any
+    // top-up toward the gas floor — paying again here would send the fee twice.
+    if (!viaUserOp) {
+      await payFeeToTreasury({
+        chainId: source.chain.id,
+        token: source.usdc,
+        from: getSettlementAddress(),
+        amount: fee - maxFee,
+      });
+    }
 
     const att = await fetchAttestation(source.domain, burnTxHash, { timeoutMs: 180_000, pollMs: 6_000 });
 

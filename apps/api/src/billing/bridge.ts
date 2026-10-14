@@ -26,7 +26,9 @@ import type { BridgeTransfer } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { chainKeyForId, getSourceChain, ARC_DOMAIN } from "../lib/gateway/chains";
 import { relayerBridgeToArc } from "../lib/chain/delegation";
-import { payFeeToTreasury } from "../lib/chain/fee-payout";
+import { chainSettlesViaUserOp } from "../lib/chain/settlement-target";
+import { settleViaUserOp } from "../lib/chain/settlement-userop";
+import { payFeeToTreasury, treasuryAddress } from "../lib/chain/fee-payout";
 import { getSettlementAddress } from "../lib/chain/signers";
 import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../lib/gateway/cctp";
 
@@ -85,6 +87,40 @@ export async function advanceBridge(bridge: BridgeTransfer, settle: SettleBridge
     // rather than minutes. CCTP_RENEWAL_SPEED=standard trades that for the free
     // hard-finality path.
     const speed = process.env.CCTP_RENEWAL_SPEED === "standard" ? "standard" : "fast";
+    const treasury = treasuryAddress();
+
+    /**
+     * One atomic UserOperation where the chain supports it, two transactions
+     * where it does not.
+     *
+     * The batched path folds the fee remittance in, so the separate
+     * payFeeToTreasury below is skipped — which also closes the gap this
+     * function has always had between a burn that succeeded and a remittance
+     * that did not. It needs a treasury to remit to; without one there is
+     * nothing to fold in and the direct path's warning is the better
+     * behaviour.
+     */
+    if (treasury && chainSettlesViaUserOp(b.chainId)) {
+      const settled = await settleViaUserOp({
+        chainId: b.chainId,
+        token: source.usdc,
+        tokenMessenger: getTokenMessenger(chainKey),
+        amount: b.bridgedAmount,
+        destinationDomain: ARC_DOMAIN,
+        mintRecipient: b.mintRecipient as Address,
+        speed,
+        grossAmount: b.grossAmount,
+        treasury,
+      });
+      return mintAndSettle(
+        await prisma.bridgeTransfer.update({
+          where: { id: b.id },
+          data: { status: "burned", burnTxHash: settled.burnTxHash },
+        }),
+        settle
+      );
+    }
+
     const burn = await relayerBridgeToArc({
       chainId: b.chainId,
       token: source.usdc,
