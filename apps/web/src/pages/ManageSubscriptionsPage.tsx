@@ -884,7 +884,7 @@ export function ManageSubscriptionsPage() {
             )}
 
             <p style={{ fontSize: 12, lineHeight: 1.65, color: "var(--color-neutral-700)", margin: "22px 0 0", maxWidth: "80ch" }}>
-              Cancelling and turning chains off cost no gas — Sweep Console covers it. Either one stops future
+              Stopping charges and turning chains off cost no gas — Sweep Console covers it. Either one stops future
               charges immediately. The permission you signed stays in your wallet until you remove it there.
               Sweep Console never holds your funds.
             </p>
@@ -904,19 +904,23 @@ export function ManageSubscriptionsPage() {
             aria-modal="true"
           >
             <p className="dialog-title" style={{ margin: 0 }}>
-              Cancel {confirmMandate.merchant.name}?
+              Stop {confirmMandate.merchant.name} charging you?
             </p>
             <p className="dialog-body" style={{ margin: 0 }}>
-              They will not be able to charge you again, and they are told straight away. Charges
-              already taken are not reversed. The permission you signed stays in your wallet until you
-              remove it there — cancelling here means we will not redeem it.
+              They will not be able to charge your wallet again, and they are told straight away.
+              Charges already taken are not reversed.
+            </p>
+            <p className="dialog-body" style={{ margin: 0 }}>
+              This is not the same as closing your account with {confirmMandate.merchant.name}. They set
+              the price and the schedule, so anything about the service itself is theirs to change —
+              speak to them. What this controls is the permission over your own wallet.
             </p>
             <div className="dialog-actions">
               <button className="btn btn-secondary" onClick={() => setConfirmMandate(null)}>
                 Keep it
               </button>
               <button className="btn btn-primary" onClick={() => void onRevokeMandate(confirmMandate)}>
-                Cancel it
+                Stop charges
               </button>
             </div>
           </div>
@@ -1087,10 +1091,11 @@ function MandateDetail({
 
       <div style={{ padding: "18px 24px", borderTop: "1px solid var(--color-divider)" }}>
         <button className="btn btn-secondary" disabled={busy} onClick={() => onAskCancel(mandate)}>
-          {busy ? "Cancelling…" : "Cancel"}
+          {busy ? "Stopping…" : "Stop charges"}
         </button>
         <p style={{ fontSize: 12, lineHeight: 1.65, color: "var(--color-neutral-700)", margin: "12px 0 0", maxWidth: "70ch" }}>
-          Cancelling stops Sweep Console redeeming this and tells {mandate.merchant.name} straight away.
+          This stops {mandate.merchant.name} charging your wallet, and tells them straight away. It does
+          not close your account with them — contact {mandate.merchant.name} for that.
           The permission you signed stays in your wallet until you remove it there.
         </p>
       </div>

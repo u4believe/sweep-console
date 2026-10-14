@@ -104,7 +104,9 @@ export async function sendRailAuthorizationEmail(mandateDbId: string): Promise<v
         `You authorized ${mandate.merchant.name} to charge up to ${ceiling} ${currency} ` +
         `per ${noun} from your wallet ${mandate.walletAddress ?? "(address pending)"}. They choose when to charge within ` +
         `that limit, so there is no fixed date. ` +
-        `To cancel, go to ${manageUrl()} — or revoke the permission in your wallet. ` +
+        `To stop the charges, go to ${manageUrl()} — or revoke the permission in your wallet. ` +
+        `That stops the charging; it does not close your account with ${mandate.merchant.name}, ` +
+        `which is theirs to change. ` +
         `This authorization expires on its own on ${mandate.expiresAt.toISOString().slice(0, 10)}.`,
     });
 

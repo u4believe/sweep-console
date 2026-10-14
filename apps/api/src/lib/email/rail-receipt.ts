@@ -116,8 +116,8 @@ export async function sendRailChargeReceipt(chargeDbId: string): Promise<void> {
         `, settled on Arc${charge.txHash ? ` (tx ${charge.txHash})` : ""}. ` +
         `You authorized up to ${data.ceiling} ${charge.currency} per ` +
         `${{ daily: "day", weekly: "week", monthly: "month", yearly: "year" }[charge.mandate.interval] ?? charge.mandate.interval}. ` +
-        `To stop future charges, cancel at ${manageUrl()} or revoke the permission in ` +
-        `your wallet.`,
+        `To stop future charges, go to ${manageUrl()} or revoke the permission in your wallet. ` +
+        `That stops the charging, not your account with ${charge.merchant.name}.`,
     });
 
     console.log(`[rail-receipt] sent ${charge.chargeId} to ${to}`);

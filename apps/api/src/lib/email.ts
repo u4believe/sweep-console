@@ -502,7 +502,8 @@ export function railChargeReceiptEmailHtml(d: RailChargeReceiptData): string {
     footerContact:
       `Questions about this charge? Contact ${esc(d.merchantName)} directly — they set the amount and ` +
       `decide when to charge. Sweep Console moved the funds and never held them. ` +
-      `To stop future charges, cancel at ${manageUrl()}.`,
+      `To stop future charges, go to ${manageUrl()} — that stops the charging, not your account ` +
+      `with ${esc(d.merchantName)}.`,
     body:
       heroAmount(
         d.amount,
@@ -535,7 +536,7 @@ export function railChargeReceiptEmailHtml(d: RailChargeReceiptData): string {
           `is no fixed next-charge date.`
       ) +
       fineprint(
-        `Didn't expect this? Cancel at ${manageUrl()}, or revoke the permission in your wallet — either ` +
+        `Didn't expect this? Stop the charges at ${manageUrl()}, or revoke the permission in your wallet — either ` +
         `stops further charges. Past charges settle directly to ${esc(d.merchantName)} and are not ` +
         `reversible by Sweep Console — ask them for a refund.`
       ),
@@ -597,14 +598,16 @@ export function railAuthorizationEmailHtml(d: RailAuthorizationData): string {
           { k: "Expires on its own", v: esc(DATE.format(d.expiresAt)) },
         ].filter((r): r is { k: string; v: string } => r !== null)
       ) +
-      button("Manage or cancel", d.manageUrl) +
-      fallbackUrl("Manage or cancel", d.manageUrl) +
+      button("Stop charges", d.manageUrl) +
+      fallbackUrl("Stop charges", d.manageUrl) +
       fineprint(
-        `Two ways to stop it, either is enough: cancel at ${emailLink(
+        `Two ways to stop it, either is enough: ${emailLink(
           d.manageUrl.replace(/^https?:\/\//, ""),
           d.manageUrl
-        )}, or revoke the permission in your wallet. Keep this email — it is the only record we send ` +
-          `unless ${esc(d.merchantName)} asks us to receipt each charge.`
+        )}, or revoke the permission in your wallet. Stopping charges is not the same as closing your ` +
+          `account with ${esc(d.merchantName)} — they set the price and the schedule, so speak to them ` +
+          `about the service itself. Keep this email: it is the only record we send unless ` +
+          `${esc(d.merchantName)} asks us to receipt each charge.`
       ),
   });
 }
