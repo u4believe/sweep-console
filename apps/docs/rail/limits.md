@@ -55,4 +55,5 @@ your behalf — only the payer, from their wallet or their portal, or you, via
 
 A payer disabling ONE chain in their wallet does not end the authorization: you
 get `grant.revoked`, and the mandate keeps charging on whatever is left. It
-only turns into `mandate.revoked` when the last chain goes.
+only turns into `mandate.revoked` when the last chain goes. A payer adding a
+chain later sends `grant.added`, so the set moves in both directions.

@@ -233,6 +233,8 @@ export type WebhookEventType =
   // The external rail — mandates you create and charge yourself.
   | "mandate.authorized"
   | "mandate.revoked"
+  | "grant.revoked"
+  | "grant.added"
   | "mandate.expiring"
   | "mandate.expired"
   | "charge.succeeded"
@@ -364,6 +366,12 @@ export interface WebhookPayloads {
      */
     wallet_reused: boolean;
   };
+  /**
+   * The authorization is FINISHED — nothing left to charge on any chain.
+   *
+   * One chain leaving a live mandate is `grant.revoked`, not this. Acting on
+   * the wrong one cuts off a customer who is still paying you.
+   */
   "mandate.revoked": {
     mandate_id: string;
     external_ref: string;
@@ -377,6 +385,44 @@ export interface WebhookPayloads {
      * guaranteed is that Sweep Console will not redeem it again.
      */
     on_chain: boolean;
+    /** Always empty here — the authorization is over. */
+    remaining_chains: string[];
+    /** Always false here. Branch on this rather than on the event name. */
+    mandate_still_active: boolean;
+  };
+  /**
+   * A payer withdrew ONE chain's permission in their own wallet.
+   *
+   * The authorization survives on the rest, so this is not a reason to stop
+   * serving. A wallet-side withdrawal is invisible to Sweep until the daily
+   * reconciliation looks, so this arrives then rather than the moment they act.
+   */
+  "grant.revoked": {
+    mandate_id: string;
+    chain_id: number;
+    grant_id: string | null;
+    subscription_id: string | null;
+    reason: string;
+    /** What is still chargeable. Empty would make this a mandate.revoked. */
+    remaining_chains: string[];
+    /** True here, by definition. */
+    mandate_still_active: boolean;
+  };
+  /**
+   * A payer authorized an EXTRA chain on a live mandate.
+   *
+   * The mirror of `grant.revoked` — more ways for a charge to succeed, and
+   * nothing to stop. Not sent during the first authorization, where
+   * `mandate.authorized` already carries every chain in `chain_ids`.
+   */
+  "grant.added": {
+    mandate_id: string;
+    chain_id: number;
+    grant_id: string | null;
+    /** The whole chargeable set after the change, not just the new chain. */
+    granted_chains: string[];
+    /** True here, by definition. */
+    mandate_still_active: boolean;
   };
   "mandate.expiring": {
     mandate_id: string;

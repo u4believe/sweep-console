@@ -25,10 +25,11 @@ Everything below is test mode — live keys are not issued yet.
 
 5. **Register a webhook endpoint** — Dashboard → Webhooks → Add endpoint,
    subscribed to `mandate.authorized`, `mandate.revoked`, `grant.revoked`,
-   `charge.succeeded` and `charge.failed`.
+   `grant.added`, `charge.succeeded` and `charge.failed`.
 
-   `grant.revoked` is the one people miss. A payer can disable one chain and
-   keep paying on the others; only `mandate.revoked` means stop serving.
+   The two `grant.*` events are the ones people miss. A payer can disable one
+   chain and keep paying on the others, or add one they skipped — only
+   `mandate.revoked` means stop serving.
 
    It must be a public `https://` URL. `localhost` is refused, and the address is
    re-checked before every delivery, so use a tunnel while developing.

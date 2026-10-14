@@ -100,6 +100,10 @@ app.post(
       await db.users.update(e.externalRef, { chains: e.data.remaining_chains });
     },
 
+    "grant.added": async (e) => {
+      await db.users.update(e.externalRef, { chains: e.data.granted_chains });
+    },
+
     "mandate.revoked": async (e) => {
       await db.users.update(e.externalRef, { usdcActive: false });
     },
