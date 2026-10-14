@@ -29,6 +29,7 @@ import {
   type Hex,
 } from "viem";
 import { accountForDelegate, getRelayerAccount, getRelayerAddress, getSettlementAddress } from "./signers";
+import { delegateAddressForNewGrant, ownerOfDelegateMsca, redeemViaSelfBundler } from "./delegate-msca";
 import { withNonce } from "./nonce";
 import { TOKEN_MESSENGER_ABI, burnParams, type BurnSpeed } from "../gateway/cctp";
 import { chainKeyForId, getSourceChain } from "../gateway/chains";
@@ -102,7 +103,7 @@ export function rpcUrlForChain(chainId: number): string {
 /// Public address the subscriber must delegate to — surfaced to checkout so the
 /// grant names the right delegate. Equals the relayer that submits redeemDelegations.
 export function getDelegateAddress(): Address {
-  return getRelayerAddress("hosted");
+  return delegateAddressForNewGrant("hosted");
 }
 
 // `delegate` is the address a mandate was actually granted to. Passing it is what
@@ -208,11 +209,38 @@ async function redeemSingle(
   call: { target: Address; value: bigint; callData: Hex },
   delegate?: Address
 ): Promise<RedeemResult> {
-  const { account, publicClient, walletClient } = clientsFor(chainId, delegate);
   const executionCallData = encodePacked(
     ["address", "uint256", "bytes"],
     [call.target, call.value, call.callData]
   );
+
+  /**
+   * A grant naming one of our MSCAs is redeemed by submitting a UserOperation
+   * ourselves, not by signing a transaction as the delegate.
+   *
+   * Driven by the GRANT, never by configuration. A grant is immutable and
+   * DelegationManager checks msg.sender against the delegate it names, so the
+   * address in the grant is the only thing that can decide this. Turning the
+   * flag off does not make an MSCA-delegated grant redeemable the old way, and
+   * turning it on does not change how an EOA-delegated grant is redeemed.
+   */
+  if (delegate) {
+    const held = ownerOfDelegateMsca(delegate);
+    if (held) {
+      const { txHash, blockNumber } = await redeemViaSelfBundler({
+        chainId,
+        delegationManager,
+        context,
+        executionCallData,
+        mode: SINGLE_DEFAULT_MODE,
+        delegate,
+        owner: held.owner,
+      });
+      return { txHash, blockNumber };
+    }
+  }
+
+  const { account, publicClient, walletClient } = clientsFor(chainId, delegate);
   // Simulate first so a revert surfaces its actual reason (and raw bytes) — the
   // most common cause is the subscriber's smart account not being deployed on this
   // source chain (empty revert). selectPaymentChain should already exclude those.

@@ -21,6 +21,7 @@ import { ids } from "../lib/ids";
 import { ok, err, serverError } from "../lib/response";
 import { decodePeriodTransferTerms, delegationIdentity } from "../lib/chain/delegation";
 import { getRelayerAddress, getSettlementAddress, settlementIsSeparate } from "../lib/chain/signers";
+import { delegateAddressForNewGrant } from "../lib/chain/delegate-msca";
 import { supportedSourceChains } from "../lib/gateway/chains";
 import { fireWebhook } from "../lib/webhooks/delivery";
 import {
@@ -101,7 +102,9 @@ interface MandateForPage {
 /// defensive for rows created before that.
 function targetsFor(m: MandateForPage) {
   const sources = supportedSourceChains();
-  const delegate = getRelayerAddress("external");
+  // The MSCA when the delegate path is on, so the grant is redeemable by an
+  // address whose owner key can later be rotated. Falls back to the EOA.
+  const delegate = delegateAddressForNewGrant("external");
   // Where a redemption may pay out. Pinned into the signed context as a
   // payee rule, so a delegate key alone cannot send a subscriber\'s USDC
   // anywhere else — see lib/chain/signers.ts settlementIsSeparate().
