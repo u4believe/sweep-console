@@ -192,6 +192,27 @@ export function settlementTargetFor(chainId: number, context: Hex): SettlementTa
 }
 
 /**
+ * Whether the MSCA pays its own gas in ETH instead of using Circle Paymaster.
+ *
+ * The paymaster is optional; the BUNDLER is not. An MSCA is reachable only
+ * through the EntryPoint — its validation plugin answers NotImplemented for a
+ * runtime call to execute(), so the owner cannot drive it with an ordinary
+ * transaction. Dropping the bundler therefore means dropping the MSCA, and
+ * with it the rotation and hijack-immunity it was chosen for. Leaving the
+ * MSCA off entirely is the supported way to do that.
+ *
+ * What this switch buys is one less contract in the path, paid for with ETH
+ * balances to keep topped up on every chain. Worth knowing the price of what
+ * is being avoided: the surcharge is 10% OF GAS, and gas measured 0.008172
+ * USDC on Base Sepolia — so roughly a thousandth of a cent per settlement,
+ * against the operational cost of an ETH balance that halts settlement when it
+ * runs dry.
+ */
+export function settlementPaysOwnGas(): boolean {
+  return process.env.SETTLEMENT_MSCA_SELF_FUNDED === "true";
+}
+
+/**
  * How much USDC settlement keeps back to pay the paymaster with.
  *
  * Settlement is designed to end each payment at zero, which leaves the
