@@ -91,7 +91,7 @@ app.post("/subscribe/usdc", async (req, res) => {
     email: req.user.email,
     maxAmount: usdc("15.00"),              // the CEILING, not the price
     interval: "monthly",
-    chains: ["base", "arbitrum", "optimism"],
+    chains: ["base", "arbitrum", "optimism"],  // what to OFFER — they pick
     expiresAt: new Date("2027-01-01"),
     returnUrl: "https://shop.example.com/thanks",
   });
@@ -100,6 +100,11 @@ app.post("/subscribe/usdc", async (req, res) => {
   res.redirect(mandate.authorizationUrl!);
 });
 ```
+
+The payer chooses which of those chains to sign, so `chains` is a maximum rather
+than a promise. What they actually granted comes back as `mandate.grantedChains`,
+and on the `mandate.authorized` event as `chain_ids`. Charge against those — a
+mandate offered on three chains is often live on one.
 
 **2 — react to what happens**
 
