@@ -38,6 +38,8 @@ curl -X POST https://api.sweepconsole.xyz/v1/mandates \
 | --- | --- |
 | `max_amount` | USDC in micro-units — `5000000` is 5 USDC. An integer, because a float here is a rounding bug that ends in someone being charged the wrong amount |
 | `interval` | `daily`, `weekly`, `monthly` or `yearly` — the period the ceiling applies to |
+| `chains` | The chains to **offer**. The payer picks which to sign, so this is a maximum rather than a promise — offer everything you support, and read `granted_chains` back to see what you got |
+| `granted_chains` | Response only. What the payer actually signed, and what a charge can draw from. Empty while pending; it shrinks if they later disable a chain in their wallet |
 | `chains` | Where the payer may authorize. `arc` is rejected: recurring authority there is a permit to a contract, not the wallet permission this rail redeems |
 | `external_ref` | **Your** id for this payer. Echoed on every webhook, so you never store ours |
 | `email` | Prefilled on the authorization page, and the payer may change it. Omit it and they supply their own |

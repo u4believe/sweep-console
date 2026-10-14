@@ -48,7 +48,22 @@ export interface Mandate {
   currency: "USDC";
   interval: Interval;
   periodDuration: number;
+  /**
+   * The chains you OFFERED when you created the mandate.
+   *
+   * Not what the payer granted. The authorization page lets them choose which
+   * of these to sign, so a mandate offered on three chains can be live on one
+   * — and this still reads three. Charge against `grantedChains`.
+   */
   chains: string[];
+  /**
+   * The chains the payer actually signed, and what a charge can draw from.
+   *
+   * Empty while the mandate is pending. It shrinks if they later disable a
+   * chain in their own wallet, which is the same set `grant.revoked` reports
+   * as `remaining_chains`.
+   */
+  grantedChains: string[];
   testMode: boolean;
   /** When the authorization stops being redeemable. */
   expiresAt: Date;
@@ -95,6 +110,12 @@ export interface CreateMandateParams {
   /** The ceiling per interval — NOT the price. Give it headroom. */
   maxAmount: Usdc;
   interval: Interval;
+  /**
+   * The chains to OFFER the payer. They choose which to sign, so this is a
+   * maximum, not a promise — read `grantedChains` back to see what you got.
+   * More chains means more ways for a charge to succeed, so offer all you
+   * support unless you have a reason not to.
+   */
   chains: Chain[];
   expiresAt: Date;
   returnUrl?: string;

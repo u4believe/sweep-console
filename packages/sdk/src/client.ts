@@ -299,6 +299,7 @@ function toMandate(raw: any): Mandate {
     interval: raw.interval,
     periodDuration: raw.period_duration,
     chains: raw.chains ?? [],
+    grantedChains: raw.granted_chains ?? [],
     testMode: !!raw.test_mode,
     expiresAt: date(raw.expires_at),
     authorizationUrl: raw.authorization_url ?? null,

@@ -69,6 +69,19 @@ export function AuthorizePage() {
   // signedChains now grows DURING the run, so deriving the in-flight one by
   // filtering it would walk off the list as it shrinks.
   const [todoIds, setTodoIds] = useState<number[]>([]);
+  /**
+   * Which chains the payer wants to authorize.
+   *
+   * Every ungranted chain starts selected, so a payer who does not care gets
+   * what this page did before: all of them, one run, no decision. Deselecting
+   * is the new part — authorizing on three chains was previously the only
+   * option, and a payer who only ever funds one was signing two prompts for
+   * permissions they did not want to give.
+   *
+   * null until the view loads, so "nothing selected yet" and "deliberately
+   * none" are not the same state.
+   */
+  const [picked, setPicked] = useState<number[] | null>(null);
 
   // Proving the payer's address, before any wallet prompt. Until this step
   // existed the rail recorded a wallet and a developer's assertion about who
@@ -86,6 +99,9 @@ export function AuthorizePage() {
       const v = await getAuthorization(mandateId);
       setView(v);
       setSignedChains(v.granted_chain_ids);
+      setPicked((cur) =>
+        cur ?? v.targets.filter((t) => !v.granted_chain_ids.includes(t.chain_id)).map((t) => t.chain_id)
+      );
       if (v.email) setEmail(v.email);
       // Active does not mean finished. A payer who skipped a chain can come back
       // and add it while the link lives: POST /grant accepts an active mandate,
@@ -139,9 +155,12 @@ export function AuthorizePage() {
 
   const authorize = async () => {
     if (!view || !mandateId || !address) return;
-    // Only sign the chains that aren't already signed — re-signing one replaces
-    // its grant, which is wasted gas and a second confusing wallet prompt.
-    const todo = view.targets.filter((t) => !signedChains.includes(t.chain_id));
+    // Only the chains the payer picked, and only those not already signed —
+    // re-signing one replaces its grant, which is wasted gas and a second
+    // confusing wallet prompt.
+    const todo = view.targets.filter(
+      (t) => !signedChains.includes(t.chain_id) && (picked ?? []).includes(t.chain_id)
+    );
     if (todo.length === 0) return;
 
     setError("");
@@ -238,6 +257,15 @@ export function AuthorizePage() {
   // shows the step: the token is what /grant checks, and we do not have it.
   const verified = !!emailToken;
   const remaining = view.targets.filter((t) => !signedChains.includes(t.chain_id));
+  /**
+   * Picking is only on offer once the payer can actually act on it: verified,
+   * connected, not mid-run, and with something still ungranted. Showing
+   * toggles before the wallet is connected would invite a choice that cannot
+   * be carried out yet.
+   */
+  const canPick =
+    verified && !!address && walletStatus === "connected" && phase !== "signing" && remaining.length > 0;
+  const chosenRemaining = remaining.filter((t) => (picked ?? []).includes(t.chain_id));
 
   if (phase === "done") {
     return shell(
@@ -438,11 +466,20 @@ export function AuthorizePage() {
             far through they are. Rendered from `targets` rather than a fixed
             three, so a mandate offered on fewer chains shows fewer. */}
         <div className="mt-6">
-          <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-gray-500">Approve chains</p>
+          <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-gray-500">
+            {canPick ? "Choose chains" : "Approve chains"}
+          </p>
+          {canPick && (
+            <p className="mb-2 text-xs text-gray-500">
+              Pick where {view.merchant_name} may charge you. Each one is a separate signature, and
+              you can add the others later from this link.
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-gray-100 pt-3">
             {view.targets.map((t) => {
               const Mark = CHAIN_MARKS[t.chain_key];
               const on = signedChains.includes(t.chain_id);
+              const chosen = (picked ?? []).includes(t.chain_id);
               // The one whose wallet prompt is open right now. Without this a
               // chain being signed looks exactly like one not started, which is
               // the moment the payer most needs the page to point somewhere:
@@ -450,16 +487,24 @@ export function AuthorizePage() {
               // and the next appearing there is nothing on screen to say which.
               const busy = !on && signingChain?.chain_id === t.chain_id;
               const name = CHAIN_BLURB[t.chain_key] ?? t.name;
-              return (
-                <span key={t.chain_id} className="flex items-center gap-2">
+              /**
+               * A signed chain is not a choice any more — re-signing it would
+               * replace a grant the payer already gave, for nothing. So only
+               * the ungranted ones are buttons, and only before a run starts.
+               */
+              const selectable = canPick && !on;
+              const body = (
+                <>
                   {Mark && (
                     <span className={busy ? "animate-pulse" : undefined}>
-                      <Mark height={20} opacity={on ? 1 : busy ? 0.75 : 0.3} />
+                      <Mark height={20} opacity={on || chosen ? 1 : busy ? 0.75 : 0.3} />
                     </span>
                   )}
                   <span
                     className={
-                      on || busy ? "text-sm font-medium text-gray-900" : "text-sm text-gray-400"
+                      on || busy || chosen
+                        ? "text-sm font-medium text-gray-900"
+                        : "text-sm text-gray-400"
                     }
                   >
                     {name}
@@ -467,9 +512,48 @@ export function AuthorizePage() {
                   {/* Opacity and a pulse are not state a screen reader can read,
                       and colour alone is not either. Say it. */}
                   <span className="sr-only">
-                    {on ? "authorized" : busy ? "waiting for your wallet" : "not yet authorized"}
+                    {on
+                      ? "authorized"
+                      : busy
+                        ? "waiting for your wallet"
+                        : selectable
+                          ? chosen
+                            ? "selected"
+                            : "not selected"
+                          : "not yet authorized"}
                   </span>
-                </span>
+                </>
+              );
+
+              if (!selectable) {
+                return (
+                  <span key={t.chain_id} className="flex items-center gap-2">
+                    {body}
+                  </span>
+                );
+              }
+              return (
+                <button
+                  key={t.chain_id}
+                  type="button"
+                  role="checkbox"
+                  aria-checked={chosen}
+                  onClick={() =>
+                    setPicked((cur) => {
+                      const list = cur ?? [];
+                      return list.includes(t.chain_id)
+                        ? list.filter((c) => c !== t.chain_id)
+                        : [...list, t.chain_id];
+                    })
+                  }
+                  className={`flex items-center gap-2 border px-2.5 py-1.5 transition ${
+                    chosen
+                      ? "border-brand-600 bg-brand-50"
+                      : "border-gray-200 bg-white hover:border-gray-300"
+                  }`}
+                >
+                  {body}
+                </button>
               );
             })}
           </div>
@@ -492,13 +576,15 @@ export function AuthorizePage() {
             <>
               <button
                 onClick={authorize}
-                disabled={phase === "signing" || remaining.length === 0}
+                disabled={phase === "signing" || chosenRemaining.length === 0}
                 className="flex w-full items-center justify-center gap-2.5 bg-brand-600 py-3 font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
               >
                 {phase === "signing" && <Spinner size={16} tone="onAccent" />}
                 {phase === "signing"
                   ? "Authorizing…"
-                  : `Authorize ${usdc(view.max_amount)} per ${noun}`}
+                  : chosenRemaining.length === 0
+                    ? "Choose at least one chain"
+                    : `Subscribe — ${usdc(view.max_amount)} per ${noun}`}
               </button>
 
               {/* The longest wait on this rail, and the one most likely to be

@@ -23,7 +23,8 @@ import { fireWebhook } from "../lib/webhooks/delivery";
 import { requireExternalRail } from "../middleware/externalRail";
 import { created, ok, err, validationError } from "../lib/response";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
-import { supportedSourceChains } from "../lib/gateway/chains";
+import { chainKeyForId, supportedSourceChains } from "../lib/gateway/chains";
+import { mandateGrantsWhere } from "../lib/rail";
 
 export const mandatesRouter = Router();
 
@@ -80,7 +81,15 @@ function appUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "http://localhost:3000";
 }
 
-function serialize(m: MandateRow) {
+async function grantedChainsFor(mandateId: string): Promise<string[]> {
+  const rows = await prisma.renewalDelegation.findMany({
+    where: { ...mandateGrantsWhere(mandateId), status: "active" },
+    select: { chainId: true },
+  });
+  return [...new Set(rows.map((r) => chainKeyForId(r.chainId) ?? String(r.chainId)))].sort();
+}
+
+function serialize(m: MandateRow, grantedChains: string[] = []) {
   return {
     id: m.mandateId,
     mode: "external",
@@ -98,7 +107,23 @@ function serialize(m: MandateRow) {
     currency: "USDC",
     interval: m.interval,
     period_duration: m.periodDuration,
+    /**
+     * What you OFFERED the payer, unchanged since you created the mandate.
+     *
+     * Not what they granted. The authorization page now lets a payer choose
+     * which of these to sign, so a mandate offered on three chains can be
+     * live on one — and this field would still read three. `granted_chains`
+     * is the one to charge against and to show a customer.
+     */
     chains: m.chains,
+    /**
+     * What the payer actually signed, and what a charge can draw from.
+     *
+     * Empty while the mandate is pending, and it shrinks if they later
+     * disable a chain in their wallet — the same set `grant.revoked` reports
+     * as `remaining_chains`.
+     */
+    granted_chains: grantedChains,
     test_mode: m.isTestMode,
     // The authorization's own expiry, and separately the lifetime of the link the
     // subscriber opens. A developer who conflates them ships a broken email.
@@ -210,7 +235,8 @@ mandatesRouter.post("/", verifyApiKey, requireExternalRail, async (req, res) => 
     select: SELECT,
   });
 
-  return created(res, serialize(mandate));
+  // Nothing is granted at creation — the payer has not opened the link yet.
+  return created(res, serialize(mandate, []));
 });
 
 // ─── GET /v1/mandates ─────────────────────────────────────────────────────────
@@ -231,7 +257,30 @@ mandatesRouter.get("/", verifyApiKey, requireExternalRail, async (req, res) => {
     prisma.mandate.count({ where }),
   ]);
 
-  return ok(res, { data: rows.map(serialize), count: rows.length, total });
+  /**
+   * One query for every row's granted chains, not one per row.
+   *
+   * `rows.map(serialize)` would also have handed Array.map's INDEX to the
+   * second parameter, which is how a defaulted argument quietly becomes a
+   * number.
+   */
+  const grants = await prisma.renewalDelegation.findMany({
+    where: { sessionId: { in: rows.map((r) => r.mandateId) }, mode: "external", status: "active" },
+    select: { sessionId: true, chainId: true },
+  });
+  const byMandate = new Map<string, string[]>();
+  for (const g of grants) {
+    if (!g.sessionId) continue;
+    const key = chainKeyForId(g.chainId) ?? String(g.chainId);
+    const cur = byMandate.get(g.sessionId) ?? [];
+    if (!cur.includes(key)) cur.push(key);
+    byMandate.set(g.sessionId, cur);
+  }
+  return ok(res, {
+    data: rows.map((r) => serialize(r, (byMandate.get(r.mandateId) ?? []).sort())),
+    count: rows.length,
+    total,
+  });
 });
 
 // ─── GET /v1/mandates/:id ─────────────────────────────────────────────────────
@@ -242,7 +291,7 @@ mandatesRouter.get("/:id", verifyApiKey, requireExternalRail, async (req, res) =
     select: SELECT,
   });
   if (!mandate) return err(res, "Mandate not found", 404, "not_found");
-  return ok(res, serialize(mandate));
+  return ok(res, serialize(mandate, await grantedChainsFor(mandate.mandateId)));
 });
 
 // ─── DELETE /v1/mandates/:id ──────────────────────────────────────────────────
@@ -263,7 +312,7 @@ mandatesRouter.delete("/:id", verifyApiKey, requireExternalRail, async (req, res
     // Idempotent: a retry of a revoke is not an error, and returning 409 here
     // would make a developer's cleanup loop noisy for no reason.
     const current = await prisma.mandate.findUniqueOrThrow({ where: { id: mandate.id }, select: SELECT });
-    return ok(res, serialize(current));
+    return ok(res, serialize(current, await grantedChainsFor(current.mandateId)));
   }
 
   const [updated] = await prisma.$transaction([
@@ -305,5 +354,6 @@ mandatesRouter.delete("/:id", verifyApiKey, requireExternalRail, async (req, res
     on_chain: false,
   }).catch((e) => console.error("[mandates/revoke] webhook failed:", e));
 
-  return ok(res, serialize(updated));
+  // The transaction above revoked every grant with it, so there is nothing left.
+  return ok(res, serialize(updated, []));
 });

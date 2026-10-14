@@ -3,9 +3,14 @@
 Send the payer to `authorization_url`. They connect a wallet and sign one
 **ERC-7715 permission per chain**.
 
-They may sign **fewer chains than you asked for**. The grants are the truth
-about what is redeemable, and a skipped chain can be added later by reopening
-the link while it is still valid.
+**The payer chooses which chains to sign.** The page shows the ones you offered,
+all selected to begin with, and they can deselect any before signing — so a
+mandate offered on three chains is often live on one or two. Each selected chain
+is a separate signature, and they can add the rest later by reopening the link
+while it is still valid.
+
+The grants are the truth about what is redeemable, not the `chains` you sent.
+Read `granted_chains` on the mandate, or `chain_ids` on `mandate.authorized`.
 
 ## What it costs them
 
