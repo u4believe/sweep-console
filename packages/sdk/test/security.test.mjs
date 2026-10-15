@@ -6,18 +6,18 @@ const ok = (n, p, x = "") => r.push(`${p ? "PASS" : "FAIL"}  ${n}${x ? "  — " 
 const threw = (fn) => { try { fn(); return ""; } catch (e) { return e.message; } };
 
 // ── 1. the key must never go over plaintext ──
-ok("rejects an http baseUrl", /must be https/.test(threw(() => new Sweep("sk_test_x", { baseUrl: "http://api.example.com" }))),
-  threw(() => new Sweep("sk_test_x", { baseUrl: "http://api.example.com" })).slice(0, 60));
-ok("  names the host in the refusal", /api\.example\.com/.test(threw(() => new Sweep("sk_test_x", { baseUrl: "http://api.example.com" }))));
-ok("allows http on localhost", threw(() => new Sweep("sk_test_x", { baseUrl: "http://localhost:4000" })) === "");
-ok("allows http on 127.0.0.1", threw(() => new Sweep("sk_test_x", { baseUrl: "http://127.0.0.1:4000" })) === "");
-ok("allows https anywhere", threw(() => new Sweep("sk_test_x", { baseUrl: "https://api.example.com" })) === "");
-ok("rejects a non-URL baseUrl", /is not a URL/.test(threw(() => new Sweep("sk_test_x", { baseUrl: "not a url" }))));
-ok("default baseUrl is https", threw(() => new Sweep("sk_test_x")) === "");
+ok("rejects an http baseUrl", /must be https/.test(threw(() => new Sweep("test_x", { baseUrl: "http://api.example.com" }))),
+  threw(() => new Sweep("test_x", { baseUrl: "http://api.example.com" })).slice(0, 60));
+ok("  names the host in the refusal", /api\.example\.com/.test(threw(() => new Sweep("test_x", { baseUrl: "http://api.example.com" }))));
+ok("allows http on localhost", threw(() => new Sweep("test_x", { baseUrl: "http://localhost:4000" })) === "");
+ok("allows http on 127.0.0.1", threw(() => new Sweep("test_x", { baseUrl: "http://127.0.0.1:4000" })) === "");
+ok("allows https anywhere", threw(() => new Sweep("test_x", { baseUrl: "https://api.example.com" })) === "");
+ok("rejects a non-URL baseUrl", /is not a URL/.test(threw(() => new Sweep("test_x", { baseUrl: "not a url" }))));
+ok("default baseUrl is https", threw(() => new Sweep("test_x")) === "");
 
 // ── 2. webhook verification ──
 const secret = "whsec_test";
-const sweep = new Sweep("sk_test_x");
+const sweep = new Sweep("test_x");
 const body = JSON.stringify({
   event_id: "evt_1", event_type: "mandate.revoked", created_at: new Date().toISOString(),
   merchant_id: "m_1", external_ref: "user_42", data: { revoked_by: "payer" },
@@ -51,8 +51,20 @@ ok("and is rejected when a tolerance is asked for",
   (() => { try { sweep.webhooks.construct(oldBody, oldSig, secret, { toleranceSeconds: 300 }); return false; } catch (e) { return /outside the 300s tolerance/.test(e.message); } })());
 ok("eventId is exposed for dedupe", sweep.webhooks.construct(body, sig, secret).eventId === "evt_1");
 
+// ── 3b. a key routes itself to the right host ──
+// A deployment serves one network, so a test key and a live key do not address
+// the same API. Getting this wrong sends a live key to the sandbox, where it is
+// refused — after the developer has already changed one environment variable
+// and reasonably expects nothing else to need changing.
+ok("a test_ key reaches the sandbox", new Sweep("test_x").baseUrl === "https://api-sandbox.sweepconsole.xyz",
+  new Sweep("test_x").baseUrl);
+ok("a live_ key reaches the live API", new Sweep("live_x").baseUrl === "https://api.sweepconsole.xyz",
+  new Sweep("live_x").baseUrl);
+ok("an explicit baseUrl still wins", new Sweep("live_x", { baseUrl: "https://tunnel.test" }).baseUrl === "https://tunnel.test");
+ok("an unprefixed key is refused", /begins with test_ or live_/.test(threw(() => new Sweep("sk_live_x"))));
+
 // ── 4. no secret leaks into an error message ──
-const key = "sk_test_SUPERSECRET123";
+const key = "test_SUPERSECRET123";
 const s2 = new Sweep(key);
 const msg = threw(() => s2.webhooks.construct("{}", "sha256=00", "whsec"));
 ok("no API key in a verification error", !msg.includes("SUPERSECRET"), msg.slice(0, 50));

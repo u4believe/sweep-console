@@ -8,7 +8,24 @@ import type {
 // is the Vercel-hosted front end and answers every path with the app shell, so
 // pointing a client there yields a 200 full of HTML — see `parse` below, which
 // exists because that mistake is otherwise diagnosed by JSON.parse.
-const DEFAULT_BASE_URL = "https://api.sweepconsole.xyz";
+/**
+ * Two hosts, because a deployment serves one network.
+ *
+ * The chain set, the settlement keys and the contract addresses are fixed per
+ * deployment, so a test key and a live key do not address the same API. The
+ * key already says which you hold, so the SDK picks — swapping one environment
+ * variable moves an integration between sandbox and live with no other change,
+ * which is the part a developer actually notices.
+ *
+ * `baseUrl` still overrides both, for a tunnel, a preview or self-hosting.
+ */
+const LIVE_BASE_URL = "https://api.sweepconsole.xyz";
+const SANDBOX_BASE_URL = "https://api-sandbox.sweepconsole.xyz";
+
+/** The host a key belongs to. Unprefixed keys are refused before this runs. */
+function baseUrlForKey(apiKey: string): string {
+  return apiKey.startsWith("live_") ? LIVE_BASE_URL : SANDBOX_BASE_URL;
+}
 
 export interface SweepOptions {
   /** Override for self-hosting or a tunnel. Defaults to the hosted API. */
@@ -72,12 +89,17 @@ export class Sweep {
           "and read it from the environment — never commit it."
       );
     }
-    if (apiKey.startsWith("live_")) {
-      // Better here than as a 403 three calls later.
-      throw new Error("Sweep: live API keys are not issued yet. Use your test_ key.");
+    /**
+     * A key that is neither is a typo, and catching it here beats a 401 from
+     * whichever host it was guessed onto.
+     */
+    if (!apiKey.startsWith("live_") && !apiKey.startsWith("test_")) {
+      throw new Error(
+        "Sweep: an API key begins with test_ or live_. Copy it from the portal under API Keys."
+      );
     }
     this.apiKey = apiKey;
-    this.baseUrl = checkedBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL);
+    this.baseUrl = checkedBaseUrl(options.baseUrl ?? baseUrlForKey(apiKey));
     this.timeoutMs = options.timeoutMs ?? 30_000;
     this.maxRetries = options.maxRetries ?? 2;
     this.mandates = new Mandates(this);

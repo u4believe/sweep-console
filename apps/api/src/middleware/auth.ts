@@ -1,8 +1,19 @@
 import { createHmac } from "crypto";
 import type { Request, Response, NextFunction } from "express";
+import { isMainnet } from "../lib/gateway/chains";
 import { prisma } from "../lib/prisma";
 import { err } from "../lib/response";
 import type { Merchant } from "@prisma/client";
+
+/**
+ * The other deployment's address, for an error that fixes itself.
+ *
+ * Overridable because a preview deployment is neither of these, and telling a
+ * developer to send their key to production would be worse than saying
+ * nothing.
+ */
+const LIVE_API_URL = process.env.LIVE_API_URL ?? "https://api.sweepconsole.xyz";
+const SANDBOX_API_URL = process.env.SANDBOX_API_URL ?? "https://api-sandbox.sweepconsole.xyz";
 
 export interface AuthedRequest extends Request {
   merchant: Merchant;
@@ -59,13 +70,40 @@ export async function verifyApiKey(
     return;
   }
 
-  // Live keys are not issued yet: nothing writes Merchant.liveKeyHash, and the only
-  // key the portal mints is ids.apiKey(false). Without this, a live_ key would fall
-  // through the loop below and come back "Invalid API key" — sending whoever holds
-  // it to look for a typo in a key that could never have worked. Say the real thing
-  // instead. Remove this once issuance lands and the branch below can actually match.
-  if (isLiveKey) {
-    err(res, "Live API keys are not available yet. Use your test key.", 403, "live_keys_unavailable");
+  /**
+   * A deployment accepts ONE kind of key, and which one follows from the
+   * network it runs on.
+   *
+   * isMainnet() already decides the chain set, the CCTP attestation host, the
+   * Arc RPC and the contract addresses. Deriving the accepted prefix from the
+   * same switch means the two cannot drift: there is no configuration in which
+   * a deployment talks to Base Sepolia and honours live keys.
+   *
+   * It matters because a key carries no network of its own. A live_ key
+   * accepted here would create a mandate on Base SEPOLIA and label it live,
+   * and the error for that arrives much later, as a charge that settles
+   * nowhere a merchant can find.
+   *
+   * The message names the other host rather than saying no, because the whole
+   * cause is usually one environment variable pointing at the wrong place.
+   */
+  const liveDeployment = isMainnet();
+  if (isLiveKey && !liveDeployment) {
+    err(
+      res,
+      `This is the sandbox, which only accepts test keys. Send live keys to ${LIVE_API_URL}.`,
+      403,
+      "wrong_environment"
+    );
+    return;
+  }
+  if (isTestKey && liveDeployment) {
+    err(
+      res,
+      `This is the live API, which only accepts live keys. Send test keys to ${SANDBOX_API_URL}.`,
+      403,
+      "wrong_environment"
+    );
     return;
   }
 
@@ -93,7 +131,22 @@ export async function verifyApiKey(
   });
 
   if (!merchant) {
-    err(res, "Invalid API key", 401);
+    /**
+     * Prefix-aware, because "Invalid API key" sends someone hunting for a typo
+     * in a key that may never have been issuable.
+     *
+     * Nothing writes Merchant.liveKeyHash until portal issuance lands, so on a
+     * live deployment before that, EVERY live key reaches here. Saying where
+     * the key comes from is the difference between a minute and an afternoon.
+     */
+    err(
+      res,
+      isLiveKey
+        ? "No live key matches. Create one in the dashboard under API Keys — a live key is " +
+            "separate from your test key and is shown once."
+        : "Invalid API key",
+      401
+    );
     return;
   }
 
