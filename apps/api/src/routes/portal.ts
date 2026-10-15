@@ -1988,13 +1988,30 @@ portalRouter.get("/api-keys", async (req, res) => {
   try {
     const merchant = await prisma.merchant.findUniqueOrThrow({
       where: { id: dbId },
-      select: { testKeyHash: true, testKeyName: true, testKeyPrefix: true },
+      select: {
+        testKeyHash: true, testKeyName: true, testKeyPrefix: true,
+        liveKeyHash: true, liveKeyName: true, liveKeyPrefix: true,
+        isLive: true,
+      },
     });
+    /**
+     * The key for the mode the dashboard is showing.
+     *
+     * A merchant holds both at once and the two are never interchangeable —
+     * each addresses a different deployment. Reporting them together would
+     * invite copying the wrong one, which fails as a 403 naming the other
+     * host rather than anything obviously about keys.
+     */
+    const { isTestMode } = portalScope(req);
     return ok(res, {
       data: {
+        testMode: isTestMode,
+        isLive: merchant.isLive,
+        hasKey: isTestMode ? !!merchant.testKeyHash : !!merchant.liveKeyHash,
+        name: isTestMode ? merchant.testKeyName : merchant.liveKeyName,
+        prefix: (isTestMode ? merchant.testKeyPrefix : merchant.liveKeyPrefix) ?? null,
+        /// Kept so a client built against the old shape keeps working.
         hasTestKey: !!merchant.testKeyHash,
-        name: merchant.testKeyName,
-        prefix: merchant.testKeyPrefix ?? null,
       },
     });
   } catch (e) {
@@ -2349,20 +2366,44 @@ portalRouter.post(
       const name =
         parsed.success && parsed.data.name ? parsed.data.name : "Default";
 
-      const key = ids.apiKey(false); // test keys only in beta
+      /**
+       * Mints for the mode the dashboard is in, and only that one.
+       *
+       * Live is refused unless the account is activated for it. The toggle
+       * already refuses to enter live mode without that, so reaching here
+       * means a stale session or a direct call — either way the answer is the
+       * same, and issuing a live key to an account that cannot use one would
+       * hand someone a credential that 403s wherever they send it.
+       */
+      const { isTestMode } = portalScope(req);
+      if (!isTestMode) {
+        const { isLive } = await prisma.merchant.findUniqueOrThrow({
+          where: { id: dbId },
+          select: { isLive: true },
+        });
+        if (!isLive) {
+          return err(
+            res,
+            "This account is not activated for live mode yet, so there is no live key to issue.",
+            403,
+            "not_live"
+          );
+        }
+      }
+
+      const key = ids.apiKey(!isTestMode);
       const keyHash = hmacKey(key);
       const keyPrefix = key.slice(0, 16); // e.g. "test_a1b2c3d4e5f6"
 
       await prisma.merchant.update({
         where: { id: dbId },
-        data: {
-          testKeyHash: keyHash,
-          testKeyName: name,
-          testKeyPrefix: keyPrefix,
-        },
+        data: isTestMode
+          ? { testKeyHash: keyHash, testKeyName: name, testKeyPrefix: keyPrefix }
+          : { liveKeyHash: keyHash, liveKeyName: name, liveKeyPrefix: keyPrefix },
       });
 
-      return ok(res, { key, name, prefix: keyPrefix });
+      console.log(`[portal/api-keys] ${dbId} issued a ${isTestMode ? "test" : "live"} key`);
+      return ok(res, { key, name, prefix: keyPrefix, test_mode: isTestMode });
     } catch (e) {
       return serverError(res, "portal/api-keys/regenerate", e, "We couldn't generate a new API key.");
     }
