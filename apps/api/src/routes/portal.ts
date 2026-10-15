@@ -4,6 +4,8 @@ import { createHmac, randomBytes } from "crypto";
 import { addMinutes } from "date-fns";
 import { verifyMessage } from "viem";
 import type { Prisma } from "@prisma/client";
+import { issueSession } from "./auth";
+import { portalScope } from "../middleware/portalAuth";
 import { prisma, withRetry } from "../lib/prisma";
 import { ids } from "../lib/ids";
 import { ok, created, err, validationError, serverError } from "../lib/response";
@@ -64,13 +66,13 @@ portalRouter.get("/dashboard", async (req, res) => {
     // This avoids P1001/P2024 errors when the connection pool is cold or constrained.
     const activeSubs = await withRetry(() =>
       prisma.subscription.count({
-        where: { merchantId: dbId, status: { in: ["active", "trialing"] } },
+        where: { ...portalScope(req), status: { in: ["active", "trialing"] } },
       }),
     );
     const revenue = await withRetry(() =>
       prisma.payment.aggregate({
         where: {
-          merchantId: dbId,
+          ...portalScope(req),
           status: "succeeded",
           type: { in: ["initial", "renewal"] },
         },
@@ -78,10 +80,10 @@ portalRouter.get("/dashboard", async (req, res) => {
       }),
     );
     const plans = await withRetry(() =>
-      prisma.plan.count({ where: { merchantId: dbId, archived: false } }),
+      prisma.plan.count({ where: { ...portalScope(req), archived: false } }),
     );
     const failedPayments = await withRetry(() =>
-      prisma.payment.count({ where: { merchantId: dbId, status: "failed" } }),
+      prisma.payment.count({ where: { ...portalScope(req), status: "failed" } }),
     );
     const merchant = await withRetry(() =>
       prisma.merchant.findUniqueOrThrow({
@@ -141,7 +143,15 @@ portalRouter.get("/me", async (req, res) => {
     // The nav needs to know whether to show the operator screen. Advisory only —
     // every admin route checks for itself and 404s, so a client that lies about
     // this sees nothing.
-    return ok(res, { data: { ...merchant, isAdmin: isAdminEmail(merchant.email) } });
+    return ok(res, {
+      data: {
+        ...merchant,
+        isAdmin: isAdminEmail(merchant.email),
+        // Which mode the dashboard is showing, from the session rather than
+        // the row — two people on one account can differ.
+        testMode: (req as PortalRequest).isTestMode,
+      },
+    });
   } catch (e) {
     return serverError(res, "portal/me", e, "We couldn't load your profile.");
   }
@@ -177,7 +187,7 @@ portalRouter.get("/plans", async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
   try {
     const plans = await prisma.plan.findMany({
-      where: { merchantId: dbId, archived: false },
+      where: { ...portalScope(req), archived: false },
       orderBy: { createdAt: "desc" },
       include: {
         // Live subscriptions only, carrying the amount/interval each one was
@@ -263,7 +273,7 @@ portalRouter.post("/plans", async (req, res) => {
   try {
     // One active plan per merchant — delete the existing one before creating a new one.
     const activePlan = await prisma.plan.findFirst({
-      where: { merchantId: dbId, archived: false },
+      where: { ...portalScope(req), archived: false },
       select: { id: true },
     });
     if (activePlan) {
@@ -327,7 +337,7 @@ portalRouter.delete(
     const dbId = (req as unknown as PortalRequest).merchantDbId;
     try {
       const plan = await prisma.plan.findFirst({
-        where: { planId: req.params.id as string, merchantId: dbId },
+        where: { planId: req.params.id as string, ...portalScope(req) },
       });
       if (!plan) return err(res, "Plan not found", 404);
       if (plan.archived) return ok(res, { archived: true, cancelling: 0 });
@@ -384,7 +394,7 @@ portalRouter.patch("/plans/:id/recommended", async (req, res) => {
     const plan = await prisma.plan.findFirst({
       where: {
         planId: req.params.id as string,
-        merchantId: dbId,
+        ...portalScope(req),
         archived: false,
       },
       include: { tiers: { where: { archived: false }, select: { id: true } } },
@@ -439,7 +449,7 @@ portalRouter.post("/plans/:id/tiers", async (req, res) => {
     const plan = await prisma.plan.findFirst({
       where: {
         planId: req.params.id as string,
-        merchantId: dbId,
+        ...portalScope(req),
         archived: false,
       },
     });
@@ -549,7 +559,7 @@ portalRouter.patch(
     const plan = await prisma.plan.findFirst({
       where: {
         planId: req.params.id as string,
-        merchantId: dbId,
+        ...portalScope(req),
         archived: false,
       },
       select: { id: true },
@@ -696,7 +706,7 @@ portalRouter.patch(
     const plan = await prisma.plan.findFirst({
       where: {
         planId: req.params.id as string,
-        merchantId: dbId,
+        ...portalScope(req),
         archived: false,
       },
       select: {
@@ -797,7 +807,7 @@ portalRouter.delete(
     const dbId = (req as unknown as PortalRequest).merchantDbId;
     try {
       const plan = await prisma.plan.findFirst({
-        where: { planId: req.params.id as string, merchantId: dbId },
+        where: { planId: req.params.id as string, ...portalScope(req) },
         select: { id: true, recommendedTierId: true },
       });
       if (!plan) return err(res, "Plan not found", 404);
@@ -837,7 +847,7 @@ portalRouter.get("/payment-links", async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
   try {
     const links = await prisma.paymentLink.findMany({
-      where: { merchantId: dbId, active: true },
+      where: { ...portalScope(req), active: true },
       include: {
         plan: {
           select: {
@@ -893,13 +903,13 @@ portalRouter.post("/payment-links", async (req, res) => {
 
   try {
     const plan = await prisma.plan.findFirst({
-      where: { planId: plan_id, merchantId: dbId, archived: false },
+      where: { planId: plan_id, ...portalScope(req), archived: false },
     });
     if (!plan) return err(res, "Plan not found", 404, "not_found");
 
     // One active link per plan — reuse it so the shareable URL stays stable
     const existing = await prisma.paymentLink.findFirst({
-      where: { merchantId: dbId, planId: plan.id, active: true },
+      where: { ...portalScope(req), planId: plan.id, active: true },
     });
     if (existing) {
       return ok(res, {
@@ -1001,7 +1011,7 @@ portalRouter.get("/rail", async (req, res) => {
       activeMandates,
     ] = await Promise.all([
       prisma.mandate.findMany({
-        where: { merchantId: dbId },
+        where: { ...portalScope(req) },
         orderBy: { createdAt: "desc" },
         take: 50,
         select: {
@@ -1021,7 +1031,7 @@ portalRouter.get("/rail", async (req, res) => {
         },
       }),
       prisma.charge.findMany({
-        where: { merchantId: dbId },
+        where: { ...portalScope(req) },
         orderBy: { createdAt: "desc" },
         take: 50,
         select: {
@@ -1043,12 +1053,12 @@ portalRouter.get("/rail", async (req, res) => {
       // is taken on the source chain before the bridge — so this is what the payers
       // were charged, not what landed on Arc.
       prisma.charge.aggregate({
-        where: { merchantId: dbId, status: "succeeded" },
+        where: { ...portalScope(req), status: "succeeded" },
         _sum: { amount: true },
       }),
-      prisma.charge.count({ where: { merchantId: dbId, status: "pending" } }),
-      prisma.charge.count({ where: { merchantId: dbId, status: "failed" } }),
-      prisma.mandate.count({ where: { merchantId: dbId, status: "active" } }),
+      prisma.charge.count({ where: { ...portalScope(req), status: "pending" } }),
+      prisma.charge.count({ where: { ...portalScope(req), status: "failed" } }),
+      prisma.mandate.count({ where: { ...portalScope(req), status: "active" } }),
     ]);
 
     return ok(res, {
@@ -1343,7 +1353,7 @@ portalRouter.get("/subscriptions", async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
   try {
     const subs = await prisma.subscription.findMany({
-      where: { merchantId: dbId },
+      where: { ...portalScope(req) },
       include: {
         plan: { select: { name: true, amount: true } },
         renewalDelegations: { where: { status: "active" }, select: { periodAmount: true } },
@@ -1411,7 +1421,7 @@ portalRouter.get("/payments", async (req, res) => {
   try {
     const payments = await prisma.payment.findMany({
       where: {
-        merchantId: dbId,
+        ...portalScope(req),
         // The refund path is retired, so its rows stop being surfaced here.
         // They stay in the table — 22 of them are real money that really went
         // back during the settlement-window era, and deleting financial history
@@ -1472,6 +1482,45 @@ portalRouter.get("/payments", async (req, res) => {
  * out and manages through Sweep, so a receipt comes from somewhere they have
  * already been.
  */
+/**
+ * Switch the dashboard between test and live.
+ *
+ * Re-issues the session cookie rather than writing a column, so two people on
+ * one account can be in different modes and no portal request pays for an
+ * extra read. The cookie is the only thing that changes.
+ *
+ * Live is refused unless the merchant is activated for it. Showing an empty
+ * live dashboard to an account that cannot have live data reads as a bug, and
+ * the honest answer is that there is nothing to switch to yet.
+ */
+portalRouter.post("/me/mode", async (req, res) => {
+  const dbId = (req as PortalRequest).merchantDbId;
+  const parsed = z.object({ test_mode: z.boolean() }).safeParse(req.body);
+  if (!parsed.success) return err(res, "Send { test_mode: true | false }", 422);
+
+  try {
+    const merchant = await prisma.merchant.findUniqueOrThrow({
+      where: { id: dbId },
+      select: { id: true, merchantId: true, email: true, name: true, onboarded: true, isLive: true },
+    });
+
+    if (!parsed.data.test_mode && !merchant.isLive) {
+      return err(
+        res,
+        "This account is not activated for live mode yet. Everything you do here stays in test.",
+        403,
+        "not_live"
+      );
+    }
+
+    issueSession(res, merchant, false, parsed.data.test_mode);
+    console.log(`[portal/mode] ${dbId} switched to ${parsed.data.test_mode ? "test" : "live"}`);
+    return ok(res, { data: { test_mode: parsed.data.test_mode } });
+  } catch (e) {
+    return serverError(res, "portal/mode", e, "We couldn't switch mode.");
+  }
+});
+
 portalRouter.patch("/me/rail-receipts", async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
   const parsed = z.object({ enabled: z.boolean() }).safeParse(req.body);
@@ -1500,7 +1549,7 @@ portalRouter.get("/webhooks", async (req, res) => {
     });
     const railEnabled = merchant?.externalRailEnabled ?? false;
     const endpoints = await prisma.webhookEndpoint.findMany({
-      where: { merchantId: dbId, isActive: true },
+      where: { ...portalScope(req), isActive: true },
       include: {
         _count: { select: { deliveries: true } },
         deliveries: { orderBy: { createdAt: "desc" }, take: 5 },
@@ -2244,7 +2293,7 @@ portalRouter.post(
       const endpoint = await prisma.webhookEndpoint.findFirst({
         where: {
           endpointId: req.params.id as string,
-          merchantId: dbId,
+          ...portalScope(req),
           isActive: true,
         },
         select: { secret: true },
@@ -2269,7 +2318,7 @@ portalRouter.post(
       const endpoint = await prisma.webhookEndpoint.findFirst({
         where: {
           endpointId: req.params.id as string,
-          merchantId: dbId,
+          ...portalScope(req),
           isActive: true,
         },
         select: { id: true },

@@ -34,12 +34,46 @@ const ADMIN_NAV = { href: "/admin/rail", label: "Rail access" };
 export function PortalLayout() {
   const [isAdmin, setIsAdmin] = useState(false);
 
+  const [mode, setMode] = useState<{ testMode: boolean; isLive: boolean } | null>(null);
+  const [switching, setSwitching] = useState(false);
+
   useEffect(() => {
     fetch(`${API_URL}/portal/me`, { credentials: "include" })
       .then((r) => r.json())
-      .then((json: { data?: { isAdmin?: boolean } }) => setIsAdmin(!!json.data?.isAdmin))
+      .then((json: { data?: { isAdmin?: boolean; testMode?: boolean; isLive?: boolean } }) => {
+        setIsAdmin(!!json.data?.isAdmin);
+        if (json.data) setMode({ testMode: json.data.testMode !== false, isLive: !!json.data.isLive });
+      })
       .catch(() => setIsAdmin(false));
   }, []);
+
+  /**
+   * Switching reloads the page rather than refetching.
+   *
+   * The mode lives in the session cookie, so the switch changes what EVERY
+   * open screen should be showing — plans, subscriptions, charges, the
+   * numbers on the dashboard. Refetching one of them and leaving the rest is
+   * how a merchant ends up reading live figures under a Test badge.
+   */
+  async function switchMode(testMode: boolean) {
+    if (switching) return;
+    setSwitching(true);
+    try {
+      const res = await fetch(`${API_URL}/portal/me/mode`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ test_mode: testMode }),
+      });
+      if (!res.ok) {
+        setSwitching(false);
+        return;
+      }
+      window.location.reload();
+    } catch {
+      setSwitching(false);
+    }
+  }
 
   const nav = isAdmin ? [...NAV, ADMIN_NAV] : NAV;
 
@@ -85,9 +119,42 @@ export function PortalLayout() {
 
           <span className="tag tag-accent" style={{ marginLeft: 6 }}>Test mode</span>
 
+          {/* The mode switch. Live is offered only to an activated account —
+              an empty live dashboard on an account that cannot have live data
+              reads as a bug rather than as a state. */}
+          {mode && (
+            <div className="ml-auto flex shrink-0 items-center" style={{ border: "1px solid var(--color-divider)" }}>
+              {([true, false] as const).map((isTest) => {
+                const on = mode.testMode === isTest;
+                const allowed = isTest || mode.isLive;
+                return (
+                  <button
+                    key={String(isTest)}
+                    type="button"
+                    disabled={switching || !allowed}
+                    title={allowed ? undefined : "This account is not activated for live mode yet"}
+                    onClick={() => { if (!on && allowed) void switchMode(isTest); }}
+                    style={{
+                      fontSize: 11,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      padding: "5px 11px",
+                      background: on ? "var(--color-text)" : "transparent",
+                      color: on ? "var(--color-ground)" : allowed ? "var(--color-neutral-700)" : "var(--color-neutral-500)",
+                      cursor: on || !allowed ? "default" : "pointer",
+                      opacity: allowed ? 1 : 0.55,
+                    }}
+                  >
+                    {isTest ? "Test" : "Live"}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           <span
-            className="ml-auto truncate"
-            style={{ fontSize: 12, color: "var(--color-neutral-800)", minWidth: 0 }}
+            className={mode ? "truncate" : "ml-auto truncate"}
+            style={{ fontSize: 12, color: "var(--color-neutral-800)", minWidth: 0, marginLeft: mode ? 16 : undefined }}
           >
             {user?.email}
           </span>

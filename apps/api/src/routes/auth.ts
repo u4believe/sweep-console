@@ -27,10 +27,12 @@ const SESSION_REMEMBER_DAYS = 30;
 
 // Issue the portal session cookie. `remember` extends the lifetime so the
 // merchant stays signed in across browser restarts.
-function issueSession(
+export function issueSession(
   res: Response,
   merchant: { id: string; merchantId: string; email: string; name: string; onboarded: boolean },
-  remember = false
+  remember = false,
+  /// Which mode the dashboard opens in. A fresh sign-in starts in test.
+  testMode = true
 ): void {
   const days = remember ? SESSION_REMEMBER_DAYS : SESSION_DEFAULT_DAYS;
   const payload: SessionPayload = {
@@ -39,6 +41,7 @@ function issueSession(
     email: merchant.email,
     name: merchant.name,
     onboarded: merchant.onboarded,
+    testMode,
   };
   const token = jwt.sign(payload, getJwtSecret(), { expiresIn: `${days}d` });
   res.cookie("sweep_session", token, { ...sessionCookieOptions(), maxAge: days * DAY_MS });

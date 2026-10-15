@@ -47,11 +47,25 @@ const UNSCOPABLE = [
 
 const ROUTES = join(__dirname, "..", "src", "routes");
 
+/**
+ * The two doors, and how each names the merchant.
+ *
+ * The API is key-authed and says `merchantId: merchant.id`; the dashboard is
+ * session-authed and says `merchantId: dbId`. Both leak the same way if the
+ * mode is left off, and the dashboard is the easier one to forget because
+ * there is no key to remind you a mode exists.
+ */
+const RAW_PATTERNS = [
+  { needle: "merchantId: merchant.id", fix: "...merchantScope(req)" },
+  { needle: "merchantId: dbId", fix: "...portalScope(req)" },
+];
+
 interface Finding {
   file: string;
   line: number;
   model: string;
   method: string;
+  fix: string;
 }
 
 function main(): void {
@@ -64,7 +78,8 @@ function main(): void {
 
     const lines = readFileSync(join(ROUTES, name), "utf8").split("\n");
     for (let i = 0; i < lines.length; i++) {
-      if (!lines[i]!.includes("merchantId: merchant.id")) continue;
+      const raw = RAW_PATTERNS.find((p) => lines[i]!.includes(p.needle));
+      if (!raw) continue;
 
       /**
        * Walk back to the prisma/tx call this belongs to — but only through a
@@ -96,7 +111,7 @@ function main(): void {
       if (!model || !method) continue;
       if (!READS.includes(method)) continue;
 
-      const f = { file: name, line: i + 1, model, method };
+      const f = { file: name, line: i + 1, model, method, fix: raw.fix };
       if (MODE_BEARING.includes(model)) findings.push(f);
       else if (UNSCOPABLE.includes(model)) deferred.push(f);
     }
@@ -119,9 +134,8 @@ function main(): void {
 
   console.log(`FAIL. ${findings.length} read(s) can see the other mode's rows:\n`);
   for (const f of findings) {
-    console.log(`  ${f.file}:${f.line}  ${f.model}.${f.method}`);
+    console.log(`  ${f.file}:${f.line}  ${f.model}.${f.method}  -> ${f.fix}`);
   }
-  console.log(`\nReplace \`merchantId: merchant.id\` with \`...merchantScope(req)\`.`);
   process.exitCode = 1;
 }
 
