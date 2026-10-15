@@ -55,7 +55,7 @@ checkoutRouter.post("/sessions", verifyApiKey, async (req, res) => {
   const { plan_id, external_ref, success_url, cancel_url, metadata } = parsed.data;
 
   const plan = await prisma.plan.findFirst({
-    where: { planId: plan_id, merchantId: merchant.id, archived: false },
+    where: { planId: plan_id, ...merchantScope(req), archived: false },
   });
   if (!plan) return err(res, "Plan not found", 404, "not_found");
 

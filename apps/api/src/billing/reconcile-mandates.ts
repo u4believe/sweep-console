@@ -79,7 +79,7 @@ export async function reconcileMandatesOnce(): Promise<ReconcileOutcome[]> {
     },
     include: {
       merchant: { select: { merchantId: true } },
-      subscription: { select: { externalRef: true, subscriptionId: true } },
+      subscription: { select: { externalRef: true, subscriptionId: true, isTestMode: true } },
     },
   });
 
@@ -175,6 +175,25 @@ export async function reconcileMandatesOnce(): Promise<ReconcileOutcome[]> {
       const lastOneGone = remaining.length === 0;
 
       /**
+       * A grant row carries no mode of its own — it inherits its parent's.
+       *
+       * A hosted grant takes the subscription's, which is already loaded. A
+       * rail grant's parent is the Mandate its sessionId names, so that one
+       * costs a read. Defaulting to test if neither resolves: an event sent to
+       * the wrong endpoints is bad either way, and the test ones are the
+       * harmless direction to be wrong in.
+       */
+      const parentMode =
+        c.m.mode === "external"
+          ? (
+              await prisma.mandate.findUnique({
+                where: { mandateId: c.m.sessionId ?? "" },
+                select: { isTestMode: true },
+              })
+            )?.isTestMode ?? true
+          : c.m.subscription?.isTestMode ?? true;
+
+      /**
        * The mandate row itself, once nothing is left to redeem.
        *
        * Without this a rail mandate whose every chain the payer disabled stayed
@@ -217,7 +236,9 @@ export async function reconcileMandatesOnce(): Promise<ReconcileOutcome[]> {
             remaining_chains: remainingChains,
             mandate_still_active: !lastOneGone,
           }
-        ).catch((e) => console.error(`[reconcile] webhook failed for ${id}:`, e));
+        ,
+          // The parent's mode: a grant has none of its own.
+          parentMode).catch((e) => console.error(`[reconcile] webhook failed for ${id}:`, e));
       }
     }
   }

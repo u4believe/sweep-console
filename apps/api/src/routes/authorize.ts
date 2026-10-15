@@ -161,7 +161,7 @@ async function loadMandate(mandateId: string) {
       walletAddress: true,
       maxAmount: true, interval: true, periodDuration: true, chains: true,
       status: true, expiresAt: true, linkExpiresAt: true, returnUrl: true,
-      sessionToken: true, merchantId: true,
+      sessionToken: true, merchantId: true, isTestMode: true,
       merchant: { select: { name: true, merchantId: true } },
     },
   });
@@ -562,7 +562,9 @@ authorizeRouter.post("/authorize/:mandate_id/complete", async (req, res) => {
       // its own delegation with its own period enforcer, so neither can see the
       // other's charges — the ceilings add up rather than capping each other.
       wallet_reused: walletReused,
-    }).catch((e) => console.error("[authorize/complete] webhook failed:", e));
+    },
+      // The mandate's own mode, set when the developer created it.
+      m.isTestMode).catch((e) => console.error("[authorize/complete] webhook failed:", e));
 
     return ok(res, { id: updated.mandateId, status: updated.status, chain_ids: grants.map((g) => g.chainId) });
   } catch (e) {

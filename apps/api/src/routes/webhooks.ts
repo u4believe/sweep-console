@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { randomBytes } from "crypto";
 import { prisma } from "../lib/prisma";
-import { verifyApiKey, type AuthedRequest } from "../middleware/auth";
+import { merchantScope, verifyApiKey, type AuthedRequest } from "../middleware/auth";
 import { ok, created, err, validationError } from "../lib/response";
 import { signWebhook } from "../lib/webhooks/sign";
 import { ids } from "../lib/ids";
@@ -17,7 +17,7 @@ const createWebhookSchema = z.object({
 });
 
 webhooksRouter.post("/", verifyApiKey, async (req, res) => {
-  const { merchant } = req as AuthedRequest;
+  const { merchant, isTestMode } = req as AuthedRequest;
   const parsed = createWebhookSchema.safeParse(req.body);
   if (!parsed.success) {
     return validationError(res, Object.fromEntries(
@@ -50,6 +50,9 @@ webhooksRouter.post("/", verifyApiKey, async (req, res) => {
     data: {
       endpointId: ids.webhook(),
       merchantId: merchant.id,
+      // The key's mode: an endpoint registered with a test key receives test
+      // events only, and its signing secret never signs a live delivery.
+      isTestMode,
       url: parsed.data.url,
       events: parsed.data.events,
       // whsec_-prefixed, matching the portal — the two used to differ, so the
@@ -70,7 +73,7 @@ webhooksRouter.post("/", verifyApiKey, async (req, res) => {
 webhooksRouter.get("/", verifyApiKey, async (req, res) => {
   const { merchant } = req as AuthedRequest;
   const endpoints = await prisma.webhookEndpoint.findMany({
-    where: { merchantId: merchant.id, isActive: true },
+    where: { ...merchantScope(req), isActive: true },
     orderBy: { createdAt: "desc" },
   });
 
@@ -87,7 +90,7 @@ webhooksRouter.get("/", verifyApiKey, async (req, res) => {
 webhooksRouter.delete("/:id", verifyApiKey, async (req, res) => {
   const { merchant } = req as AuthedRequest;
   const endpoint = await prisma.webhookEndpoint.findFirst({
-    where: { endpointId: req.params.id as string, merchantId: merchant.id },
+    where: { endpointId: req.params.id as string, ...merchantScope(req) },
   });
   if (!endpoint) return err(res, "Webhook endpoint not found", 404, "not_found");
 
@@ -103,7 +106,7 @@ webhooksRouter.post("/:id/replay/:event_id", verifyApiKey, async (req, res) => {
   const { merchant } = req as AuthedRequest;
 
   const endpoint = await prisma.webhookEndpoint.findFirst({
-    where: { endpointId: req.params.id as string, merchantId: merchant.id },
+    where: { endpointId: req.params.id as string, ...merchantScope(req) },
   });
   if (!endpoint) return err(res, "Webhook endpoint not found", 404, "not_found");
 

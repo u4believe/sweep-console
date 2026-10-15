@@ -49,6 +49,7 @@ export async function notifyGrantAdded(input: {
       select: {
         mandateId: true,
         status: true,
+        isTestMode: true,
         externalRef: true,
         merchantId: true,
         merchant: { select: { merchantId: true } },
@@ -83,7 +84,10 @@ export async function notifyGrantAdded(input: {
          */
         granted_chains: grantedChains,
         mandate_still_active: true,
-      }
+      },
+      // The mandate's mode, not the caller's: a test mandate's events are
+      // test events wherever they are triggered from.
+      mandate.isTestMode
     );
     console.log(
       `[rail/grant-added] ${mandate.mandateId} gained chain ${input.chainId} — now ${grantedChains.join(", ")}`

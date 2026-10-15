@@ -141,6 +141,12 @@ model PasswordReset {
 model Plan {
   id         String   @id @default(cuid())
   planId     String   @unique // "plan_pro_monthly"
+  /// Which mode this plan belongs to.
+  ///
+  /// Defaults to TRUE so a write that forgets to set it produces a test plan,
+  /// never a live one. The wrong default here is the one that lets a live
+  /// checkout reference something that was only ever tried out.
+  isTestMode Boolean @default(true)
   merchantId String
   merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
 
@@ -674,6 +680,15 @@ model MerchantChallenge {
 model WebhookEndpoint {
   id         String   @id @default(cuid())
   endpointId String   @unique // "we_abc123"
+  /// Which mode's events reach this endpoint.
+  ///
+  /// Per-mode because the signing secret is per endpoint: one endpoint serving
+  /// both would sign live and test deliveries with the same secret, and a
+  /// developer could not point staging and production at different URLs.
+  ///
+  /// Defaults to TRUE for the same reason as Plan — a forgotten write makes an
+  /// endpoint that receives test traffic, not live.
+  isTestMode Boolean @default(true)
   merchantId String
   merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
 

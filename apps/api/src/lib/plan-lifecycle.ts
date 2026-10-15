@@ -20,6 +20,8 @@ export interface ClosingSub {
   id: string;
   subscriptionId: string;
   merchantId: string;
+  /// Decides which mode's webhook endpoints hear about the cancellation.
+  isTestMode: boolean;
   externalRef: string;
   onChainSubId: string | null;
   subscriberEmail: string | null;
@@ -42,6 +44,7 @@ export function findSubsToClose(planDbId: string) {
       id: true,
       subscriptionId: true,
       merchantId: true,
+      isTestMode: true,
       externalRef: true,
       onChainSubId: true,
       subscriberEmail: true,
@@ -69,7 +72,9 @@ export async function closePlanSubscriptions(plan: ClosingPlan, subs: ClosingSub
       plan_id: sub.plan.planId,
       cancel_reason: "plan_deleted",
       cancelled_at: new Date().toISOString(),
-    }).catch((e) => console.error(`[plan-lifecycle] webhook failed for ${sub.subscriptionId}:`, e));
+    },
+      // The subscription's mode, not the plan's — the event is about the sub.
+      sub.isTestMode).catch((e) => console.error(`[plan-lifecycle] webhook failed for ${sub.subscriptionId}:`, e));
 
     if (sub.subscriberEmail) {
       await sendEmail({

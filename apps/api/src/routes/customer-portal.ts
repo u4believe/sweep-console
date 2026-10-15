@@ -730,6 +730,8 @@ customerPortalRouter.post("/mandates/:id/revoke", async (req, res) => {
       ],
     },
     select: {
+      // Decides which mode's endpoints hear the revoke.
+      isTestMode: true,
       id: true, mandateId: true, externalRef: true, status: true,
       walletAddress: true, merchantId: true, merchant: { select: { merchantId: true } },
     },
@@ -780,7 +782,9 @@ customerPortalRouter.post("/mandates/:id/revoke", async (req, res) => {
         remaining_chains: [],
         mandate_still_active: false,
       }
-    ).catch((e: unknown) => console.error("[portal/mandate-revoke] webhook failed:", e));
+    ,
+      // The mandate's mode. A payer acts on it, not on a key.
+      mandate.isTestMode).catch((e: unknown) => console.error("[portal/mandate-revoke] webhook failed:", e));
 
     console.log(`[portal/mandate-revoke] ${mandate.mandateId} revoked by its payer`);
     return ok(res, { mandate_id: mandate.mandateId, status: "revoked" });

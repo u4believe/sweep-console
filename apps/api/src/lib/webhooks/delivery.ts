@@ -15,15 +15,29 @@ interface WebhookPayload {
   data: Record<string, unknown>;
 }
 
+/**
+ * Deliver an event to the merchant's endpoints FOR THAT MODE.
+ *
+ * `isTestMode` is required, and deliberately has no default. Every caller has
+ * to say which mode the event belongs to, sourced from the object the event is
+ * about — a test mandate's events are test events, whatever is happening
+ * elsewhere. A default would be the quiet way for live endpoints to start
+ * receiving test traffic, or worse.
+ *
+ * Endpoints are per-mode because their signing secret is: one endpoint serving
+ * both would sign live and test deliveries with the same secret, and a
+ * developer could not point staging and production at different URLs.
+ */
 export async function fireWebhook(
   merchantId: string,
   externalRef: string,
   merchantPublicId: string,
   eventType: WebhookEventType,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  isTestMode: boolean
 ) {
   const endpoints = await prisma.webhookEndpoint.findMany({
-    where: { merchantId, isActive: true, events: { has: eventType } },
+    where: { merchantId, isTestMode, isActive: true, events: { has: eventType } },
   });
 
   if (endpoints.length === 0) return;

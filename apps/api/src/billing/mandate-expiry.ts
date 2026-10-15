@@ -38,6 +38,7 @@ const SELECT = {
   mandateId: true,
   externalRef: true,
   merchantId: true,
+  isTestMode: true,
   expiresAt: true,
   maxAmount: true,
   interval: true,
@@ -73,7 +74,9 @@ export async function runMandateExpiryOnce(): Promise<ExpiryOutcome[]> {
       // Said plainly because the remedy is not on the developer's side: they
       // cannot extend a mandate, only the payer can sign a new one.
       recovery: "Create a new mandate and send the payer its authorization_url.",
-    }).catch((e) => console.error(`[mandate-expiry] expired webhook failed for ${m.mandateId}:`, e));
+    },
+      // The mandate's own mode.
+      m.isTestMode).catch((e) => console.error(`[mandate-expiry] expired webhook failed for ${m.mandateId}:`, e));
   }
 
   // ── 2. Expiring soon ────────────────────────────────────────────────────────
@@ -100,7 +103,9 @@ export async function runMandateExpiryOnce(): Promise<ExpiryOutcome[]> {
       expires_at: m.expiresAt.toISOString(),
       days_remaining: daysLeft,
       recovery: "Create a new mandate and send the payer its authorization_url before this one lapses.",
-    }).catch((e) => console.error(`[mandate-expiry] expiring webhook failed for ${m.mandateId}:`, e));
+    },
+      // The mandate's own mode.
+      m.isTestMode).catch((e) => console.error(`[mandate-expiry] expiring webhook failed for ${m.mandateId}:`, e));
   }
 
   if (outcomes.length > 0) {

@@ -68,7 +68,9 @@ export async function revokeSubscription(
     wallet_address: sub.walletAddress,
     cancelled_at: new Date().toISOString(),
     revoked_delegations: delg.count,
-  });
+  },
+    // The subscription's mode.
+    sub.isTestMode);
 
   return { revokedDelegations: delg.count };
 }

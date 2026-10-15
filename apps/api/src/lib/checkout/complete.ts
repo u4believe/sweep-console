@@ -312,9 +312,13 @@ export async function completeCheckoutSession(input: CompleteCheckoutInput) {
 
   await Promise.all([
     fireWebhook(session.merchantId, session.externalRef, session.merchant.merchantId,
-      "checkout.session.completed", eventData),
+      "checkout.session.completed", eventData,
+        // The checkout session's mode.
+        session.isTestMode),
     fireWebhook(session.merchantId, session.externalRef, session.merchant.merchantId,
-      "subscription.created", eventData),
+      "subscription.created", eventData,
+        // The checkout session's mode.
+        session.isTestMode),
     // The money is already in the merchant's wallet, so the event that says so
     // belongs here. On the escrowed path settleDuePeriods fires it a day later;
     // this path never reaches settleDuePeriods, and without this the merchant
@@ -333,7 +337,9 @@ export async function completeCheckoutSession(input: CompleteCheckoutInput) {
               tx_hash: txHash ?? null,
               chain: "arc",
               source_chain: paidFromChain,
-            }),
+            },
+        // The checkout session's mode.
+        session.isTestMode),
         ]
       : []),
   ]);

@@ -14,11 +14,9 @@
 // WHAT IT DOES NOT CHECK
 //
 // Writes. A create stamps isTestMode from the key and has no rows to filter.
-// Models with no isTestMode column — Plan, WebhookEndpoint, RenewalDelegation —
-// which cannot be scoped until someone decides whether a live merchant sees
-// the plans they built while testing, and whether a webhook endpoint belongs
-// to one mode. Those are listed below so the omission is deliberate and
-// visible rather than forgotten.
+// Models with no isTestMode column. RenewalDelegation is the only real one
+// left: a grant inherits its parent's mode rather than carrying its own.
+// Plan and WebhookEndpoint were here and are not any more.
 //
 // And dev.ts, which is mounted only under ENABLE_DEV_ROUTES and is
 // unauthenticated anyway.
@@ -27,13 +25,25 @@ import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
 
 /// Models carrying isTestMode. Anything here must be read mode-scoped.
-const MODE_BEARING = ["paymentLink", "checkoutSession", "subscription", "payment", "mandate", "charge"];
+const MODE_BEARING = [
+  "paymentLink", "checkoutSession", "subscription", "payment", "mandate", "charge",
+  // Added once they gained the column. A plan built while testing is not a
+  // live plan, and an endpoint's signing secret is per endpoint — one serving
+  // both modes would sign live and test deliveries with the same secret.
+  "plan", "webhookEndpoint",
+];
 
 /// Reads. A create or update has no rows to filter.
 const READS = ["findFirst", "findMany", "findUnique", "findUniqueOrThrow", "count", "aggregate", "groupBy"];
 
 /// Known and deliberate: no isTestMode column to filter on yet.
-const UNSCOPABLE = ["plan", "webhookEndpoint", "renewalDelegation", "merchant"];
+const UNSCOPABLE = [
+  // A grant has no mode of its own and inherits its parent's — the mandate its
+  // sessionId names, or its subscription. reconcile-mandates.ts resolves that
+  // before it fires anything.
+  "renewalDelegation",
+  "merchant",
+];
 
 const ROUTES = join(__dirname, "..", "src", "routes");
 
@@ -56,10 +66,26 @@ function main(): void {
     for (let i = 0; i < lines.length; i++) {
       if (!lines[i]!.includes("merchantId: merchant.id")) continue;
 
-      // Walk back to the prisma/tx call this `where` belongs to.
+      /**
+       * Walk back to the prisma/tx call this belongs to — but only through a
+       * `where`.
+       *
+       * Without that condition the walk attributes any `merchantId:` to
+       * whatever query happened to appear above it, and
+       * createCheckoutSession({ merchantId, ... }) got reported as a
+       * plan.findFirst that needed scoping. A checker that cries wolf is
+       * worse than none, because the first false positive is what teaches
+       * everyone to pass the flag that silences it.
+       */
       let model: string | null = null;
       let method: string | null = null;
       for (let j = i; j >= Math.max(0, i - 25); j--) {
+        // A closing `});` between here and the query means they are different
+        // statements. Without this the walk attributed
+        // createCheckoutSession({ merchantId, ... }) to the plan.findFirst
+        // above it — and a checker that cries wolf is worse than none, since
+        // the first false positive teaches everyone to silence it.
+        if (j < i && /^\s*\}\)[;,]?\s*$/.test(lines[j]!)) break;
         const m = /(?:prisma|tx)\.([a-zA-Z]+)\.([a-zA-Z]+)/.exec(lines[j]!);
         if (m) {
           model = m[1]!;

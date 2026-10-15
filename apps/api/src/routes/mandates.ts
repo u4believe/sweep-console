@@ -309,7 +309,7 @@ mandatesRouter.get("/:id", verifyApiKey, requireExternalRail, async (req, res) =
 // platform records and honours, not a cryptographic one. Say so in the docs
 // rather than implying more than it does.
 mandatesRouter.delete("/:id", verifyApiKey, requireExternalRail, async (req, res) => {
-  const { merchant } = req as AuthedRequest;
+  const { merchant, isTestMode } = req as AuthedRequest;
   const mandate = await prisma.mandate.findFirst({
     where: { mandateId: req.params.id as string, ...merchantScope(req) },
     select: { id: true, status: true, mandateId: true, externalRef: true },
@@ -359,7 +359,10 @@ mandatesRouter.delete("/:id", verifyApiKey, requireExternalRail, async (req, res
     // Says plainly what this did and did not do: the grants stay signed on-chain
     // and only the subscriber's own wallet can disable them. We refuse to redeem.
     on_chain: false,
-  }).catch((e) => console.error("[mandates/revoke] webhook failed:", e));
+  },
+    // The key's mode. The lookup above is mode-scoped, so the mandate is
+    // necessarily of the same mode as the key revoking it.
+    isTestMode).catch((e) => console.error("[mandates/revoke] webhook failed:", e));
 
   // The transaction above revoked every grant with it, so there is nothing left.
   return ok(res, serialize(updated, []));

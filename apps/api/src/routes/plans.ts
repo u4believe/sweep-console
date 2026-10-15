@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { verifyApiKey, type AuthedRequest } from "../middleware/auth";
+import { merchantScope, verifyApiKey, type AuthedRequest } from "../middleware/auth";
 import { ok, created, err, validationError } from "../lib/response";
 import { ids } from "../lib/ids";
 import { closePlanSubscriptions, findSubsToClose } from "../lib/plan-lifecycle";
@@ -51,7 +51,7 @@ function serializePlan(plan: {
 }
 
 plansRouter.post("/", verifyApiKey, async (req, res) => {
-  const { merchant } = req as AuthedRequest;
+  const { merchant, isTestMode } = req as AuthedRequest;
   const parsed = createPlanSchema.safeParse(req.body);
   if (!parsed.success) {
     return validationError(res, Object.fromEntries(
@@ -62,7 +62,7 @@ plansRouter.post("/", verifyApiKey, async (req, res) => {
   // One active plan per merchant: a creator must delete their existing plan before
   // creating a new one (tiers cover multiple price points within the one plan).
   const activePlan = await prisma.plan.findFirst({
-    where: { merchantId: merchant.id, archived: false },
+    where: { ...merchantScope(req), archived: false },
     select: { planId: true },
   });
   if (activePlan) {
@@ -81,6 +81,8 @@ plansRouter.post("/", verifyApiKey, async (req, res) => {
     data: {
       planId: ids.plan(slug),
       merchantId: merchant.id,
+      // The key's mode. A plan built while testing is not a live plan.
+      isTestMode,
       name,
       description,
       amount: BigInt(amount),
@@ -98,7 +100,7 @@ plansRouter.post("/", verifyApiKey, async (req, res) => {
 plansRouter.get("/", verifyApiKey, async (req, res) => {
   const { merchant } = req as AuthedRequest;
   const plans = await prisma.plan.findMany({
-    where: { merchantId: merchant.id, archived: false },
+    where: { ...merchantScope(req), archived: false },
     orderBy: { createdAt: "desc" },
   });
   return ok(res, { data: plans.map(serializePlan), count: plans.length });
@@ -109,7 +111,7 @@ plansRouter.get("/", verifyApiKey, async (req, res) => {
 plansRouter.get("/:id", verifyApiKey, async (req, res) => {
   const { merchant } = req as AuthedRequest;
   const plan = await prisma.plan.findFirst({
-    where: { planId: req.params.id as string, merchantId: merchant.id },
+    where: { planId: req.params.id as string, ...merchantScope(req) },
   });
   if (!plan) return err(res, "Plan not found", 404, "not_found");
   return ok(res, serializePlan(plan));
@@ -118,7 +120,7 @@ plansRouter.get("/:id", verifyApiKey, async (req, res) => {
 plansRouter.patch("/:id", verifyApiKey, async (req, res) => {
   const { merchant } = req as AuthedRequest;
   const plan = await prisma.plan.findFirst({
-    where: { planId: req.params.id as string, merchantId: merchant.id },
+    where: { planId: req.params.id as string, ...merchantScope(req) },
   });
   if (!plan) return err(res, "Plan not found", 404, "not_found");
 
@@ -144,7 +146,7 @@ plansRouter.patch("/:id", verifyApiKey, async (req, res) => {
 plansRouter.delete("/:id", verifyApiKey, async (req, res) => {
   const { merchant } = req as AuthedRequest;
   const plan = await prisma.plan.findFirst({
-    where: { planId: req.params.id as string, merchantId: merchant.id },
+    where: { planId: req.params.id as string, ...merchantScope(req) },
   });
   if (!plan) return err(res, "Plan not found", 404, "not_found");
   if (plan.archived) return ok(res, { archived: true, cancelling: 0 });

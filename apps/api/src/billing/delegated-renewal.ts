@@ -122,14 +122,18 @@ async function recordRenewalSettled(
     chain: "arc",
     source_chain: sourceChain,
     current_period_end: newPeriodEnd.toISOString(),
-  });
+  },
+      // The subscription's mode — a test subscription's events are test events.
+      sub.isTestMode);
   await fireWebhook(sub.merchantId, sub.externalRef, sub.merchant.merchantId, "payment.succeeded", {
     subscription_id: sub.subscriptionId,
     amount: Number(grossAmount),
     currency: sub.plan.currency,
     tx_hash: settlementTxHash,
     type: "renewal",
-  });
+  },
+      // The subscription's mode — a test subscription's events are test events.
+      sub.isTestMode);
 }
 
 /// Per-subscription outcome of a renewal pass — surfaced by the dev integration
@@ -165,7 +169,9 @@ async function markRenewalFailed(sub: RenewalSub, amount: bigint, reason: string
       plan_id: sub.plan.planId,
       cancel_reason: "Payment failed after maximum retries",
       cancelled_at: new Date().toISOString(),
-    });
+    },
+      // The subscription's mode — a test subscription's events are test events.
+      sub.isTestMode);
     console.log(`[billing/tier2] cancelled ${sub.subscriptionId} after ${attempts} failed renewals`);
     return;
   }
@@ -181,7 +187,9 @@ async function markRenewalFailed(sub: RenewalSub, amount: bigint, reason: string
     currency: sub.plan.currency,
     attempt: attempts,
     reason,
-  });
+  },
+      // The subscription's mode — a test subscription's events are test events.
+      sub.isTestMode);
   await fireWebhook(sub.merchantId, sub.externalRef, sub.merchant.merchantId, "payment.failed", {
     subscription_id: sub.subscriptionId,
     plan_id: sub.plan.planId,
@@ -190,7 +198,9 @@ async function markRenewalFailed(sub: RenewalSub, amount: bigint, reason: string
     type: "renewal",
     attempt: attempts,
     reason,
-  });
+  },
+      // The subscription's mode — a test subscription's events are test events.
+      sub.isTestMode);
   console.warn(`[billing/tier2] ${sub.subscriptionId} past_due (attempt ${attempts}): ${reason}`);
 }
 

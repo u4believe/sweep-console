@@ -49,7 +49,7 @@ subscriptionsRouter.get("/", verifyApiKey, async (req, res) => {
   const offset = parseInt(offsetStr ?? "0");
 
   const plan = plan_id
-    ? await prisma.plan.findFirst({ where: { planId: plan_id, merchantId: merchant.id } })
+    ? await prisma.plan.findFirst({ where: { planId: plan_id, ...merchantScope(req) } })
     : null;
 
   const where = {

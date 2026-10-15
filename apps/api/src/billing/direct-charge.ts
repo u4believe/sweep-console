@@ -276,7 +276,9 @@ async function recordChargeSettled(
     chain: "arc",
     tx_hash: mintTxHash,
     description: c.description,
-  }).catch((e) => console.error(`[charge] ${c.chargeId} webhook failed:`, e));
+  },
+      // The charge's mode, copied from the key that created it.
+      c.isTestMode).catch((e) => console.error(`[charge] ${c.chargeId} webhook failed:`, e));
 
   // The payer gets told too. The webhook goes to the DEVELOPER; without this the
   // person whose wallet was debited on a standing authorization hears from
@@ -300,7 +302,9 @@ async function failCharge(c: ChargeContext, reason: string, detail: string) {
     currency: "USDC",
     failure_code: reason,
     failure_reason: detail,
-  }).catch((e) => console.error(`[charge] ${c.chargeId} webhook failed:`, e));
+  },
+      // The charge's mode, copied from the key that created it.
+      c.isTestMode).catch((e) => console.error(`[charge] ${c.chargeId} webhook failed:`, e));
 }
 
 /// Collect one charge. Runs detached from the request — the API answered 202 the
