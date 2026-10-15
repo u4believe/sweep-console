@@ -9,6 +9,31 @@ export interface AuthedRequest extends Request {
   isTestMode: boolean;
 }
 
+/**
+ * The filter every merchant-scoped read must carry.
+ *
+ * A merchant holds a test key and a live key at once, and a query made with
+ * one must not see the other's rows. `isTestMode` is written on every row of
+ * the six models that have it and was read back by nothing: a live key listed
+ * test mandates, and the charge path found a test mandate by id and charged it
+ * while labelling the result live.
+ *
+ * A helper rather than `isTestMode` typed into 37 `where` clauses, because a
+ * missed clause fails SILENTLY — nothing errors, no test goes red, a merchant
+ * simply sees rows they should not, possibly for months. One greppable call
+ * means an endpoint that skipped it is visible in review.
+ *
+ * Only for models that HAVE the column. Plan and WebhookEndpoint do not, and
+ * cannot be scoped until someone decides whether a live merchant sees the
+ * plans they built while testing, and whether a webhook endpoint belongs to
+ * one mode (its signing secret is per endpoint, so sharing one signs live and
+ * test deliveries with the same secret).
+ */
+export function merchantScope(req: Request): { merchantId: string; isTestMode: boolean } {
+  const { merchant, isTestMode } = req as AuthedRequest;
+  return { merchantId: merchant.id, isTestMode };
+}
+
 export async function verifyApiKey(
   req: Request,
   res: Response,

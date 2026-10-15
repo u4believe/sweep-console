@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { verifyApiKey, type AuthedRequest } from "../middleware/auth";
+import { merchantScope, verifyApiKey, type AuthedRequest } from "../middleware/auth";
 import { created, ok, err, validationError, serverError } from "../lib/response";
 import { createCheckoutSession, SessionCreationError } from "../lib/checkout/session";
 
@@ -92,7 +92,7 @@ checkoutRouter.post("/sessions", verifyApiKey, async (req, res) => {
 checkoutRouter.get("/sessions/:id", verifyApiKey, async (req, res) => {
   const { merchant } = req as AuthedRequest;
   const session = await prisma.checkoutSession.findFirst({
-    where: { sessionId: req.params.id as string, merchantId: merchant.id },
+    where: { sessionId: req.params.id as string, ...merchantScope(req) },
     include: { plan: true },
   });
   if (!session) return err(res, "Checkout session not found", 404, "not_found");
@@ -102,7 +102,7 @@ checkoutRouter.get("/sessions/:id", verifyApiKey, async (req, res) => {
 checkoutRouter.post("/sessions/:id/expire", verifyApiKey, async (req, res) => {
   const { merchant } = req as AuthedRequest;
   const session = await prisma.checkoutSession.findFirst({
-    where: { sessionId: req.params.id as string, merchantId: merchant.id },
+    where: { sessionId: req.params.id as string, ...merchantScope(req) },
   });
   if (!session) return err(res, "Checkout session not found", 404, "not_found");
   if (session.status !== "open") return err(res, `Session is already ${session.status}`, 409);

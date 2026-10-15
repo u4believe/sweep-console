@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../lib/prisma";
-import { verifyApiKey, type AuthedRequest } from "../middleware/auth";
+import { merchantScope, verifyApiKey, type AuthedRequest } from "../middleware/auth";
 import { ok, err } from "../lib/response";
 
 export const paymentsRouter = Router();
@@ -32,12 +32,12 @@ paymentsRouter.get("/", verifyApiKey, async (req, res) => {
   const offset = parseInt(offsetStr ?? "0");
 
   const sub = subscription_id
-    ? await prisma.subscription.findFirst({ where: { subscriptionId: subscription_id, merchantId: merchant.id } })
+    ? await prisma.subscription.findFirst({ where: { subscriptionId: subscription_id, ...merchantScope(req) } })
     : null;
 
   const payments = await prisma.payment.findMany({
     where: {
-      merchantId: merchant.id,
+      ...merchantScope(req),
       ...(sub && { subscriptionId: sub.id }),
       ...(status && { status }),
     },
@@ -52,7 +52,7 @@ paymentsRouter.get("/", verifyApiKey, async (req, res) => {
 paymentsRouter.get("/:id", verifyApiKey, async (req, res) => {
   const { merchant } = req as AuthedRequest;
   const payment = await prisma.payment.findFirst({
-    where: { paymentId: req.params.id as string, merchantId: merchant.id },
+    where: { paymentId: req.params.id as string, ...merchantScope(req) },
   });
   if (!payment) return err(res, "Payment not found", 404, "not_found");
   return ok(res, serializePayment(payment));

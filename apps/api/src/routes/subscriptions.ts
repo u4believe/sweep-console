@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
-import { verifyApiKey, type AuthedRequest } from "../middleware/auth";
+import { merchantScope, verifyApiKey, type AuthedRequest } from "../middleware/auth";
 import { ok, err, serverError } from "../lib/response";
 import { fireWebhook } from "../lib/webhooks/delivery";
 import { ids } from "../lib/ids";
@@ -53,7 +53,7 @@ subscriptionsRouter.get("/", verifyApiKey, async (req, res) => {
     : null;
 
   const where = {
-    merchantId: merchant.id,
+    ...merchantScope(req),
     ...(status && { status }),
     ...(plan && { planId: plan.id }),
     ...(external_ref && { externalRef: external_ref }),
@@ -77,7 +77,7 @@ subscriptionsRouter.get("/status", verifyApiKey, async (req, res) => {
 
   const sub = await prisma.subscription.findFirst({
     where: {
-      merchantId: merchant.id,
+      ...merchantScope(req),
       externalRef,
       status: { in: ["active", "trialing", "past_due"] },
     },
@@ -92,7 +92,7 @@ subscriptionsRouter.get("/status", verifyApiKey, async (req, res) => {
 subscriptionsRouter.get("/:id", verifyApiKey, async (req, res) => {
   const { merchant } = req as AuthedRequest;
   const sub = await prisma.subscription.findFirst({
-    where: { subscriptionId: req.params.id as string, merchantId: merchant.id },
+    where: { subscriptionId: req.params.id as string, ...merchantScope(req) },
     include: { plan: true },
   });
   if (!sub) return err(res, "Subscription not found", 404, "not_found");
@@ -106,7 +106,7 @@ const cancelSchema = z.object({
 subscriptionsRouter.post("/:id/cancel", verifyApiKey, async (req, res) => {
   const { merchant } = req as AuthedRequest;
   const sub = await prisma.subscription.findFirst({
-    where: { subscriptionId: req.params.id as string, merchantId: merchant.id },
+    where: { subscriptionId: req.params.id as string, ...merchantScope(req) },
     include: { plan: true },
   });
   if (!sub) return err(res, "Subscription not found", 404, "not_found");

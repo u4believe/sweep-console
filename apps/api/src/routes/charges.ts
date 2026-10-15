@@ -25,7 +25,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { ids } from "../lib/ids";
-import { verifyApiKey, type AuthedRequest } from "../middleware/auth";
+import { merchantScope, verifyApiKey, type AuthedRequest } from "../middleware/auth";
 import { requireExternalRail } from "../middleware/externalRail";
 import { ok, err, validationError } from "../lib/response";
 import { claimKey, completeKey, releaseKey, hashRequest } from "../lib/idempotency";
@@ -149,7 +149,14 @@ chargesRouter.post("/", verifyApiKey, requireExternalRail, async (req, res) => {
     outcome = await prisma.$transaction(
       async (tx) => {
         const mandate = await tx.mandate.findFirst({
-          where: { mandateId: d.mandate, merchantId: merchant.id },
+          /**
+           * Scoped by mode, so a live key cannot find a mandate created in
+           * test. Filtering rather than checking afterwards makes the answer
+           * `404 not_found`, which is the honest one: a live key genuinely has
+           * no such mandate, and saying "wrong mode" would confirm that an id
+           * the caller should not know about exists.
+           */
+          where: { mandateId: d.mandate, ...merchantScope(req) },
           select: {
             id: true, mandateId: true, status: true, externalRef: true,
             maxAmount: true, periodDuration: true, authorizedAt: true, createdAt: true,
@@ -201,6 +208,8 @@ chargesRouter.post("/", verifyApiKey, requireExternalRail, async (req, res) => {
         const created = await tx.charge.create({
           data: {
             chargeId: ids.charge(),
+            // A write, not a read: isTestMode below records the key's mode, so
+            // there is nothing to filter here.
             merchantId: merchant.id,
             mandateId: mandate.id,
             amount: BigInt(d.amount),
@@ -256,7 +265,7 @@ chargesRouter.post("/", verifyApiKey, requireExternalRail, async (req, res) => {
 chargesRouter.get("/:id", verifyApiKey, requireExternalRail, async (req, res) => {
   const { merchant } = req as AuthedRequest;
   const charge = await prisma.charge.findFirst({
-    where: { chargeId: req.params.id as string, merchantId: merchant.id },
+    where: { chargeId: req.params.id as string, ...merchantScope(req) },
     select: SELECT,
   });
   if (!charge) return err(res, "Charge not found", 404, "not_found");
@@ -271,7 +280,7 @@ chargesRouter.get("/", verifyApiKey, requireExternalRail, async (req, res) => {
   const offset = parseInt(offsetStr ?? "0") || 0;
 
   const where = {
-    merchantId: merchant.id,
+    ...merchantScope(req),
     ...(status && { status }),
     ...(mandate && { mandate: { mandateId: mandate } }),
   };

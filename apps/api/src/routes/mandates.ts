@@ -18,7 +18,7 @@ import type { Prisma } from "@prisma/client";
 import { addHours } from "date-fns";
 import { prisma } from "../lib/prisma";
 import { ids } from "../lib/ids";
-import { verifyApiKey, type AuthedRequest } from "../middleware/auth";
+import { merchantScope, verifyApiKey, type AuthedRequest } from "../middleware/auth";
 import { fireWebhook } from "../lib/webhooks/delivery";
 import { requireExternalRail } from "../middleware/externalRail";
 import { created, ok, err, validationError } from "../lib/response";
@@ -188,7 +188,13 @@ mandatesRouter.post("/", verifyApiKey, requireExternalRail, async (req, res) => 
   // wallet_reused so a merchant who disagrees can act on it.
   const live = await prisma.mandate.findFirst({
     where: {
-      merchantId: merchant.id,
+      /**
+       * Scoped by mode, so a mandate created while testing does not block the
+       * live one for the same customer. A merchant who trialled `user_42` in
+       * test and then goes live would otherwise be refused their first real
+       * authorization by a row that cannot charge anyone.
+       */
+      ...merchantScope(req),
       externalRef: d.external_ref,
       status: { in: ["pending", "active"] },
     },
@@ -217,6 +223,7 @@ mandatesRouter.post("/", verifyApiKey, requireExternalRail, async (req, res) => 
   const mandate = await prisma.mandate.create({
     data: {
       mandateId: ids.mandate(),
+      // A write: isTestMode is set from the key further down.
       merchantId: merchant.id,
       externalRef: d.external_ref,
       email: d.email ?? null,
@@ -247,7 +254,7 @@ mandatesRouter.get("/", verifyApiKey, requireExternalRail, async (req, res) => {
   const offset = parseInt(offsetStr ?? "0") || 0;
 
   const where = {
-    merchantId: merchant.id,
+    ...merchantScope(req),
     ...(status && { status }),
     ...(external_ref && { externalRef: external_ref }),
   };
@@ -287,7 +294,7 @@ mandatesRouter.get("/", verifyApiKey, requireExternalRail, async (req, res) => {
 mandatesRouter.get("/:id", verifyApiKey, requireExternalRail, async (req, res) => {
   const { merchant } = req as AuthedRequest;
   const mandate = await prisma.mandate.findFirst({
-    where: { mandateId: req.params.id as string, merchantId: merchant.id },
+    where: { mandateId: req.params.id as string, ...merchantScope(req) },
     select: SELECT,
   });
   if (!mandate) return err(res, "Mandate not found", 404, "not_found");
@@ -304,7 +311,7 @@ mandatesRouter.get("/:id", verifyApiKey, requireExternalRail, async (req, res) =
 mandatesRouter.delete("/:id", verifyApiKey, requireExternalRail, async (req, res) => {
   const { merchant } = req as AuthedRequest;
   const mandate = await prisma.mandate.findFirst({
-    where: { mandateId: req.params.id as string, merchantId: merchant.id },
+    where: { mandateId: req.params.id as string, ...merchantScope(req) },
     select: { id: true, status: true, mandateId: true, externalRef: true },
   });
   if (!mandate) return err(res, "Mandate not found", 404, "not_found");
