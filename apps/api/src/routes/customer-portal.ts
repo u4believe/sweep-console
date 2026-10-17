@@ -20,7 +20,7 @@ import { verifyEmailToken, normalizeEmail } from "../lib/checkout/identity";
 import { revokeSubscription } from "../lib/subscriptions/revoke";
 import { supportedSourceChains, chainKeyForId } from "../lib/gateway/chains";
 import { getDelegateAddress, decodePeriodTransferTerms, delegationIdentity, mandateCovers } from "../lib/chain/delegation";
-import { getSettlementAddress, settlementIsSeparate } from "../lib/chain/signers";
+import { settlementIsSeparate } from "../lib/chain/signers";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
 
 export const customerPortalRouter = Router();

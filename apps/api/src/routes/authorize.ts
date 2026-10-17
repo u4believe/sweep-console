@@ -21,7 +21,7 @@ import { prisma } from "../lib/prisma";
 import { ids } from "../lib/ids";
 import { ok, err, serverError } from "../lib/response";
 import { decodePeriodTransferTerms, delegationIdentity } from "../lib/chain/delegation";
-import { getRelayerAddress, getSettlementAddress, settlementIsSeparate } from "../lib/chain/signers";
+import { getRelayerAddress, settlementIsSeparate } from "../lib/chain/signers";
 import { delegateAddressForNewGrant } from "../lib/chain/delegate-msca";
 import { sendRailAuthorizationEmail } from "../lib/email/rail-authorization";
 import { notifyGrantAdded } from "../lib/rail-grant-events";

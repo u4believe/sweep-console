@@ -13,7 +13,7 @@ import { prisma } from "../lib/prisma";
 import { ok, err, serverError } from "../lib/response";
 import { supportedSourceChains } from "../lib/gateway/chains";
 import { getDelegateAddress, decodePeriodTransferTerms, delegationIdentity, mandateCovers } from "../lib/chain/delegation";
-import { getSettlementAddress, settlementIsSeparate } from "../lib/chain/signers";
+import { settlementIsSeparate } from "../lib/chain/signers";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
 import { executeCrossChainActivation } from "../lib/checkout/cctp-activate";
 import { resolveCheckoutCustomer, verifyEmailToken } from "../lib/checkout/identity";
