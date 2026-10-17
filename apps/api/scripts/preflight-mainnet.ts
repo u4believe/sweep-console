@@ -40,6 +40,7 @@ import "dotenv/config";
 import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { createPublicClient, encodeAbiParameters, http, zeroAddress, type Address, type Hex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { base, arbitrum, optimism } from "viem/chains";
 import {
   chainPaysOwnGas,
@@ -168,6 +169,65 @@ async function main(): Promise<void> {
 
     console.log();
   }
+
+  /**
+   * Four roles, four keys, and nothing in the code says so.
+   *
+   * Two silent failures live here. getSettlementAccount() falls back to the
+   * hosted relayer when SETTLEMENT_PRIVATE_KEY is unset (signers.ts:121),
+   * so an unset variable does not error — settlement just quietly becomes the
+   * platform key. And nothing stops two variables holding the SAME key, which
+   * collapses the separation while every address still looks populated.
+   *
+   * Both matter more on mainnet than testnet: the settlement account is the
+   * payee in every grant, and the delegates are named as the delegate. If one
+   * key covers two roles, a single leak costs both.
+   *
+   * Addresses only below. The keys themselves are never read into output.
+   */
+  console.log("keys");
+  const ROLES: Array<[string, string]> = [
+    ["SETTLEMENT_PRIVATE_KEY", "owns the settlement MSCA, payee in every grant"],
+    ["RENEWAL_DELEGATE_PRIVATE_KEY", "owns the renewal delegate MSCA"],
+    ["EXTERNAL_RELAYER_PRIVATE_KEY", "owns the external relayer MSCA"],
+    ["PLATFORM_PRIVATE_KEY", "hosted relayer"],
+  ];
+
+  const seen = new Map<string, string>();
+  for (const [envVar, what] of ROLES) {
+    const raw = process.env[envVar];
+    if (!raw) {
+      // Only SETTLEMENT_PRIVATE_KEY has the dangerous fallback; the others
+      // throw where they are used, which is loud enough.
+      note(
+        envVar === "SETTLEMENT_PRIVATE_KEY",
+        `${envVar} is unset` +
+          (envVar === "SETTLEMENT_PRIVATE_KEY"
+            ? " — settlement would SILENTLY use PLATFORM_PRIVATE_KEY (signers.ts:121)"
+            : "")
+      );
+      continue;
+    }
+
+    let address: string;
+    try {
+      // Normalised exactly as signers.ts accountFor() does: the 0x prefix is
+      // optional there, and SETTLEMENT_PRIVATE_KEY is in fact stored without
+      // it. A stricter check here would report a working key as broken, and
+      // the first false positive is what teaches everyone to ignore the tool.
+      const trimmed = raw.trim();
+      const hex = (trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`) as Hex;
+      address = privateKeyToAccount(hex).address;
+    } catch {
+      note(true, `${envVar} is set but is not a valid 32-byte private key`);
+      continue;
+    }
+
+    const clash = seen.get(address.toLowerCase());
+    note(!!clash, `${envVar.padEnd(28)} ${address}  ${clash ? `SAME KEY AS ${clash}` : what}`);
+    seen.set(address.toLowerCase(), envVar);
+  }
+  console.log();
 
   // The call-site half. A grant site that builds a payee without going
   // through settlementPayeeAddress() is the defect that shipped once already,
