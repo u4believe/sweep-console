@@ -21,12 +21,33 @@ yarn add @sweepconsole/node
 
 ## The base URL
 
-`https://api.sweepconsole.xyz` — the API is its own origin.
+Two of them, because each one serves a different network:
+
+| | base URL | keys | chains |
+| --- | --- | --- | --- |
+| **Sandbox** | `https://api-sandbox.sweepconsole.xyz` | `test_…` | Base, Arbitrum, Optimism Sepolia |
+| **Live** | `https://api.sweepconsole.xyz` | `live_…` | Base, Arbitrum, Optimism |
+
+Each refuses the other's keys. A test key sent to the live API gets a `403`
+naming the sandbox, and the reverse, so a key on the wrong host tells you so
+rather than looking like a bad key.
+
+**The Node client picks for you.** It reads the prefix and routes `test_` to
+the sandbox and `live_` to the live API, so going live is one environment
+variable and nothing else:
+
+```ts
+const sweep = new Sweep(process.env.SWEEP_API_KEY!); // the key decides the host
+```
+
+Pass `baseUrl` only for a tunnel or a self-hosted deployment. The client
+refuses an `http://` override, so your key cannot go over plaintext.
 
 `www.sweepconsole.xyz` is the website, and it answers every path with the page
-you are reading, so a client pointed there gets a `200` full of HTML rather than
-JSON. The Node client already knows the right one, and refuses an `http://`
-override so your key cannot go over plaintext.
+you are reading, so a client pointed there gets a `200` full of HTML rather
+than JSON.
+
+`GET /v1/config` reports which network the host you reached serves, as `mode`.
 
 ## The whole thing
 
@@ -117,7 +138,7 @@ Every call is plain HTTP, so any stack works:
 
 ::: code-group
 ```sh [curl]
-curl -X POST https://api.sweepconsole.xyz/v1/mandates \
+curl -X POST https://api-sandbox.sweepconsole.xyz/v1/mandates \
   -H "Authorization: Bearer $SWEEP_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -130,7 +151,7 @@ curl -X POST https://api.sweepconsole.xyz/v1/mandates \
   }'
 ```
 ```js [fetch]
-const r = await fetch("https://api.sweepconsole.xyz/v1/mandates", {
+const r = await fetch("https://api-sandbox.sweepconsole.xyz/v1/mandates", {
   method: "POST",
   headers: {
     Authorization: `Bearer ${process.env.SWEEP_API_KEY}`,

@@ -28,7 +28,7 @@ import {
 import { revokeSubscription } from "../lib/subscriptions/revoke";
 import { verifyTurnstile, clientIp } from "../lib/turnstile";
 import type { Hex } from "viem";
-import { supportedSourceChains } from "../lib/gateway/chains";
+import { isMainnet, supportedSourceChains } from "../lib/gateway/chains";
 
 
 export const publicRouter = Router();
@@ -394,9 +394,19 @@ publicRouter.get("/config", (_req, res) => {
     source_chains: supportedSourceChains().map((c) => ({ key: c.key, name: c.name })),
     settlement_chain: "arc",
     currency: "USDC",
-    // Live keys are not issued yet, and the SDK refuses one. Saying so here
-    // means the docs do not have to be edited on the day that changes.
-    live_keys_available: false,
+    /**
+     * Which network this deployment serves, and therefore which key it takes.
+     *
+     * Both derive from isMainnet(), so they cannot disagree with the chain
+     * list above — a client reading `source_chains` and `mode` together is
+     * reading one fact, not two that might drift.
+     *
+     * `live_keys_available` was hardcoded false because the SDK refused live
+     * keys outright. It now answers for THIS deployment: the live one issues
+     * and accepts them, the sandbox does neither.
+     */
+    mode: isMainnet() ? "live" : "test",
+    live_keys_available: isMainnet(),
   });
 });
 

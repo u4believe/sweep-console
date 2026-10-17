@@ -8,13 +8,21 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 // What a developer should point their client at. Deliberately not derived from
 // API_URL: in production that is an absolute host, but in development it is the
 // relative "/api" the Vite proxy owns, and printing "/api" here as if it were a
-// base URL is worse than printing nothing. The docs name this same value.
-const PUBLIC_API_BASE = "https://api.sweepconsole.xyz";
+// base URL is worse than printing nothing. The docs name these same values.
+//
+// Two of them, because a deployment serves one network. The key on screen only
+// works against the host for its mode, so printing the wrong one turns a
+// working key into a 403 that says nothing about keys.
+const LIVE_API_BASE = "https://api.sweepconsole.xyz";
+const SANDBOX_API_BASE = "https://api-sandbox.sweepconsole.xyz";
 
 interface KeyInfo {
-  hasTestKey: boolean;
+  /** Whether a key exists FOR THE CURRENT MODE — not whether any key exists. */
+  hasKey: boolean;
   name: string;
   prefix: string | null;
+  testMode: boolean;
+  isLive: boolean;
 }
 
 function CopyButton({ value }: { value: string }) {
@@ -77,7 +85,15 @@ export function ApiKeysPage() {
     }
 
     setNewKey(json.key ?? "");
-    setKeyInfo({ hasTestKey: true, name: json.name ?? "Default", prefix: json.prefix ?? null });
+    setKeyInfo((prev) => ({
+      hasKey: true,
+      name: json.name ?? "Default",
+      prefix: json.prefix ?? null,
+      // The mode cannot change from under a generate — it comes from the same
+      // session that authorised it — so carry the known values through.
+      testMode: prev?.testMode ?? true,
+      isLive: prev?.isLive ?? false,
+    }));
     setName("");
   }
 
@@ -149,7 +165,9 @@ export function ApiKeysPage() {
                     <p className="m-0" style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 17 }}>
                       {keyInfo.name}
                     </p>
-                    <span className="tag tag-outline">Test</span>
+                    <span className={`tag ${keyInfo.testMode ? "tag-outline" : "tag-accent"}`}>
+                      {keyInfo.testMode ? "Test" : "Live"}
+                    </span>
                   </div>
                   {keyInfo.prefix ? (
                     <p className="m-0 mt-1.5">
@@ -161,7 +179,7 @@ export function ApiKeysPage() {
                     </p>
                   )}
                 </div>
-                {keyInfo.hasTestKey && (
+                {keyInfo.hasKey && (
                   <span className="tag tag-accent ml-auto shrink-0">Active</span>
                 )}
               </div>
@@ -185,9 +203,9 @@ export function ApiKeysPage() {
           </Section>
 
           {/* Create / rotate. */}
-          <Section title={keyInfo.hasTestKey ? "Rotate key" : "Create key"}>
+          <Section title={keyInfo.hasKey ? "Rotate key" : "Create key"}>
             <form onSubmit={handleGenerate} className="max-w-lg">
-              {keyInfo.hasTestKey && (
+              {keyInfo.hasKey && (
                 <p className="m-0 mb-3" style={{ fontSize: 13, color: "var(--color-accent-700)" }}>
                   Rotating immediately invalidates the current key — any integration using it will break.
                 </p>
@@ -210,7 +228,7 @@ export function ApiKeysPage() {
               </div>
 
               <button type="submit" className="btn btn-primary" disabled={generating}>
-                {generating ? "Generating…" : keyInfo.hasTestKey ? "Rotate API key" : "Create API key"}
+                {generating ? "Generating…" : keyInfo.hasKey ? "Rotate API key" : "Create API key"}
               </button>
             </form>
           </Section>
@@ -221,8 +239,8 @@ export function ApiKeysPage() {
               the web app, so a request sent there comes back as HTML rather than JSON.
             </p>
             <div className="flex items-center gap-2">
-              <Mono>{PUBLIC_API_BASE}</Mono>
-              <CopyButton value={PUBLIC_API_BASE} />
+              <Mono>{keyInfo?.testMode === false ? LIVE_API_BASE : SANDBOX_API_BASE}</Mono>
+              <CopyButton value={keyInfo?.testMode === false ? LIVE_API_BASE : SANDBOX_API_BASE} />
             </div>
             <p className="m-0 mt-3" style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
               The <Mono size={12}>@sweepconsole/node</Mono> client already defaults to it — pass a{" "}

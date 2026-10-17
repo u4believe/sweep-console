@@ -17,7 +17,7 @@ incoming event really came from Sweep.
 ### From the API
 
 ```sh
-curl -X POST https://api.sweepconsole.xyz/v1/webhooks \
+curl -X POST https://api-sandbox.sweepconsole.xyz/v1/webhooks \
   -H "Authorization: Bearer $SWEEP_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{

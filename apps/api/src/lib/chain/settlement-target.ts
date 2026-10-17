@@ -75,6 +75,15 @@ const MSCA_CHAIN_KEYS = new Set(["base", "arbitrum", "optimism"]);
  * Optimism is absent because its paymaster is v0.8 only. That costs ETH at the
  * MSCA there, not a different settlement address. If Circle ships v0.8 in the
  * SDK, or a v0.7 paymaster on Optimism, adding it here is the whole change.
+ *
+ * Checked again 2026-10-17, because the coverage reads backwards: Circle's
+ * PAYMASTER does cover Optimism at v0.8 (Arbitrum, Avalanche, Base, Ethereum,
+ * Optimism, Polygon, Unichain), so the gap is not the paymaster. It is the
+ * ACCOUNT — a paymaster must sit at the same EntryPoint as the account it
+ * pays for, and the Circle MSCA is circle_6900_v1, ERC-4337 v0.7. Circle's
+ * v0.8 account exists in buidl-wallet-contracts but is deployed on no
+ * mainnet. The trigger to re-check is that deployment, not the paymaster's
+ * chain list, which already looks like it should work and does not.
  */
 const V07_PAYMASTER_CHAIN_KEYS = new Set(["base", "arbitrum"]);
 

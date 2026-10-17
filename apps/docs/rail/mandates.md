@@ -17,7 +17,7 @@ const mandate = await sweep.mandates.create({
 });
 ```
 ```sh [curl]
-curl -X POST https://api.sweepconsole.xyz/v1/mandates \
+curl -X POST https://api-sandbox.sweepconsole.xyz/v1/mandates \
   -H "Authorization: Bearer $SWEEP_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{

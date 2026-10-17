@@ -39,7 +39,7 @@ app.post("/subscribe/usdc", async (req, res) => {
 });
 ```
 ```js [fetch]
-const SWEEP = "https://api.sweepconsole.xyz";
+const SWEEP = "https://api-sandbox.sweepconsole.xyz"; // test keys; live is api.sweepconsole.xyz
 
 app.post("/subscribe/usdc", async (req, res) => {
   const user = req.user;

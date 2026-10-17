@@ -15,7 +15,7 @@ const charge = await sweep.charges.create(
 );
 ```
 ```sh [curl]
-curl -X POST https://api.sweepconsole.xyz/v1/charges \
+curl -X POST https://api-sandbox.sweepconsole.xyz/v1/charges \
   -H "Authorization: Bearer $SWEEP_API_KEY" \
   -H "Idempotency-Key: invoice_2026_09_user_8412" \
   -H "Content-Type: application/json" \

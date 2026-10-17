@@ -79,7 +79,10 @@ you and your payer.
 import { Sweep, usdc } from "@sweepconsole/node";
 
 const sweep = new Sweep(process.env.SWEEP_API_KEY!);
-// baseUrl defaults to the hosted API; override it for a tunnel or self-hosting.
+// The key picks the host: test_ reaches https://api-sandbox.sweepconsole.xyz,
+// live_ reaches https://api.sweepconsole.xyz. Each refuses the other's keys,
+// so going live is one environment variable and nothing else.
+// Override baseUrl only for a tunnel or self-hosting.
 ```
 
 **1 — when a user subscribes, create a mandate and send them to sign it**
