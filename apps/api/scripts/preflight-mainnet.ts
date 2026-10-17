@@ -193,6 +193,28 @@ async function main(): Promise<void> {
     ["PLATFORM_PRIVATE_KEY", "hosted relayer"],
   ];
 
+  /**
+   * Pairings that are deliberate, not accidents.
+   *
+   * PLATFORM_PRIVATE_KEY and RENEWAL_DELEGATE_PRIVATE_KEY already share a
+   * fallback: getRelayerAccount("hosted") returns the renewal key when set and
+   * the platform key when not (signers.ts:92-95). Setting them equal is
+   * therefore the same behaviour an unconfigured deployment already has.
+   *
+   * They are still two jobs. The platform key is the Arc-side relayer — it
+   * submits CCTP mints and pays Arc gas. The renewal key owns the delegate
+   * MSCA that signs redeemDelegations on the source chains. Sharing means one
+   * leak costs both.
+   *
+   * What makes it survivable is the MSCA: the grant names the delegate MSCA's
+   * ADDRESS, and this key is only its OWNER, so a leak is rotated with
+   * addOwners/removeOwners and no payer re-grants. That would not hold for a
+   * bare EOA delegate, where the key IS the pinned address.
+   */
+  const ACCEPTED_SHARES = [["PLATFORM_PRIVATE_KEY", "RENEWAL_DELEGATE_PRIVATE_KEY"]];
+  const shareAccepted = (a: string, b: string) =>
+    ACCEPTED_SHARES.some((pair) => pair.includes(a) && pair.includes(b));
+
   const seen = new Map<string, string>();
   for (const [envVar, what] of ROLES) {
     const raw = process.env[envVar];
@@ -224,8 +246,15 @@ async function main(): Promise<void> {
     }
 
     const clash = seen.get(address.toLowerCase());
-    note(!!clash, `${envVar.padEnd(28)} ${address}  ${clash ? `SAME KEY AS ${clash}` : what}`);
-    seen.set(address.toLowerCase(), envVar);
+    if (clash && shareAccepted(clash, envVar)) {
+      // Said out loud rather than passed in silence: a chosen pairing still
+      // widens what one leak costs, and the next reader should see that it
+      // was chosen.
+      console.log(`  ok    ${envVar.padEnd(28)} ${address}  shares ${clash} — accepted`);
+    } else {
+      note(!!clash, `${envVar.padEnd(28)} ${address}  ${clash ? `SAME KEY AS ${clash}` : what}`);
+    }
+    if (!clash) seen.set(address.toLowerCase(), envVar);
   }
   console.log();
 
