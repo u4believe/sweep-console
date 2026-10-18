@@ -34,6 +34,23 @@ const app = express();
 // `1` — trust exactly one hop — rather than `true`, which lets a caller spoof its
 // own address by sending the header itself.
 app.set("trust proxy", 1);
+
+/**
+ * No ETags. They are what kept the dashboard stale.
+ *
+ * Express hashes every JSON body into an ETag, and `Cache-Control: no-store`
+ * does NOT stop a 304: the conditional check compares the request's
+ * If-None-Match against that hash and answers 304 when they agree, without
+ * consulting the response's cache headers at all. So a browser holding an old
+ * copy kept revalidating into 304s and kept rendering the old copy — the
+ * balance showed "0.00 USDC … cached" for fifteen hours against a wallet
+ * holding 150.58, and adding no-store alone did not break the loop.
+ *
+ * Nothing this API serves benefits from them. Every response is either
+ * per-merchant data that must not be cached, or a small public document where
+ * re-sending the body costs less than the bug does.
+ */
+app.set("etag", false);
 // Railway (and most PaaS) inject PORT; API_PORT is the local-dev override.
 const PORT = process.env.PORT ?? process.env.API_PORT ?? 4000;
 
