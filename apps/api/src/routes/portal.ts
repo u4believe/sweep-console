@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { createHmac, randomBytes } from "crypto";
+import { createHash, createHmac, randomBytes } from "crypto";
 import { addMinutes } from "date-fns";
 import { verifyMessage } from "viem";
 import type { Prisma } from "@prisma/client";
@@ -2158,7 +2158,27 @@ portalRouter.get("/wallet/circle/balance", async (req, res) => {
        * server already knows is how a wallet holding 150.58 USDC read as 0.00
        * for a day. circle.ts redacts credentials before this string exists.
        */
-      const reason = isAdminEmail(merchant.email) ? ` (${read.reason})` : "";
+      /**
+       * For an admin, also say WHICH key and WHICH wallet were used.
+       *
+       * A 404 from Circle means "this key cannot see that wallet", and the
+       * two candidate causes — wrong key, or wrong wallet id — are
+       * indistinguishable from the message alone. Comparing a key by eye
+       * across a local file and a Railway variable is exactly the check
+       * people get wrong, so the server fingerprints what it actually sent.
+       *
+       * SHA-256, first eight hex characters: enough to compare against the
+       * same hash of a local value, useless for recovering the key.
+       */
+      let detail = read.reason;
+      if (isAdminEmail(merchant.email)) {
+        const key = process.env.CIRCLE_API_KEY ?? "";
+        const fp = key
+          ? createHash("sha256").update(key.trim()).digest("hex").slice(0, 8)
+          : "unset";
+        detail += ` [key:${fp} wallet:${w.circleWalletId}]`;
+      }
+      const reason = isAdminEmail(merchant.email) ? ` (${detail})` : "";
       return ok(res, {
         data: {
           usdcBalance: w.usdcBalance,
