@@ -25,6 +25,13 @@ import { INTERVAL_SECONDS } from "../lib/checkout/complete";
 
 export const customerPortalRouter = Router();
 
+// Same rule as the merchant portal: a payer's subscriptions and wallet must
+// not sit in a browser cache after they close the page. See routes/portal.ts.
+customerPortalRouter.use((_req, res, next) => {
+  res.set("Cache-Control", "no-store, private");
+  next();
+});
+
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const MANDATE_FALLBACK_SEC = 31_536_000; // 1 year
 

@@ -52,6 +52,30 @@ import {
 
 export const portalRouter = Router();
 
+/**
+ * Never let a browser cache a portal response.
+ *
+ * Express sends an ETag on every JSON reply and nothing here sent a
+ * Cache-Control header, so the browser applied heuristic caching and
+ * revalidated with If-None-Match. The server then answered 304 and the page
+ * rendered a body it had stored earlier — for the balance endpoint, one that
+ * was fifteen hours old and said "0.00 USDC … cached", while the wallet
+ * actually held 150.58.
+ *
+ * It is worse than stale pixels. These responses carry a merchant's balance,
+ * payout address and subscriber list, and a cached copy outlives the session
+ * that fetched it — it sits in the browser cache after sign-out, and on a
+ * shared machine the next person's first load can render it before any request
+ * is made.
+ *
+ * no-store rather than no-cache: no-cache still stores the body and
+ * revalidates, which is the behaviour being removed.
+ */
+portalRouter.use((_req, res, next) => {
+  res.set("Cache-Control", "no-store, private");
+  next();
+});
+
 portalRouter.use(verifyPortalSession);
 
 // Enrolment, recovery codes, and the challenge/verify pair that requireStepUp
