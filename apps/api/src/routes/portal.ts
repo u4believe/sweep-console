@@ -2080,7 +2080,18 @@ portalRouter.get("/wallet/circle/balance", async (req, res) => {
     // are unrelated numbers and must never be served for one another.
     const w = walletFor(merchant, portalScope(req).isTestMode);
     if (w.type !== "circle" || !w.circleWalletId) {
-      return err(res, "No Circle wallet found", 404);
+      /**
+       * Say which mode found nothing.
+       *
+       * This returned a bare 404 before reaching Circle, so a dashboard in
+       * the wrong mode produced no balance AND no log — indistinguishable
+       * from a failed Circle call, which is where an afternoon went. The
+       * mode is the whole answer when a merchant has a wallet in one half
+       * and not the other.
+       */
+      const mode = portalScope(req).isTestMode ? "test" : "live";
+      console.warn(`[portal/balance] ${dbId} no circle wallet in ${mode} mode (type=${w.type})`);
+      return err(res, `No Circle wallet found for ${mode} mode`, 404, "no_circle_wallet");
     }
 
     const cacheAge = w.balanceUpdatedAt
