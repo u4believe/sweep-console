@@ -156,12 +156,35 @@ export interface TokenBalance {
   updateDate: string;
 }
 
-export async function getCircleWalletBalances(walletId: string): Promise<TokenBalance[]> {
+/**
+ * A balance read that can fail, said out loud.
+ *
+ * This returned `TokenBalance[]` and caught everything into `[]`. A missing
+ * API key, an expired user token, a 404, a network timeout and a genuinely
+ * empty wallet were then indistinguishable — and the callers all read an
+ * empty array as "zero USDC".
+ *
+ * That cost real time on 2026-10-18: a wallet holding 150 USDC on ARC-TESTNET
+ * showed empty, because the request reached a deployment whose Circle
+ * credentials were for the other environment. Nothing anywhere said so.
+ *
+ * Worse than the display, portal.ts then WROTE that zero to
+ * Merchant.usdcBalance and stamped balanceUpdatedAt fresh, so a transient
+ * failure became cached truth and later reads served it from the cache
+ * without asking Circle again.
+ */
+export type BalanceRead =
+  | { ok: true; balances: TokenBalance[] }
+  | { ok: false; reason: string };
+
+export async function getCircleWalletBalances(walletId: string): Promise<BalanceRead> {
   try {
     const data = await circleGet<{ tokenBalances: TokenBalance[] }>(`/v1/w3s/wallets/${walletId}/balances`);
-    return data.tokenBalances ?? [];
-  } catch {
-    return [];
+    return { ok: true, balances: data.tokenBalances ?? [] };
+  } catch (e) {
+    // The message, not the error: circleGet already redacts credentials out of
+    // Circle's replies, and this string reaches logs and sometimes a merchant.
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
   }
 }
 

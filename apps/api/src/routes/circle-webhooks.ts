@@ -124,8 +124,18 @@ async function handleInboundDeposit(n: InboundNotification): Promise<void> {
       return;
     }
 
-    const balances    = await getCircleWalletBalances(walletId);
-    const usdc        = balances.find((b) => b.token.symbol === "USDC");
+    const read = await getCircleWalletBalances(walletId);
+
+    // A webhook says the balance CHANGED, so a failed read here is the one
+    // moment the cache is most certainly wrong. Leaving the old value is still
+    // better than writing a zero that Circle never reported: the next read
+    // refreshes it, and a false zero would survive until then.
+    if (!read.ok) {
+      console.warn(`[circle-webhook] balance read failed for ${walletId}: ${read.reason}`);
+      return;
+    }
+
+    const usdc        = read.balances.find((b) => b.token.symbol === "USDC");
     const newBalance  = usdc?.amount ?? "0";
 
     await withRetry(() =>

@@ -2064,8 +2064,30 @@ portalRouter.get("/wallet/circle/balance", async (req, res) => {
     }
 
     // Fetch live from Circle and update cache
-    const balances = await getCircleWalletBalances(merchant.circleWalletId);
-    const usdc = balances.find((b) => b.token.symbol === "USDC");
+    const read = await getCircleWalletBalances(merchant.circleWalletId);
+
+    /**
+     * A failed read is not a zero balance.
+     *
+     * This wrote `usdc?.amount ?? "0"` whatever happened, so one unreachable
+     * call persisted a zero AND stamped balanceUpdatedAt fresh — which then
+     * served that zero from cache without asking Circle again. Serve the last
+     * known value instead and say it is stale.
+     */
+    if (!read.ok) {
+      console.warn(`[portal/balance] ${dbId} Circle read failed: ${read.reason}`);
+      return ok(res, {
+        data: {
+          usdcBalance: merchant.usdcBalance ?? null,
+          updatedAt: merchant.balanceUpdatedAt?.toISOString() ?? null,
+          fromCache: true,
+          stale: true,
+          error: "We couldn't reach Circle just now. This is the last balance we saw.",
+        },
+      });
+    }
+
+    const usdc = read.balances.find((b) => b.token.symbol === "USDC");
     const liveBalance = usdc?.amount ?? "0";
 
     await withRetry(() =>
@@ -2164,8 +2186,15 @@ portalRouter.post(
       if (merchant.walletType !== "circle" || !merchant.circleWalletId) {
         return err(res, "No Circle wallet found", 404);
       }
-      const balances = await getCircleWalletBalances(merchant.circleWalletId);
-      const usdc = balances.find((b) => b.token.symbol === "USDC");
+      const read = await getCircleWalletBalances(merchant.circleWalletId);
+      // Distinguished from an empty wallet on purpose: this guards a withdrawal,
+      // and "you have no USDC" is the wrong thing to tell someone whose balance
+      // we simply could not read.
+      if (!read.ok) {
+        console.warn(`[portal/withdraw] ${dbId} Circle read failed: ${read.reason}`);
+        return err(res, "We couldn't check your balance just now. Try again shortly.", 503, "balance_unavailable");
+      }
+      const usdc = read.balances.find((b) => b.token.symbol === "USDC");
       if (!usdc) return err(res, "No USDC balance found in your wallet", 404);
       if (parseFloat(usdc.amount) < parseFloat(amount)) {
         return err(
