@@ -12,6 +12,10 @@ interface BalanceData {
   walletId: string;
   updatedAt: string | null;
   fromCache: boolean;
+  /** True when the API could not reach Circle and served the last value it had. */
+  stale?: boolean;
+  /** Why, in words a merchant can act on. Set only when `stale`. */
+  error?: string;
 }
 
 function timeAgo(iso: string): string {
@@ -140,6 +144,18 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
           {balance?.updatedAt && (
             <p className="m-0 mt-2" style={{ fontSize: 11.5, color: "var(--color-neutral-600)" }}>
               Updated {timeAgo(balance.updatedAt)}{balance.fromCache && " · cached"}
+            </p>
+          )}
+          {/* A number the API could not refresh is not the same as a number it
+              refreshed to zero. Without this the page said "cached" and left
+              the merchant to guess, which is exactly how a wallet holding 150
+              USDC read as empty for a day. */}
+          {balance?.stale && (
+            <p
+              className="m-0 mt-1"
+              style={{ fontSize: 11.5, color: "var(--color-accent-700)", maxWidth: 320 }}
+            >
+              {balance.error ?? "We couldn't refresh this just now."}
             </p>
           )}
         </div>
