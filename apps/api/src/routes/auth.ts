@@ -27,11 +27,12 @@ const SESSION_REMEMBER_DAYS = 30;
 
 // Issue the portal session cookie. `remember` extends the lifetime so the
 // merchant stays signed in across browser restarts.
-export function issueSession(
+function issueSession(
   res: Response,
   merchant: { id: string; merchantId: string; email: string; name: string; onboarded: boolean },
   remember = false,
-  /// Which mode the dashboard opens in. A fresh sign-in starts in test.
+  /// Vestigial: the deployment decides the mode now (middleware/portalAuth.ts).
+  /// Still written so a session minted here decodes on an older build.
   testMode = true
 ): void {
   const days = remember ? SESSION_REMEMBER_DAYS : SESSION_DEFAULT_DAYS;

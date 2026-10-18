@@ -4,6 +4,11 @@ import { useAuth } from "@/context/auth";
 import { Logo } from "@/components/ui/Logo";
 import { StepUpDialog } from "@/components/portal/StepUpDialog";
 
+// The two dashboards. Facts about this product rather than configuration —
+// a variable for them is one more thing that can point at the wrong network.
+const LIVE_SITE_URL = "https://www.sweepconsole.xyz";
+const SANDBOX_SITE_URL = "https://sandbox.sweepconsole.xyz";
+
 const NAV = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/plans", label: "Plans" },
@@ -35,7 +40,6 @@ export function PortalLayout() {
   const [isAdmin, setIsAdmin] = useState(false);
 
   const [mode, setMode] = useState<{ testMode: boolean; isLive: boolean } | null>(null);
-  const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
     fetch(`${API_URL}/portal/me`, { credentials: "include" })
@@ -46,34 +50,6 @@ export function PortalLayout() {
       })
       .catch(() => setIsAdmin(false));
   }, []);
-
-  /**
-   * Switching reloads the page rather than refetching.
-   *
-   * The mode lives in the session cookie, so the switch changes what EVERY
-   * open screen should be showing — plans, subscriptions, charges, the
-   * numbers on the dashboard. Refetching one of them and leaving the rest is
-   * how a merchant ends up reading live figures under a Test badge.
-   */
-  async function switchMode(testMode: boolean) {
-    if (switching) return;
-    setSwitching(true);
-    try {
-      const res = await fetch(`${API_URL}/portal/me/mode`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ test_mode: testMode }),
-      });
-      if (!res.ok) {
-        setSwitching(false);
-        return;
-      }
-      window.location.reload();
-    } catch {
-      setSwitching(false);
-    }
-  }
 
   const nav = isAdmin ? [...NAV, ADMIN_NAV] : NAV;
 
@@ -119,34 +95,32 @@ export function PortalLayout() {
 
           <span className="tag tag-accent" style={{ marginLeft: 6 }}>Test mode</span>
 
-          {/* The mode switch. Live is offered only to an activated account —
-              an empty live dashboard on an account that cannot have live data
-              reads as a bug rather than as a state. */}
+          {/* Which deployment this is, and a way to the other one.
+              Not a switch: the mode follows the deployment, so changing it
+              means changing site. A session-set mode allowed test mode on the
+              live deployment, where every Circle call uses the live key and a
+              test payout wallet comes back 404. */}
           {mode && (
             <div className="ml-auto flex shrink-0 items-center" style={{ border: "1px solid var(--color-divider)" }}>
               {([true, false] as const).map((isTest) => {
-                const on = mode.testMode === isTest;
-                const allowed = isTest || mode.isLive;
-                return (
-                  <button
-                    key={String(isTest)}
-                    type="button"
-                    disabled={switching || !allowed}
-                    title={allowed ? undefined : "This account is not activated for live mode yet"}
-                    onClick={() => { if (!on && allowed) void switchMode(isTest); }}
-                    style={{
-                      fontSize: 11,
-                      letterSpacing: "0.08em",
-                      textTransform: "uppercase",
-                      padding: "5px 11px",
-                      background: on ? "var(--color-text)" : "transparent",
-                      color: on ? "var(--color-ground)" : allowed ? "var(--color-neutral-700)" : "var(--color-neutral-500)",
-                      cursor: on || !allowed ? "default" : "pointer",
-                      opacity: allowed ? 1 : 0.55,
-                    }}
-                  >
-                    {isTest ? "Test" : "Live"}
-                  </button>
+                const here = mode.testMode === isTest;
+                const href = isTest ? SANDBOX_SITE_URL : LIVE_SITE_URL;
+                const label = isTest ? "Test" : "Live";
+                const style = {
+                  fontSize: 11,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase" as const,
+                  padding: "5px 11px",
+                  background: here ? "var(--color-text)" : "transparent",
+                  color: here ? "var(--color-ground)" : "var(--color-neutral-700)",
+                  textDecoration: "none",
+                };
+                return here ? (
+                  <span key={label} style={style}>{label}</span>
+                ) : (
+                  <a key={label} href={href} style={style} title={`Open the ${label.toLowerCase()} dashboard`}>
+                    {label}
+                  </a>
                 );
               })}
             </div>

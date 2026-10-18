@@ -4,7 +4,6 @@ import { createHash, createHmac, randomBytes } from "crypto";
 import { addMinutes } from "date-fns";
 import { verifyMessage } from "viem";
 import type { Prisma } from "@prisma/client";
-import { issueSession } from "./auth";
 import { WALLET_SELECT, walletFor, walletWrite } from "../lib/merchant-wallet";
 import { portalScope } from "../middleware/portalAuth";
 import { prisma, withRetry } from "../lib/prisma";
@@ -1538,31 +1537,25 @@ portalRouter.get("/payments", async (req, res) => {
  * the honest answer is that there is nothing to switch to yet.
  */
 portalRouter.post("/me/mode", async (req, res) => {
-  const dbId = (req as PortalRequest).merchantDbId;
-  const parsed = z.object({ test_mode: z.boolean() }).safeParse(req.body);
-  if (!parsed.success) return err(res, "Send { test_mode: true | false }", 422);
-
-  try {
-    const merchant = await prisma.merchant.findUniqueOrThrow({
-      where: { id: dbId },
-      select: { id: true, merchantId: true, email: true, name: true, onboarded: true, isLive: true },
-    });
-
-    if (!parsed.data.test_mode && !merchant.isLive) {
-      return err(
-        res,
-        "This account is not activated for live mode yet. Everything you do here stays in test.",
-        403,
-        "not_live"
-      );
-    }
-
-    issueSession(res, merchant, false, parsed.data.test_mode);
-    console.log(`[portal/mode] ${dbId} switched to ${parsed.data.test_mode ? "test" : "live"}`);
-    return ok(res, { data: { test_mode: parsed.data.test_mode } });
-  } catch (e) {
-    return serverError(res, "portal/mode", e, "We couldn't switch mode.");
-  }
+  /**
+   * Mode is no longer a session setting, so this cannot switch anything.
+   *
+   * It answered by re-issuing the cookie until the deployment took over. A
+   * session-set mode let someone sit on the live deployment in test mode,
+   * which reads test rows from the shared database while every Circle call
+   * uses the live key — their payout wallet then comes back 404.
+   *
+   * Kept rather than deleted so a browser running the previous build gets a
+   * sentence it can show, instead of a 404 on an endpoint that used to work.
+   */
+  const testMode = portalScope(req).isTestMode;
+  return err(
+    res,
+    `This deployment serves ${testMode ? "test" : "live"} mode. ` +
+      `Switch by opening ${testMode ? LIVE_SITE_URL : SANDBOX_SITE_URL}.`,
+    409,
+    "mode_is_per_deployment"
+  );
 });
 
 portalRouter.patch("/me/rail-receipts", async (req, res) => {
@@ -2077,6 +2070,14 @@ portalRouter.get("/api-keys", async (req, res) => {
     return serverError(res, "portal/api-keys GET", e, "We couldn't load your API keys.");
   }
 });
+
+/**
+ * The two dashboards. Hardcoded for the same reason ApiKeysPage hardcodes the
+ * two API bases: they are facts about this product, not configuration, and a
+ * variable for them is one more thing that can point at the wrong network.
+ */
+const LIVE_SITE_URL = "https://www.sweepconsole.xyz";
+const SANDBOX_SITE_URL = "https://sandbox.sweepconsole.xyz";
 
 const apiKeyRegenerateSchema = z.object({
   name: z.string().min(1).max(50).optional(),

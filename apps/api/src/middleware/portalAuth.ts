@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { isMainnet } from "../lib/gateway/chains";
 
 export interface PortalRequest extends Request {
   merchantDbId: string;
@@ -14,13 +15,9 @@ export interface SessionPayload {
   name: string;
   onboarded?: boolean; // optional: tokens issued before this field default to "onboarded"
   /**
-   * Which mode the dashboard is showing. Optional for the same reason as
-   * `onboarded`: a session issued before this existed must keep working, and
-   * absent means test — the safe side to default to.
-   *
-   * In the session rather than on the Merchant row so two people on one
-   * account can view different modes, and so switching costs no extra read on
-   * every portal request. The toggle re-issues the cookie.
+   * Vestigial. Sessions issued between 347faf7 and this change carry it, and
+   * it is now ignored — the deployment decides the mode. Kept in the type so
+   * an old cookie still decodes rather than failing verification.
    */
   testMode?: boolean;
 }
@@ -46,10 +43,23 @@ export function verifyPortalSession(
   try {
     const payload = jwt.verify(token, getJwtSecret()) as SessionPayload;
     (req as PortalRequest).merchantDbId = payload.dbId;
-    // Absent on a session issued before the toggle existed. Test is the side
-    // to be wrong on: a dashboard showing test data is confusing, one showing
-    // live data to someone who thought they were testing is worse.
-    (req as PortalRequest).isTestMode = payload.testMode !== false;
+    /**
+     * The DEPLOYMENT decides the mode, not the session.
+     *
+     * It was the session for one day, and that produced a state that cannot
+     * work: a merchant signed into the live deployment with a test-mode
+     * session got test rows from the shared database while every Circle call
+     * used the live key — so their payout wallet, created in Circle's test
+     * environment, came back 404 "not accessible to the caller". Neither half
+     * was wrong; the combination was impossible.
+     *
+     * isMainnet() already decides the chain set, the CCTP host, the contract
+     * addresses and which API keys are accepted. Deriving the dashboard's
+     * mode from it too means the wallet always matches the key that made it,
+     * and the charges beside it. Switching mode is now switching site, which
+     * is what the two hostnames are for.
+     */
+    (req as PortalRequest).isTestMode = !isMainnet();
     next();
   } catch {
     res.status(401).json({ error: { message: "Session expired or invalid", code: "unauthorized" } });
@@ -63,6 +73,10 @@ export function verifyPortalSession(
  * does not have — it is session-authed. This is the same idea for the other
  * door: with one database serving both deployments, a dashboard that does not
  * filter shows test and live rows in the same table.
+ *
+ * Both now answer to the same switch. A key reaches the deployment that can
+ * serve it because isMainnet() picks the accepted prefix; a dashboard shows
+ * the mode its deployment runs. Neither can disagree with the chain set.
  */
 export function portalScope(req: Request): { merchantId: string; isTestMode: boolean } {
   const { merchantDbId, isTestMode } = req as PortalRequest;
