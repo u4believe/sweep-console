@@ -132,7 +132,7 @@ export function PortalLayout() {
 
           <span
             className="ml-auto truncate"
-            style={{ fontSize: 12, color: "var(--color-neutral-800)", minWidth: 0, marginLeft: 16 }}
+            style={{ fontSize: 12, color: "var(--color-neutral-800)", minWidth: 0 }}
           >
             {user?.email}
           </span>
