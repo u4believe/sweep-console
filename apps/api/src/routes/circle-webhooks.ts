@@ -4,6 +4,7 @@ import { createPublicKey, verify as cryptoVerify } from "crypto";
 import { prisma, withRetry } from "../lib/prisma";
 import { IS_PRODUCTION } from "../lib/env";
 import { getWebhookPublicKey, getCircleWalletBalances } from "../lib/circle";
+import { walletWrite } from "../lib/merchant-wallet";
 
 export const circleWebhooksRouter = Router();
 
@@ -114,8 +115,12 @@ async function handleInboundDeposit(n: InboundNotification): Promise<void> {
   try {
     const merchant = await withRetry(() =>
       prisma.merchant.findFirst({
-        where: { circleWalletId: walletId },
-        select: { id: true, email: true },
+        // Either half. A merchant holds a Circle wallet per environment, and
+        // searching only the test column means a live wallet's webhook finds
+        // no merchant and the balance is never refreshed — silently, because
+        // "no merchant for this wallet" is a warning, not an error.
+        where: { OR: [{ circleWalletId: walletId }, { liveCircleWalletId: walletId }] },
+        select: { id: true, email: true, circleWalletId: true },
       })
     );
 
@@ -141,7 +146,11 @@ async function handleInboundDeposit(n: InboundNotification): Promise<void> {
     await withRetry(() =>
       prisma.merchant.update({
         where: { id: merchant.id },
-        data: { usdcBalance: newBalance, balanceUpdatedAt: new Date() },
+        // Write back to the half that matched, not to test by default.
+        data: walletWrite(merchant.circleWalletId === walletId, {
+          usdcBalance: newBalance,
+          balanceUpdatedAt: new Date(),
+        }),
       })
     );
 

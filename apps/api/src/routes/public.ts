@@ -28,6 +28,7 @@ import {
 import { revokeSubscription } from "../lib/subscriptions/revoke";
 import { verifyTurnstile, clientIp } from "../lib/turnstile";
 import type { Hex } from "viem";
+import { WALLET_SELECT, walletFor } from "../lib/merchant-wallet";
 import { isMainnet, supportedSourceChains } from "../lib/gateway/chains";
 
 
@@ -488,7 +489,7 @@ publicRouter.get("/checkout/:session_id", async (req, res) => {
       include: {
         plan: { include: { tiers: { where: { archived: false }, orderBy: { amount: "asc" } } } },
         merchant: {
-          select: { name: true, merchantId: true, walletAddress: true, walletType: true, addressVerifiedAt: true },
+          select: { name: true, merchantId: true, ...WALLET_SELECT },
         },
       },
     }));
@@ -505,8 +506,11 @@ publicRouter.get("/checkout/:session_id", async (req, res) => {
 
     // subscribe() pushes settled funds straight to this address — never expose
     // checkout for a missing or unverified (external path B) payout wallet.
-    const { walletAddress, walletType, addressVerifiedAt } = session.merchant;
-    if (!walletAddress || (walletType === "external" && !addressVerifiedAt)) {
+    // The session's own mode decides which payout wallet has to be ready. A
+    // live session against a merchant who only configured a test wallet must
+    // not open checkout, and vice versa.
+    const payout = walletFor(session.merchant, session.isTestMode);
+    if (!payout.address || (payout.type === "external" && !payout.verifiedAt)) {
       return err(res, "This merchant cannot accept payments yet.", 409);
     }
 

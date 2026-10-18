@@ -31,15 +31,43 @@ model Merchant {
   liveKeyName          String    @default("Default")
   liveKeyPrefix        String? // first 16 chars, for display (e.g. "live_a1b2c3d4e5f6")
   webhookSecret        String // HMAC-SHA256 signing secret for webhook deliveries
-  walletAddress        String? // merchant's payout wallet on Arc
+  // The payout wallet, paired by mode exactly as the API keys above are.
+  //
+  // A merchant needs one wallet per environment, not one wallet. Circle's test
+  // and live are separate universes chosen by the API key's prefix: a wallet
+  // created with a TEST_API_KEY does not exist to a LIVE_API_KEY — not as an
+  // empty wallet, but not at all. An external address could in principle be
+  // reused, but the chains differ too (Arc testnet vs Arc), so the verified
+  // address for one mode says nothing about the other.
+  //
+  // Before this split, direct-charge.ts:240 returned the single walletAddress
+  // as the payout destination for any charge. A merchant who onboarded in test
+  // and then went live would have had a TEST wallet as their LIVE payout
+  // address — and that fails silently, because the charge succeeds and the
+  // money goes somewhere nobody controls.
+  walletAddress        String? // TEST payout wallet
   walletType           String    @default("external") // "circle" | "external"
   circleWalletId       String? // Circle internal wallet UUID (for balance / transfer APIs)
   addressVerifiedAt    DateTime? // external addresses must be ownership-verified (signed nonce) before payouts
-  pendingWalletAddress String? // external address awaiting signature verification
-  walletNonce          String? // nonce the merchant must sign with the pending wallet
-  walletNonceExpiresAt DateTime? // nonce validity window
   usdcBalance          String    @default("0") // cached USDC balance, refreshed by webhooks
   balanceUpdatedAt     DateTime? // when usdcBalance was last written
+
+  liveWalletAddress     String? // LIVE payout wallet — mirrors the five above
+  liveWalletType        String    @default("external")
+  liveCircleWalletId    String?
+  liveAddressVerifiedAt DateTime?
+  liveUsdcBalance       String    @default("0")
+  liveBalanceUpdatedAt  DateTime?
+
+  // The verification handshake is NOT paired. It is transient — a nonce the
+  // merchant signs within a short window — so a second copy would be three
+  // more columns for a state that exists for minutes. One flag records which
+  // mode the pending address belongs to, so a verification begun in test
+  // cannot be completed into the live slot.
+  pendingWalletAddress String? // address awaiting signature verification
+  pendingWalletIsTestMode Boolean? // which mode the pending verification is for
+  walletNonce          String? // nonce the merchant must sign with the pending wallet
+  walletNonceExpiresAt DateTime? // nonce validity window
   /// Should Sweep email this merchant's RAIL payers a receipt per charge?
   ///
   /// Off by default, and that is the considered position rather than an

@@ -25,6 +25,7 @@
 // receipt and an unexplained withdrawal.
 
 import type { Address, Hex } from "viem";
+import { WALLET_SELECT, walletFor } from "../lib/merchant-wallet";
 import { prisma } from "../lib/prisma";
 import { selectPaymentChain } from "../lib/gateway/selector";
 import { chainKeyForId, getSourceChain } from "../lib/gateway/chains";
@@ -71,7 +72,7 @@ async function loadCharge(chargeDbId: string) {
     select: {
       id: true, chargeId: true, amount: true, status: true, merchantId: true,
       externalRef: true, isTestMode: true, description: true,
-      merchant: { select: { merchantId: true, walletAddress: true } },
+      merchant: { select: { merchantId: true, ...WALLET_SELECT } },
       mandate: {
         select: {
           id: true, mandateId: true, status: true, expiresAt: true,
@@ -115,8 +116,20 @@ export async function planCharge(c: ChargeContext) {
         `${m.maxAmount} ceiling for the period beginning ${since.toISOString()}`
     );
   }
-  if (!c.merchant.walletAddress) {
-    throw new ChargeError("no_payout_wallet", "This account has no payout wallet configured");
+  /**
+   * The payout wallet for THIS CHARGE'S mode.
+   *
+   * A merchant has one per environment, and the charge says which it is. Read
+   * unscoped — as `c.merchant.walletAddress` — a live charge against a
+   * merchant who onboarded in test pays into the test wallet, succeeds, and
+   * puts the money somewhere nobody controls.
+   */
+  const payoutWallet = walletFor(c.merchant, c.isTestMode);
+  if (!payoutWallet.address) {
+    throw new ChargeError(
+      "no_payout_wallet",
+      `This account has no payout wallet configured for ${c.isTestMode ? "test" : "live"} mode`
+    );
   }
 
   const grants = await prisma.renewalDelegation.findMany({
@@ -237,7 +250,7 @@ export async function planCharge(c: ChargeContext) {
   if (!grant) {
     throw new ChargeError("insufficient_funds", `No usable grant for the selected chain ${chosenKey}`);
   }
-  return { grant, chainKey: chosenKey, payout: c.merchant.walletAddress as Address };
+  return { grant, chainKey: chosenKey, payout: walletFor(c.merchant, c.isTestMode).address as Address };
 }
 
 /// Record settlement: the charge succeeded, and the bridge row that carried it is

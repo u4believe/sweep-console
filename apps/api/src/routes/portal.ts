@@ -5,6 +5,7 @@ import { addMinutes } from "date-fns";
 import { verifyMessage } from "viem";
 import type { Prisma } from "@prisma/client";
 import { issueSession } from "./auth";
+import { WALLET_SELECT, walletFor, walletWrite } from "../lib/merchant-wallet";
 import { portalScope } from "../middleware/portalAuth";
 import { prisma, withRetry } from "../lib/prisma";
 import { ids } from "../lib/ids";
@@ -88,14 +89,12 @@ portalRouter.get("/dashboard", async (req, res) => {
     const merchant = await withRetry(() =>
       prisma.merchant.findUniqueOrThrow({
         where: { id: dbId },
-        select: {
-          walletAddress: true,
-          walletType: true,
-          addressVerifiedAt: true,
-          externalRailEnabled: true,
-        },
+        select: { ...WALLET_SELECT, externalRailEnabled: true },
       }),
     );
+    // The wallet for the mode the dashboard is showing. A merchant in test
+    // mode looking at their live payout address would reasonably act on it.
+    const wallet = walletFor(merchant, portalScope(req).isTestMode);
 
     return ok(res, {
       data: {
@@ -103,9 +102,9 @@ portalRouter.get("/dashboard", async (req, res) => {
         totalRevenue: Number(revenue._sum.amount ?? 0n),
         plans,
         failedPayments,
-        walletAddress: merchant.walletAddress,
-        walletType: merchant.walletType,
-        addressVerifiedAt: merchant.addressVerifiedAt?.toISOString() ?? null,
+        walletAddress: wallet.address,
+        walletType: wallet.type,
+        addressVerifiedAt: wallet.verifiedAt?.toISOString() ?? null,
       },
     });
   } catch (e) {
@@ -131,21 +130,42 @@ portalRouter.get("/me", async (req, res) => {
         merchantId: true,
         name: true,
         email: true,
-        walletAddress: true,
-        walletType: true,
-        addressVerifiedAt: true,
+        ...WALLET_SELECT,
         pendingWalletAddress: true,
+        pendingWalletIsTestMode: true,
         isLive: true,
         railChargeReceipts: true,
         createdAt: true,
       },
     });
+    /**
+     * One mode's wallet, flattened back to the names the client already uses.
+     *
+     * The spread below would otherwise hand the browser BOTH halves —
+     * liveWalletAddress included — and a dashboard in test mode would be one
+     * typo away from showing a live payout address.
+     */
+    const meWallet = walletFor(merchant, portalScope(req).isTestMode);
+    const pendingForThisMode =
+      merchant.pendingWalletIsTestMode === null ||
+      merchant.pendingWalletIsTestMode === portalScope(req).isTestMode;
     // The nav needs to know whether to show the operator screen. Advisory only —
     // every admin route checks for itself and 404s, so a client that lies about
     // this sees nothing.
     return ok(res, {
       data: {
-        ...merchant,
+        merchantId: merchant.merchantId,
+        name: merchant.name,
+        email: merchant.email,
+        isLive: merchant.isLive,
+        railChargeReceipts: merchant.railChargeReceipts,
+        createdAt: merchant.createdAt,
+        // Flattened from the pair, so the other mode's address never ships.
+        walletAddress: meWallet.address,
+        walletType: meWallet.type,
+        addressVerifiedAt: meWallet.verifiedAt,
+        // A verification begun in the other mode is not this mode's business.
+        pendingWalletAddress: pendingForThisMode ? merchant.pendingWalletAddress : null,
         isAdmin: isAdminEmail(merchant.email),
         // Which mode the dashboard is showing, from the session rather than
         // the row — two people on one account can differ.
@@ -1648,6 +1668,9 @@ portalRouter.post(
         where: { id: dbId },
         data: {
           pendingWalletAddress: address.toLowerCase(),
+          // Stamped here so the verification can only be completed into the
+          // mode it was begun in, however the toggle moves in between.
+          pendingWalletIsTestMode: portalScope(req).isTestMode,
           walletNonce: nonce,
           walletNonceExpiresAt: expiresAt,
         },
@@ -1680,6 +1703,7 @@ portalRouter.post("/wallet/external/verify", async (req, res) => {
           email: true,
           name: true,
           pendingWalletAddress: true,
+          pendingWalletIsTestMode: true,
           walletNonce: true,
           walletNonceExpiresAt: true,
         },
@@ -1725,11 +1749,18 @@ portalRouter.post("/wallet/external/verify", async (req, res) => {
     await prisma.merchant.update({
       where: { id: dbId },
       data: {
-        walletAddress: merchant.pendingWalletAddress,
-        walletType: "external",
-        circleWalletId: null,
-        addressVerifiedAt: verifiedAt,
+        // The mode the verification BEGAN in, not the one the dashboard is
+        // showing now. A merchant who starts a verification, switches the
+        // toggle, then signs would otherwise install the address in the other
+        // mode's slot — and that slot is a payout destination.
+        ...walletWrite(merchant.pendingWalletIsTestMode ?? portalScope(req).isTestMode, {
+          address: merchant.pendingWalletAddress,
+          type: "external",
+          circleWalletId: null,
+          verifiedAt,
+        }),
         pendingWalletAddress: null,
+        pendingWalletIsTestMode: null,
         walletNonce: null,
         walletNonceExpiresAt: null,
       },
@@ -1787,11 +1818,13 @@ portalRouter.post("/wallet/circle", async (req, res) => {
     const merchant = await withRetry(() =>
       prisma.merchant.findUniqueOrThrow({
         where: { id: dbId },
-        select: { walletType: true },
+        select: WALLET_SELECT,
       }),
     );
 
-    if (merchant.walletType === "circle") {
+    // This mode's wallet. A merchant with a test Circle wallet must still be
+    // able to create a live one — they are different environments.
+    if (walletFor(merchant, portalScope(req).isTestMode).type === "circle") {
       return err(
         res,
         "A Circle wallet was already created for this account.",
@@ -1818,12 +1851,12 @@ portalRouter.post("/wallet/circle", async (req, res) => {
           prisma.merchant.update({
             where: { id: dbId },
             // Circle user-controlled wallets (path A) are ownership-implicit
-            data: {
-              walletAddress: existing.address.toLowerCase(),
-              walletType: "circle",
+            data: walletWrite(portalScope(req).isTestMode, {
+              address: existing.address.toLowerCase(),
+              type: "circle",
               circleWalletId: existing.id,
-              addressVerifiedAt: new Date(),
-            },
+              verifiedAt: new Date(),
+            }),
           }),
         );
         return ok(res, {
@@ -1925,12 +1958,14 @@ portalRouter.post("/wallet/circle/confirm", async (req, res) => {
     await prisma.merchant.update({
       where: { id: dbId },
       // Circle user-controlled wallets (path A) are ownership-implicit
-      data: {
-        walletAddress: wallet.address.toLowerCase(),
-        walletType: "circle",
+      // Circle's test and live are separate environments, so a wallet created
+      // through this API belongs to the mode this deployment serves.
+      data: walletWrite(portalScope(req).isTestMode, {
+        address: wallet.address.toLowerCase(),
+        type: "circle",
         circleWalletId: wallet.id,
-        addressVerifiedAt: new Date(),
-      },
+        verifiedAt: new Date(),
+      }),
     });
 
     return ok(res, { walletAddress: wallet.address.toLowerCase() });
@@ -1949,10 +1984,10 @@ portalRouter.post(
     try {
       const merchant = await prisma.merchant.findUniqueOrThrow({
         where: { id: dbId },
-        select: { walletType: true },
+        select: WALLET_SELECT,
       });
 
-      if (merchant.walletType !== "circle") {
+      if (walletFor(merchant, portalScope(req).isTestMode).type !== "circle") {
         return err(
           res,
           "No Circle wallet is associated with this account.",
@@ -2035,36 +2070,38 @@ portalRouter.get("/wallet/circle/balance", async (req, res) => {
       prisma.merchant.findUniqueOrThrow({
         where: { id: dbId },
         select: {
-          walletType: true,
-          circleWalletId: true,
-          usdcBalance: true,
+          ...WALLET_SELECT,
           balanceUpdatedAt: true,
         },
       }),
     );
-    if (merchant.walletType !== "circle" || !merchant.circleWalletId) {
+    // The wallet — and its cached balance — for the mode the dashboard shows.
+    // Circle's test and live are different environments, so the two balances
+    // are unrelated numbers and must never be served for one another.
+    const w = walletFor(merchant, portalScope(req).isTestMode);
+    if (w.type !== "circle" || !w.circleWalletId) {
       return err(res, "No Circle wallet found", 404);
     }
 
-    const cacheAge = merchant.balanceUpdatedAt
-      ? Date.now() - merchant.balanceUpdatedAt.getTime()
+    const cacheAge = w.balanceUpdatedAt
+      ? Date.now() - w.balanceUpdatedAt.getTime()
       : Infinity;
     const isFresh = !forceRefresh && cacheAge < BALANCE_STALE_MS;
 
     if (isFresh) {
       return ok(res, {
         data: {
-          usdcBalance: merchant.usdcBalance,
+          usdcBalance: w.usdcBalance,
           tokenId: null,
-          walletId: merchant.circleWalletId,
-          updatedAt: merchant.balanceUpdatedAt?.toISOString() ?? null,
+          walletId: w.circleWalletId,
+          updatedAt: w.balanceUpdatedAt?.toISOString() ?? null,
           fromCache: true,
         },
       });
     }
 
     // Fetch live from Circle and update cache
-    const read = await getCircleWalletBalances(merchant.circleWalletId);
+    const read = await getCircleWalletBalances(w.circleWalletId);
 
     /**
      * A failed read is not a zero balance.
@@ -2078,8 +2115,8 @@ portalRouter.get("/wallet/circle/balance", async (req, res) => {
       console.warn(`[portal/balance] ${dbId} Circle read failed: ${read.reason}`);
       return ok(res, {
         data: {
-          usdcBalance: merchant.usdcBalance ?? null,
-          updatedAt: merchant.balanceUpdatedAt?.toISOString() ?? null,
+          usdcBalance: w.usdcBalance,
+          updatedAt: w.balanceUpdatedAt?.toISOString() ?? null,
           fromCache: true,
           stale: true,
           error: "We couldn't reach Circle just now. This is the last balance we saw.",
@@ -2093,7 +2130,10 @@ portalRouter.get("/wallet/circle/balance", async (req, res) => {
     await withRetry(() =>
       prisma.merchant.update({
         where: { id: dbId },
-        data: { usdcBalance: liveBalance, balanceUpdatedAt: new Date() },
+        data: walletWrite(portalScope(req).isTestMode, {
+          usdcBalance: liveBalance,
+          balanceUpdatedAt: new Date(),
+        }),
       }),
     );
 
@@ -2101,7 +2141,7 @@ portalRouter.get("/wallet/circle/balance", async (req, res) => {
       data: {
         usdcBalance: liveBalance,
         tokenId: usdc?.token.id ?? null,
-        walletId: merchant.circleWalletId,
+        walletId: w.circleWalletId,
         updatedAt: new Date().toISOString(),
         fromCache: false,
       },
@@ -2180,13 +2220,16 @@ portalRouter.post(
       const merchant = await withRetry(() =>
         prisma.merchant.findUniqueOrThrow({
           where: { id: dbId },
-          select: { walletType: true, circleWalletId: true },
+          select: WALLET_SELECT,
         }),
       );
-      if (merchant.walletType !== "circle" || !merchant.circleWalletId) {
+      // Withdrawing spends real money, so the wallet must be the one for the
+      // mode the merchant is actually in.
+      const w = walletFor(merchant, portalScope(req).isTestMode);
+      if (w.type !== "circle" || !w.circleWalletId) {
         return err(res, "No Circle wallet found", 404);
       }
-      const read = await getCircleWalletBalances(merchant.circleWalletId);
+      const read = await getCircleWalletBalances(w.circleWalletId);
       // Distinguished from an empty wallet on purpose: this guards a withdrawal,
       // and "you have no USDC" is the wrong thing to tell someone whose balance
       // we simply could not read.
@@ -2206,7 +2249,7 @@ portalRouter.post(
       const { userToken, encryptionKey } = await getCircleUserToken(dbId);
       const { challengeId } = await createCircleTransferChallenge(
         userToken,
-        merchant.circleWalletId,
+        w.circleWalletId,
         usdc.token.id,
         destinationAddress,
         amount,

@@ -9,6 +9,7 @@
 import { addHours } from "date-fns";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
+import { WALLET_SELECT, walletFor } from "../merchant-wallet";
 import { ids } from "../ids";
 
 export class SessionCreationError extends Error {
@@ -28,18 +29,28 @@ export interface CreateSessionInput {
 }
 
 export async function createCheckoutSession(input: CreateSessionInput) {
-  const payout = await prisma.merchant.findUniqueOrThrow({
+  /**
+   * The payout wallet for the mode this session is being created in.
+   *
+   * The guard below is the earliest place a missing payout wallet is caught,
+   * so reading the wrong mode's wallet here lets a live checkout open against
+   * a merchant who has only ever configured a test wallet — and the failure
+   * then surfaces at settlement, after the payer has already granted.
+   */
+  const merchant = await prisma.merchant.findUniqueOrThrow({
     where: { id: input.merchantId },
-    select: { walletAddress: true, walletType: true, addressVerifiedAt: true },
+    select: WALLET_SELECT,
   });
-  if (!payout.walletAddress) {
+  const payout = walletFor(merchant, input.isTestMode);
+  if (!payout.address) {
     throw new SessionCreationError(
-      "No payout wallet configured. Link one in the Developer Portal first.",
+      `No payout wallet configured for ${input.isTestMode ? "test" : "live"} mode. ` +
+        `Link one in the Developer Portal first.`,
       409,
       "payout_wallet_missing"
     );
   }
-  if (payout.walletType === "external" && !payout.addressVerifiedAt) {
+  if (payout.type === "external" && !payout.verifiedAt) {
     throw new SessionCreationError(
       "Payout wallet ownership is not verified. Verify it in the Developer Portal first.",
       409,
