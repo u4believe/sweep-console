@@ -219,14 +219,30 @@ async function main(): Promise<void> {
   for (const [envVar, what] of ROLES) {
     const raw = process.env[envVar];
     if (!raw) {
-      // Only SETTLEMENT_PRIVATE_KEY has the dangerous fallback; the others
-      // throw where they are used, which is loud enough.
+      /**
+       * Every one of these falls back silently. I wrote this branch believing
+       * only SETTLEMENT_PRIVATE_KEY did, and that the others threw where they
+       * were used — they do not, and a mainnet preflight PASSED on 2026-10-18
+       * with two delegate keys unset.
+       *
+       * signers.ts:92 returns PLATFORM_PRIVATE_KEY when the renewal key is
+       * absent, and getRelayerAccount("external") falls through to the same
+       * place. So an unset delegate key does not fail loudly; it collapses
+       * three roles onto one key, and every grant from then on names that one
+       * address as its delegate.
+       *
+       * PLATFORM_PRIVATE_KEY is the exception: nothing falls back TO anything
+       * else when it is missing, and platformKey() does throw.
+       */
+      const fallsBackSilently = envVar !== "PLATFORM_PRIVATE_KEY";
       note(
-        envVar === "SETTLEMENT_PRIVATE_KEY",
+        fallsBackSilently,
         `${envVar} is unset` +
-          (envVar === "SETTLEMENT_PRIVATE_KEY"
-            ? " — settlement would SILENTLY use PLATFORM_PRIVATE_KEY (signers.ts:121)"
-            : "")
+          (fallsBackSilently
+            ? ` — would SILENTLY use PLATFORM_PRIVATE_KEY (signers.ts:${
+                envVar === "SETTLEMENT_PRIVATE_KEY" ? "121" : "92"
+              })`
+            : " — platformKey() throws where it is used")
       );
       continue;
     }
