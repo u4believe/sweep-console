@@ -93,15 +93,19 @@ export function PortalLayout() {
             </span>
           </button>
 
-          <span className="tag tag-accent" style={{ marginLeft: 6 }}>Test mode</span>
-
           {/* Which deployment this is, and a way to the other one.
+              It sits beside the wordmark, where a hardcoded "Test mode" badge
+              used to be — that one said "Test mode" on the live site too,
+              which is the single place it must never say.
               Not a switch: the mode follows the deployment, so changing it
               means changing site. A session-set mode allowed test mode on the
               live deployment, where every Circle call uses the live key and a
               test payout wallet comes back 404. */}
           {mode && (
-            <div className="ml-auto flex shrink-0 items-center" style={{ border: "1px solid var(--color-divider)" }}>
+            <div
+              className="flex shrink-0 items-center"
+              style={{ border: "1px solid var(--color-divider)", marginLeft: 10 }}
+            >
               {([true, false] as const).map((isTest) => {
                 const here = mode.testMode === isTest;
                 const href = isTest ? SANDBOX_SITE_URL : LIVE_SITE_URL;
@@ -127,8 +131,8 @@ export function PortalLayout() {
           )}
 
           <span
-            className={mode ? "truncate" : "ml-auto truncate"}
-            style={{ fontSize: 12, color: "var(--color-neutral-800)", minWidth: 0, marginLeft: mode ? 16 : undefined }}
+            className="ml-auto truncate"
+            style={{ fontSize: 12, color: "var(--color-neutral-800)", minWidth: 0, marginLeft: 16 }}
           >
             {user?.email}
           </span>
