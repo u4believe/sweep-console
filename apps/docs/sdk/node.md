@@ -15,6 +15,16 @@ const sweep = new Sweep(process.env.SWEEP_API_KEY!);
 Zero runtime dependencies. It refuses an `http://` base URL, because every
 request carries `Authorization: Bearer <your key>`.
 
+**The key picks the host.** A `test_` key reaches
+`https://api-sandbox.sweepconsole.xyz`, a `live_` key reaches
+`https://api.sweepconsole.xyz`, and each API refuses the other's keys. Going
+live is one environment variable and nothing else — no `baseUrl` to remember,
+no second client to construct.
+
+Pass `baseUrl` only for a tunnel, a preview or a self-hosted deployment. A key
+that begins with neither prefix is refused in the constructor, rather than
+guessed onto a host that would answer `401`.
+
 ## Hosted plans
 
 ```ts
@@ -86,6 +96,16 @@ try {
 `MandateExists`, `AmountOverCap`, `PeriodCapExceeded`, `IdempotencyKeyRequired`,
 `IdempotencyKeyReused`, `IdempotencyKeyInFlight`, `ChargeConflict`,
 `WebhookSignatureError` — all extending `SweepError`.
+
+Two refusals come from the environment rather than the request:
+
+| code | status | what it means |
+| --- | --- | --- |
+| `wrong_environment` | 403 | a `test_` key reached the live API, or the reverse. The message names the host to use |
+| `payout_wallet_missing` | 409 | the merchant has no payout wallet **for this mode**. A wallet is configured per environment, so a test one does not serve live charges |
+
+Neither is retryable — both mean a configuration mismatch, not a transient
+failure.
 
 ## Money
 
