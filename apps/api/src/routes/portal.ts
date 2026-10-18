@@ -2176,7 +2176,22 @@ portalRouter.get("/wallet/circle/balance", async (req, res) => {
         const fp = key
           ? createHash("sha256").update(key.trim()).digest("hex").slice(0, 8)
           : "unset";
-        detail += ` [key:${fp} wallet:${w.circleWalletId}]`;
+        /**
+         * Which deployment answered, in its own words.
+         *
+         * Four Railway services run this image and only one serves a given
+         * hostname, so "I set that variable" and "the process reading it has
+         * that value" are different claims. Railway injects these, so the
+         * reply names the service and environment that actually handled the
+         * request rather than the one someone believes they edited.
+         */
+        const where = [
+          process.env.RAILWAY_SERVICE_NAME,
+          process.env.RAILWAY_ENVIRONMENT_NAME,
+        ]
+          .filter(Boolean)
+          .join("/");
+        detail += ` [key:${fp} wallet:${w.circleWalletId}${where ? ` svc:${where}` : ""}]`;
       }
       const reason = isAdminEmail(merchant.email) ? ` (${detail})` : "";
       return ok(res, {
