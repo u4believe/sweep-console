@@ -2096,6 +2096,7 @@ portalRouter.get("/wallet/circle/balance", async (req, res) => {
         select: {
           ...WALLET_SELECT,
           balanceUpdatedAt: true,
+          email: true,
         },
       }),
     );
@@ -2148,13 +2149,23 @@ portalRouter.get("/wallet/circle/balance", async (req, res) => {
      */
     if (!read.ok) {
       console.warn(`[portal/balance] ${dbId} Circle read failed: ${read.reason}`);
+      /**
+       * Platform admins see WHY; merchants see that it happened.
+       *
+       * A merchant can do nothing with "Circle API error 403", and showing it
+       * to them is noise. The person who can fix it is whoever runs the
+       * platform, and making them read a log stream to learn a fact the
+       * server already knows is how a wallet holding 150.58 USDC read as 0.00
+       * for a day. circle.ts redacts credentials before this string exists.
+       */
+      const reason = isAdminEmail(merchant.email) ? ` (${read.reason})` : "";
       return ok(res, {
         data: {
           usdcBalance: w.usdcBalance,
           updatedAt: w.balanceUpdatedAt?.toISOString() ?? null,
           fromCache: true,
           stale: true,
-          error: "We couldn't reach Circle just now. This is the last balance we saw.",
+          error: `We couldn't reach Circle just now. This is the last balance we saw.${reason}`,
         },
       });
     }
