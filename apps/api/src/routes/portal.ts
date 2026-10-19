@@ -16,6 +16,8 @@ import { closePlanSubscriptions, findSubsToClose } from "../lib/plan-lifecycle";
 import { requireStepUp } from "../lib/portal/stepup";
 import { refusePriceChange, applyPriceChange, type PriceScope } from "../lib/plan-pricing";
 import { sendPriceChangeNotices } from "../lib/email/price-change";
+import { readTreasury } from "../lib/portal/treasury";
+import { isMainnet } from "../lib/gateway/chains";
 import { isAdminRequest, sessionEmail, isAdminEmail, adminNotificationRecipients } from "../lib/portal/admin";
 import { railAccessGrantedEmailHtml, railAccessWithdrawnEmailHtml } from "../lib/email";
 import {
@@ -1233,6 +1235,32 @@ portalRouter.post("/rail/request", async (req, res) => {
 // Visible only to PLATFORM_ADMIN_EMAILS. Reading the queue needs no step-up —
 // deciding does. A code per decision rather than per session, because one code
 // unlocking a batch of approvals turns five judgements into one click.
+/**
+ * Platform account balances, for operators only.
+ *
+ * 404 rather than 403 for a non-admin, matching /admin/rail: the route does
+ * not announce that it exists. These are the platform's own addresses and
+ * their balances say how much runway settlement has — not something a
+ * merchant should be able to probe.
+ */
+portalRouter.get("/admin/treasury", async (req, res) => {
+  if (!(await isAdminRequest(req))) return err(res, "Not found", 404, "not_found");
+  try {
+    const rows = await readTreasury();
+    return ok(res, {
+      data: {
+        rows,
+        /// So the screen can say which network it is describing without
+        /// guessing from the chain names.
+        mode: isMainnet() ? "live" : "test",
+        gasFloorUsdc: process.env.SETTLEMENT_GAS_FLOOR_USDC ?? "0.10",
+      },
+    });
+  } catch (e) {
+    return serverError(res, "portal/admin/treasury", e, "We couldn't read the platform balances.");
+  }
+});
+
 portalRouter.get("/admin/rail", async (req, res) => {
   if (!(await isAdminRequest(req))) return err(res, "Not found", 404, "not_found");
   try {

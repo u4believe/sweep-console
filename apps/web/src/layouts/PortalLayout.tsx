@@ -24,7 +24,10 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
 /// Appended only for operator accounts. Hiding it is presentation, not security:
 /// every admin route answers 404 to a non-admin regardless of what the nav shows.
-const ADMIN_NAV = { href: "/admin/rail", label: "Rail access" };
+const ADMIN_NAV = [
+  { href: "/admin/rail", label: "Rail access" },
+  { href: "/admin/treasury", label: "Balances" },
+];
 
 /**
  * The portal shell — the Modernist top-nav variant.
@@ -51,7 +54,7 @@ export function PortalLayout() {
       .catch(() => setIsAdmin(false));
   }, []);
 
-  const nav = isAdmin ? [...NAV, ADMIN_NAV] : NAV;
+  const nav = isAdmin ? [...NAV, ...ADMIN_NAV] : NAV;
 
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
