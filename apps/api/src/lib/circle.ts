@@ -4,6 +4,8 @@ function normalizeBaseUrl(raw: string): string {
   const trimmed = raw.trim().replace(/\/+$/, "");
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
+import { isMainnet } from "./gateway/chains";
+
 const BASE = normalizeBaseUrl(process.env.CIRCLE_BASE_URL ?? "https://api.circle.com");
 
 // Per the addendum this should be ARC-TESTNET once Circle user-controlled
@@ -70,8 +72,30 @@ async function circleGet<T>(path: string, userToken?: string): Promise<T> {
   return (json as { data: T }).data;
 }
 
+/**
+ * The Circle userId for a merchant, namespaced by environment.
+ *
+ * Circle's userId namespace is SHARED ACROSS ENTITIES, and our database is
+ * shared across deployments, so the merchant's dbId is claimed by whichever
+ * environment reached Circle first. Measured against the live entity on
+ * 2026-10-19: a brand-new id created and minted a token fine, while the
+ * merchant's dbId answered 409 "Existing user already created" to a create
+ * and 404 "Cannot find the userId" to everything else — with zero users in
+ * that entity. It had been claimed by the test entity in June.
+ *
+ * Unprefixed on testnet so every wallet created before this keeps working:
+ * those users are registered under the bare dbId and renaming them is not
+ * possible. Live gets the prefix because it has no users yet.
+ *
+ * Without this no merchant could ever create a live payout wallet, because
+ * every merchant's dbId is already spoken for by their test wallet.
+ */
+export function circleUserId(merchantDbId: string): string {
+  return isMainnet() ? `live_${merchantDbId}` : merchantDbId;
+}
+
 export async function createCircleUser(userId: string): Promise<void> {
-  await circlePost("/v1/w3s/users", { userId });
+  await circlePost("/v1/w3s/users", { userId: circleUserId(userId) });
 }
 
 export async function getCircleUserToken(
@@ -79,7 +103,7 @@ export async function getCircleUserToken(
 ): Promise<{ userToken: string; encryptionKey: string }> {
   return circlePost<{ userToken: string; encryptionKey: string }>(
     "/v1/w3s/users/token",
-    { userId }
+    { userId: circleUserId(userId) }
   );
 }
 
