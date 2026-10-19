@@ -36,6 +36,21 @@ const MODE_BEARING = [
 /// Reads. A create or update has no rows to filter.
 const READS = ["findFirst", "findMany", "findUnique", "findUniqueOrThrow", "count", "aggregate", "groupBy"];
 
+/**
+ * Creates, which this missed entirely.
+ *
+ * "A create stamps isTestMode from the key" was written at the top of this
+ * file and was not true of the dashboard. plan.create set no isTestMode at
+ * all, so the schema default (true) applied and a plan made on the LIVE
+ * dashboard was written as a TEST plan — then vanished, because every read is
+ * scoped to the mode that made it. paymentLink.create hardcoded `true` with a
+ * "test keys only in beta" comment that outlived the beta.
+ *
+ * A read that forgets the mode shows rows it should not. A write that forgets
+ * it puts rows somewhere nobody will look, which is quieter and worse.
+ */
+const WRITES = ["create", "createMany", "upsert"];
+
 /// Known and deliberate: no isTestMode column to filter on yet.
 const UNSCOPABLE = [
   // A grant has no mode of its own and inherits its parent's — the mandate its
@@ -114,6 +129,44 @@ function main(): void {
       const f = { file: name, line: i + 1, model, method, fix: raw.fix };
       if (MODE_BEARING.includes(model)) findings.push(f);
       else if (UNSCOPABLE.includes(model)) deferred.push(f);
+    }
+  }
+
+  // Second pass: creates of mode-bearing models must stamp isTestMode.
+  for (const name of readdirSync(ROUTES).filter((f) => f.endsWith(".ts"))) {
+    if (name === "dev.ts") continue;
+    const lines = readFileSync(join(ROUTES, name), "utf8").split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const m = /prisma\.([a-zA-Z]+)\.([a-zA-Z]+)\(/.exec(lines[i]!);
+      if (!m || !MODE_BEARING.includes(m[1]!) || !WRITES.includes(m[2]!)) continue;
+      // Look ahead through the data block for an isTestMode assignment.
+      /**
+       * Shorthand counts. The first version of this looked for
+       * `isTestMode:` with a colon and reported mandates.ts, plans.ts and
+       * webhooks.ts — all three of which stamp it as `isTestMode,`, the
+       * object shorthand, one of them eighteen lines into the block.
+       *
+       * Three false positives on the first run is how a checker gets
+       * ignored, so this matches the property however it is written and
+       * reads to the end of the create rather than a fixed window.
+       */
+      let stamped = false;
+      for (let j = i; j < Math.min(lines.length, i + 60); j++) {
+        if (j > i && /^\s*\}\)[;,]?\s*$/.test(lines[j]!)) break;
+        if (/\bisTestMode\s*[,:}]/.test(lines[j]!) && !/^\s*\/\//.test(lines[j]!)) {
+          stamped = true;
+          break;
+        }
+      }
+      if (!stamped) {
+        findings.push({
+          file: name,
+          line: i + 1,
+          model: m[1]!,
+          method: m[2]!,
+          fix: "stamp isTestMode — the schema default hides the row from its own mode",
+        });
+      }
     }
   }
 

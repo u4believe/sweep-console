@@ -347,6 +347,11 @@ portalRouter.post("/plans", async (req, res) => {
       data: {
         planId: ids.plan(slug),
         merchantId: dbId,
+        // Stamped from the dashboard's mode. Without it the schema default
+        // (true) applied, so a plan created on the LIVE dashboard was written
+        // as a TEST plan — and then vanished, because every read is scoped to
+        // the mode that made it.
+        isTestMode: portalScope(req).isTestMode,
         name,
         description,
         amount: BigInt(amount),
@@ -969,7 +974,7 @@ portalRouter.post("/payment-links", async (req, res) => {
         planId: plan.id,
         successUrl: success_url ?? null,
         cancelUrl: cancel_url ?? null,
-        isTestMode: true, // test keys only in beta
+        isTestMode: portalScope(req).isTestMode,
       },
     });
 
@@ -2413,6 +2418,10 @@ portalRouter.post("/webhooks", async (req, res) => {
       data: {
         endpointId: ids.webhook(),
         merchantId: dbId,
+        // Same omission as plans: the schema default would make an endpoint
+        // created on the live dashboard a test endpoint, signing live
+        // deliveries never because it would never receive one.
+        isTestMode: portalScope(req).isTestMode,
         url,
         events,
         secret,
