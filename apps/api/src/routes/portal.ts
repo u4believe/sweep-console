@@ -18,6 +18,7 @@ import { refusePriceChange, applyPriceChange, type PriceScope } from "../lib/pla
 import { sendPriceChangeNotices } from "../lib/email/price-change";
 import { readTreasury } from "../lib/portal/treasury";
 import { isMainnet } from "../lib/gateway/chains";
+import { belowChargeFloor, chargeFloorMessage } from "../lib/charge-floor";
 import { isAdminRequest, sessionEmail, isAdminEmail, adminNotificationRecipients } from "../lib/portal/admin";
 import { railAccessGrantedEmailHtml, railAccessWithdrawnEmailHtml } from "../lib/email";
 import {
@@ -315,6 +316,11 @@ portalRouter.post("/plans", async (req, res) => {
     );
   }
 
+  // Mainnet only; see lib/charge-floor.ts for why a dollar.
+  if (belowChargeFloor(parsed.data.amount)) {
+    return validationError(res, { amount: chargeFloorMessage("plan", parsed.data.amount) });
+  }
+
   try {
     // One active plan per merchant — delete the existing one before creating a new one.
     const activePlan = await prisma.plan.findFirst({
@@ -495,6 +501,11 @@ portalRouter.post("/plans/:id/tiers", async (req, res) => {
       ),
     );
   }
+
+  // Mainnet only; see lib/charge-floor.ts for why a dollar.
+  if (belowChargeFloor(parsed.data.amount)) {
+    return validationError(res, { amount: chargeFloorMessage("tier", parsed.data.amount) });
+  }
   try {
     const plan = await prisma.plan.findFirst({
       where: {
@@ -603,6 +614,11 @@ portalRouter.patch(
         ]),
       ),
     );
+  }
+
+  // Mainnet only; see lib/charge-floor.ts for why a dollar.
+  if (parsed.data.amount !== undefined && belowChargeFloor(parsed.data.amount)) {
+    return validationError(res, { amount: chargeFloorMessage("tier", parsed.data.amount) });
   }
 
   try {
@@ -750,6 +766,11 @@ portalRouter.patch(
         ]),
       ),
     );
+  }
+
+  // Mainnet only; see lib/charge-floor.ts for why a dollar.
+  if (parsed.data.amount !== undefined && belowChargeFloor(parsed.data.amount)) {
+    return validationError(res, { amount: chargeFloorMessage("tier", parsed.data.amount) });
   }
 
   try {

@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { merchantScope, verifyApiKey, type AuthedRequest } from "../middleware/auth";
 import { ok, created, err, validationError } from "../lib/response";
+import { belowChargeFloor, chargeFloorMessage } from "../lib/charge-floor";
 import { ids } from "../lib/ids";
 import { closePlanSubscriptions, findSubsToClose } from "../lib/plan-lifecycle";
 
@@ -75,6 +76,12 @@ plansRouter.post("/", verifyApiKey, async (req, res) => {
   }
 
   const { name, description, amount, currency, interval, trial_days, settlement_window_hours, metadata } = parsed.data;
+
+  // Checked after the shape, so a bad amount reports as a field error rather
+  // than a generic refusal.
+  if (belowChargeFloor(amount)) {
+    return validationError(res, { amount: chargeFloorMessage("plan", amount) });
+  }
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 20);
 
   const plan = await prisma.plan.create({

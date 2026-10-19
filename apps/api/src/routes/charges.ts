@@ -28,6 +28,7 @@ import { ids } from "../lib/ids";
 import { merchantScope, verifyApiKey, type AuthedRequest } from "../middleware/auth";
 import { requireExternalRail } from "../middleware/externalRail";
 import { ok, err, validationError } from "../lib/response";
+import { belowChargeFloor, chargeFloorMessage } from "../lib/charge-floor";
 import { claimKey, completeKey, releaseKey, hashRequest } from "../lib/idempotency";
 import { executeCharge } from "../billing/direct-charge";
 import { mandatePeriodStart, periodCommitted } from "../lib/rail";
@@ -113,6 +114,17 @@ chargesRouter.post("/", verifyApiKey, requireExternalRail, async (req, res) => {
     );
   }
   const d = parsed.data;
+
+  /**
+   * The floor matters most here.
+   *
+   * On the external rail there is no plan — a developer creates a mandate and
+   * then charges arbitrary amounts against it — so a plan-level floor
+   * constrains them not at all. This is the only place that does.
+   */
+  if (belowChargeFloor(d.amount)) {
+    return validationError(res, { amount: chargeFloorMessage("charge", d.amount) });
+  }
 
   // Claim the key BEFORE looking anything up, so two identical requests racing
   // each other cannot both reach the mandate.
