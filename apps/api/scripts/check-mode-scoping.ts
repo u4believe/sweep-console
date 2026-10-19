@@ -63,6 +63,20 @@ const UNSCOPABLE = [
 const ROUTES = join(__dirname, "..", "src", "routes");
 
 /**
+ * The PAYER door, which has no merchant in it at all.
+ *
+ * customer-portal.ts is reached by proving an email, not by a key or a
+ * merchant session, so its reads carry neither `merchant.id` nor `dbId` and
+ * the patterns below never matched one. Every read there listed BOTH
+ * networks' rows, and on 2026-10-19 the live portal showed a payer their
+ * Sepolia subscriptions beside real ones, each with a working revoke button.
+ *
+ * So this file is checked by a different rule: any read of a mode-bearing
+ * model must carry the mode somehow — payerScope() or an explicit isTestMode.
+ */
+const PAYER_ROUTES = ["customer-portal.ts"];
+
+/**
  * The two doors, and how each names the merchant.
  *
  * The API is key-authed and says `merchantId: merchant.id`; the dashboard is
@@ -129,6 +143,37 @@ function main(): void {
       const f = { file: name, line: i + 1, model, method, fix: raw.fix };
       if (MODE_BEARING.includes(model)) findings.push(f);
       else if (UNSCOPABLE.includes(model)) deferred.push(f);
+    }
+  }
+
+  // Payer routes: every read of a mode-bearing model, however it is scoped.
+  for (const name of PAYER_ROUTES) {
+    let lines: string[];
+    try {
+      lines = readFileSync(join(ROUTES, name), "utf8").split("\n");
+    } catch {
+      continue;
+    }
+    for (let i = 0; i < lines.length; i++) {
+      const m = /prisma\.([a-zA-Z]+)\.([a-zA-Z]+)\(/.exec(lines[i]!);
+      if (!m || !MODE_BEARING.includes(m[1]!) || !READS.includes(m[2]!)) continue;
+      let scoped = false;
+      for (let j = i; j < Math.min(lines.length, i + 40); j++) {
+        if (j > i && /^\s*\}\)[;,]?\s*$/.test(lines[j]!)) break;
+        if (/payerScope\(\)|\bisTestMode\s*[,:]/.test(lines[j]!) && !/^\s*\/\//.test(lines[j]!)) {
+          scoped = true;
+          break;
+        }
+      }
+      if (!scoped) {
+        findings.push({
+          file: name,
+          line: i + 1,
+          model: m[1]!,
+          method: m[2]!,
+          fix: "...payerScope() — a payer read has no merchant id to key on",
+        });
+      }
     }
   }
 

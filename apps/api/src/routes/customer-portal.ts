@@ -11,6 +11,7 @@ import { settlementPayeeAddress } from "../lib/chain/settlement-target";
 import { Router } from "express";
 import { z } from "zod";
 import type { Address, Hex } from "viem";
+import { payerScope } from "../lib/payer-scope";
 import { prisma } from "../lib/prisma";
 import { ok, err, serverError } from "../lib/response";
 import { fireWebhook } from "../lib/webhooks/delivery";
@@ -75,8 +76,13 @@ async function loadGrantableSubscription(proof: GrantProof, subscriptionId: stri
     return loadOwnedSubscription(proof.email, subscriptionId);
   }
 
-  const session = await prisma.checkoutSession.findUnique({
-    where: { sessionId: proof.session_id },
+  // findFirst rather than findUnique so the mode can be part of the lookup:
+  // a session from the other network should not resolve here at all. The
+  // subscription read below is scoped too, so nothing escaped either way —
+  // but a guard that only works because of the NEXT query is one refactor
+  // away from not working.
+  const session = await prisma.checkoutSession.findFirst({
+    where: { sessionId: proof.session_id, ...payerScope() },
     select: { sessionToken: true, subscriptionId: true },
   });
   if (!session || session.sessionToken !== proof.session_token) return null;
@@ -84,7 +90,7 @@ async function loadGrantableSubscription(proof: GrantProof, subscriptionId: stri
   // The session may only speak for the subscription it actually created —
   // otherwise any completed session would be a key to every subscription.
   const sub = await prisma.subscription.findFirst({
-    where: { subscriptionId },
+    where: { subscriptionId, ...payerScope() },
     include: { plan: true, merchant: true, renewalDelegations: { where: { status: "active" } } },
   });
   if (!sub) return null;
@@ -99,6 +105,7 @@ async function loadOwnedSubscription(email: string, subscriptionId: string) {
   return prisma.subscription.findFirst({
     where: {
       subscriptionId,
+      ...payerScope(),
       OR: [{ subscriberEmail: normalized }, { customer: { is: { email: normalized } } }],
     },
     include: { plan: true, merchant: true, renewalDelegations: { where: { status: "active" } } },
@@ -120,6 +127,7 @@ customerPortalRouter.post("/subscriptions", async (req, res) => {
     const subs = await prisma.subscription.findMany({
       where: {
         status: { in: ["active", "trialing", "past_due"] },
+        ...payerScope(),
         OR: [{ subscriberEmail: normalized }, { customer: { is: { email: normalized } } }],
       },
       include: {
@@ -152,6 +160,7 @@ customerPortalRouter.post("/subscriptions", async (req, res) => {
     const mandates = await prisma.mandate.findMany({
       where: {
         status: { in: ["pending", "active"] },
+        ...payerScope(),
         // Either proof of who the payer is. The Customer link is written by
         // /complete and verifiedEmail by the OTP step before it, so a mandate
         // whose link failed is still reachable by the address its payer proved.
@@ -540,6 +549,7 @@ customerPortalRouter.post("/mandates/:id/grant-plan", async (req, res) => {
   const m = await prisma.mandate.findFirst({
     where: {
       mandateId: req.params.id as string,
+      ...payerScope(),
       OR: [{ customer: { is: { email: normalized } } }, { verifiedEmail: normalized }],
     },
     select: {
@@ -613,6 +623,7 @@ customerPortalRouter.post("/mandates/:id/grant", async (req, res) => {
   const m = await prisma.mandate.findFirst({
     where: {
       mandateId: req.params.id as string,
+      ...payerScope(),
       OR: [{ customer: { is: { email: normalized } } }, { verifiedEmail: normalized }],
     },
     select: {
@@ -733,6 +744,7 @@ customerPortalRouter.post("/mandates/:id/revoke", async (req, res) => {
   const mandate = await prisma.mandate.findFirst({
     where: {
       mandateId: req.params.id as string,
+      ...payerScope(),
       // Same two proofs the list uses. They must agree, or the portal shows a
       // Cancel that 404s.
       OR: [
