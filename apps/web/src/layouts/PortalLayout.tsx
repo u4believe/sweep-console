@@ -54,7 +54,15 @@ export function PortalLayout() {
       .catch(() => setIsAdmin(false));
   }, []);
 
-  const nav = isAdmin ? [...NAV, ...ADMIN_NAV] : NAV;
+  /**
+   * Operator screens are live-only, so they are not offered on the sandbox.
+   *
+   * Both answer 409 there: rail access is unrestricted on testnet so there is
+   * nothing to approve, and platform balances on Sepolia mean nothing. A tab
+   * that only ever errors is worse than no tab.
+   */
+  const showAdmin = isAdmin && mode?.testMode === false;
+  const nav = showAdmin ? [...NAV, ...ADMIN_NAV] : NAV;
 
   const { user, logout } = useAuth();
   const { pathname } = useLocation();

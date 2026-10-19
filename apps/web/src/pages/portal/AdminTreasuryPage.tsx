@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/portal/PageHeader";
-import { EmptyNote, ErrorNote, Mono, Section, TableSkeleton, shortAddress } from "@/components/portal/primitives";
+import { EmptyNote, ErrorNote, Mono, Section, TableSkeleton } from "@/components/portal/primitives";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -39,7 +39,11 @@ export function AdminTreasuryPage() {
       if (!res.ok) {
         // 404 is what a non-admin gets, by design — the route does not
         // announce itself. Say something truthful rather than "not found".
-        setError(res.status === 404 ? "This screen is for platform operators." : json?.error?.message ?? "Failed to load");
+        setError(
+          res.status === 404
+            ? "This screen is for platform operators."
+            : json?.error?.message ?? "Failed to load"
+        );
         setRows([]);
         return;
       }
@@ -85,15 +89,18 @@ export function AdminTreasuryPage() {
               </h3>
               <p className="m-0 mb-2" style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
                 {ROLE_NOTE[role] ?? ""}
-                {rs[0] && (
-                  <>
-                    {" · "}
-                    <span title={rs[0].address}>
-                      <Mono>{shortAddress(rs[0].address)}</Mono>
-                    </span>
-                  </>
-                )}
               </p>
+              {/* The whole address, selectable. These are copied into Railway
+                  variables and into a wallet's send field, and a shortened one
+                  serves neither — the point of the screen is to act on them. */}
+              {rs[0] && (
+                <p
+                  className="m-0 mb-2"
+                  style={{ fontSize: 12, userSelect: "all", wordBreak: "break-all" }}
+                >
+                  <Mono>{rs[0].address}</Mono>
+                </p>
+              )}
 
               <div className="flex flex-wrap" style={{ gap: 10 }}>
                 {rs.map((r) => (

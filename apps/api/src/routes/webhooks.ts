@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { randomBytes } from "crypto";
+import { isMainnet } from "../lib/gateway/chains";
 import { prisma } from "../lib/prisma";
 import { merchantScope, verifyApiKey, type AuthedRequest } from "../middleware/auth";
 import { ok, created, err, validationError } from "../lib/response";
@@ -28,7 +29,8 @@ webhooksRouter.post("/", verifyApiKey, async (req, res) => {
   // Same two guards as the portal route. Without them this endpoint — reachable
   // with nothing but an API key — is the way around both.
   const allowed = new Set<string>(
-    subscribableEvents({ externalRailEnabled: merchant.externalRailEnabled })
+    // Testnet has the rail open, so its events are subscribable there.
+    subscribableEvents({ externalRailEnabled: !isMainnet() || merchant.externalRailEnabled })
   );
   const refused = parsed.data.events.filter((e) => !allowed.has(e));
   if (refused.length > 0) {

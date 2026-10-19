@@ -1034,7 +1034,14 @@ portalRouter.get("/rail", async (req, res) => {
     // Not enabled is a normal answer, not an error — the page explains how to get
     // it. Skip the queries entirely rather than returning empty lists that read
     // like "you have no activity".
-    if (!merchant.externalRailEnabled) {
+    /**
+     * On testnet the rail is open to everyone, so the column is not consulted.
+     * A developer evaluating the product should not be told to contact support
+     * to try the thing they came to try, and nothing on Sepolia is worth
+     * gating.
+     */
+    const railEnabled = !isMainnet() || merchant.externalRailEnabled;
+    if (!railEnabled) {
       return ok(res, {
         data: {
           enabled: false,
@@ -1184,7 +1191,8 @@ portalRouter.post("/rail/request", async (req, res) => {
       })
     );
     if (!merchant) return err(res, "Merchant not found", 404, "not_found");
-    if (merchant.externalRailEnabled) {
+    // Already on, or on testnet where there is nothing to ask for.
+    if (!isMainnet() || merchant.externalRailEnabled) {
       return ok(res, { data: { enabled: true, requestedAt: merchant.railRequestedAt?.toISOString() ?? null } });
     }
     if (merchant.railRequestedAt) {
@@ -1245,6 +1253,19 @@ portalRouter.post("/rail/request", async (req, res) => {
  */
 portalRouter.get("/admin/treasury", async (req, res) => {
   if (!(await isAdminRequest(req))) return err(res, "Not found", 404, "not_found");
+  /**
+   * Live only. On testnet these accounts hold Sepolia ETH and test USDC, so
+   * the numbers mean nothing and a screen that reports them invites reading
+   * mainnet runway off the wrong deployment.
+   */
+  if (!isMainnet()) {
+    return err(
+      res,
+      "Platform balances are a mainnet concern. Open the live dashboard.",
+      409,
+      "live_only"
+    );
+  }
   try {
     const rows = await readTreasury();
     return ok(res, {
@@ -1263,6 +1284,23 @@ portalRouter.get("/admin/treasury", async (req, res) => {
 
 portalRouter.get("/admin/rail", async (req, res) => {
   if (!(await isAdminRequest(req))) return err(res, "Not found", 404, "not_found");
+  /**
+   * Live only, so the testnet queue does not get worked.
+   *
+   * externalRailEnabled is one column on a shared database. Granting it to
+   * someone who asked while testing granted it on mainnet too — an
+   * entitlement over real payers, handed out to unblock a Sepolia experiment.
+   * Testnet no longer gates the rail at all, so there is nothing to approve
+   * there, and this screen only ever shows live requests.
+   */
+  if (!isMainnet()) {
+    return err(
+      res,
+      "Rail access is unrestricted on testnet — there is nothing to approve. Open the live dashboard.",
+      409,
+      "live_only"
+    );
+  }
   try {
     const [waiting, holders] = await Promise.all([
       prisma.merchant.findMany({
@@ -1617,7 +1655,7 @@ portalRouter.get("/webhooks", async (req, res) => {
       where: { id: dbId },
       select: { externalRailEnabled: true },
     });
-    const railEnabled = merchant?.externalRailEnabled ?? false;
+    const railEnabled = !isMainnet() || (merchant?.externalRailEnabled ?? false);
     const endpoints = await prisma.webhookEndpoint.findMany({
       where: { ...portalScope(req), isActive: true },
       include: {
