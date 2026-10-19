@@ -1,3 +1,4 @@
+import { TestModeBanner } from "@/components/checkout/TestModeBanner";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { CheckoutShell, type OnChainParams } from "@/components/checkout/CheckoutShell";
@@ -100,6 +101,7 @@ export function CheckoutPage() {
   // so it is mounted bare rather than centred inside a wrapper.
   return (
     <>
+      <TestModeBanner />
       <CheckoutShell
         sessionId={session.sessionId}
         sessionToken={session.sessionToken}

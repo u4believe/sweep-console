@@ -79,6 +79,29 @@ export function fetchPlatformStats(): Promise<{ data: PlatformStats }> {
   return request(`/stats`);
 }
 
+export interface SweepConfig {
+  platform_fee_bps: number;
+  source_chains: Array<{ key: string; name: string }>;
+  settlement_chain: string;
+  currency: string;
+  /// Which network the API this page is talking to actually serves.
+  mode: "test" | "live";
+  live_keys_available: boolean;
+}
+
+/**
+ * Which network is behind this page.
+ *
+ * The deployment decides it, so this is the only honest source: the hostname
+ * can be anything, and the chain names a payer sees are cosmetic. Cached for
+ * the tab because it cannot change without a redeploy.
+ */
+let configOnce: Promise<SweepConfig> | null = null;
+export function fetchConfig(): Promise<SweepConfig> {
+  configOnce ??= request<SweepConfig>(`/config`);
+  return configOnce;
+}
+
 // ─── Email verification (OTP) ─────────────────────────────────────────────────
 
 /// Is this connected wallet already an OTP-verified customer of this merchant?
@@ -290,6 +313,9 @@ export interface PortalSubscription {
   merchant: { name: string };
   status: string;
   wallet_address: string;
+  /// Mandates carried this already; subscriptions did not, so the page
+  /// labelled half its rows "Test" and left the rest bare.
+  test_mode: boolean;
   plan: { name: string; amount: number; interval: string; currency: string };
   created_at: string;
   current_period_end: string;

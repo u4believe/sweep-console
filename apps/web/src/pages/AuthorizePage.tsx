@@ -1,3 +1,5 @@
+import { TestModeBanner } from "@/components/checkout/TestModeBanner";
+import { fetchConfig } from "@/lib/gateway";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useAccount } from "wagmi";
@@ -33,12 +35,28 @@ const INTERVAL_NOUN: Record<string, string> = {
   yearly: "year",
 };
 
+/**
+ * Shorter names for the chains, where shortening loses nothing.
+ *
+ * It used to map base -> "Base" unconditionally, which ALSO erased the one
+ * signal a payer had about which network they were on: the API sends "Base
+ * Sepolia" on testnet, and this turned it into "Base". A sandbox grant then
+ * looked identical to a real one.
+ *
+ * So the blurb only applies on mainnet. Testnet keeps the API's name, where
+ * the word Sepolia is the point.
+ */
 const CHAIN_BLURB: Record<string, string> = {
   arc: "Arc",
   base: "Base",
   optimism: "Optimism",
   arbitrum: "Arbitrum",
 };
+
+/** The blurb when it is safe to shorten, the API's own name when it is not. */
+function chainLabel(key: string, name: string, isTest: boolean): string {
+  return isTest ? name : CHAIN_BLURB[key] ?? name;
+}
 
 function usdc(micro: number): string {
   return `$${formatUnits(BigInt(micro), 6)}`;
@@ -60,6 +78,16 @@ export function AuthorizePage() {
   const { openConnectModal } = useConnectModal();
 
   const [view, setView] = useState<AuthorizationView | null>(null);
+  // Only to decide whether a chain name may be shortened; the banner reads
+  // the same value for itself.
+  const [isTestMode, setIsTestMode] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void fetchConfig()
+      .then((c) => { if (alive) setIsTestMode(c.mode === "test"); })
+      .catch(() => { /* shortening stays on, which is the mainnet behaviour */ });
+    return () => { alive = false; };
+  }, []);
   const [phase, setPhase] = useState<Phase>("loading");
   const [error, setError] = useState("");
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -193,7 +221,7 @@ export function AuthorizePage() {
       );
       // A chain that failed does not cost the subscriber the ones that worked —
       // say which were skipped rather than pretending everything succeeded.
-      setSkipped(failures.map((f) => CHAIN_BLURB[f.target.chain_key] ?? f.target.name));
+      setSkipped(failures.map((f) => chainLabel(f.target.chain_key, f.target.name, isTestMode)));
       await completeAuthorization(mandateId, view.session_token, address);
       await load();
       setPhase("done");
@@ -209,8 +237,11 @@ export function AuthorizePage() {
   /// your wallet — and a header offering links elsewhere competes with it. The
   /// platform's name belongs in the footer, where it reads as provenance rather
   /// than navigation.
+  // Inside the shell, so every phase of the flow carries it — loading,
+  // connect, sign and done alike.
   const shell = (children: React.ReactNode) => (
     <div className="flex min-h-screen flex-col items-center justify-center bg-ground px-4 py-10">
+      <div className="fixed inset-x-0 top-0 z-50"><TestModeBanner /></div>
       <main className="w-full max-w-md">{children}</main>
       <p className="mt-6 text-center text-[11px] uppercase tracking-[0.14em] text-gray-400">
         <Link to="/" className="hover:text-gray-600">Secured by Sweep Console</Link>
@@ -251,8 +282,8 @@ export function AuthorizePage() {
   const signingChain = progress
     ? view.targets.find((t) => t.chain_id === todoIds[progress.done]) ?? null
     : null;
-  const signingTarget = signingChain ? CHAIN_BLURB[signingChain.chain_key] ?? signingChain.name : null;
-  const chainNames = view.targets.map((t) => CHAIN_BLURB[t.chain_key] ?? t.name);
+  const signingTarget = signingChain ? chainLabel(signingChain.chain_key, signingChain.name, isTestMode) : null;
+  const chainNames = view.targets.map((t) => chainLabel(t.chain_key, t.name, isTestMode));
   // Proved in this browser, this visit. A mandate verified elsewhere still
   // shows the step: the token is what /grant checks, and we do not have it.
   const verified = !!emailToken;
@@ -282,7 +313,7 @@ export function AuthorizePage() {
             Authorized on{" "}
             {view.targets
               .filter((t) => signedChains.includes(t.chain_id))
-              .map((t) => CHAIN_BLURB[t.chain_key] ?? t.name)
+              .map((t) => chainLabel(t.chain_key, t.name, isTestMode))
               .join(", ")}
             .
           </p>
@@ -486,7 +517,7 @@ export function AuthorizePage() {
               // MetaMask opens one prompt per chain, and between dismissing one
               // and the next appearing there is nothing on screen to say which.
               const busy = !on && signingChain?.chain_id === t.chain_id;
-              const name = CHAIN_BLURB[t.chain_key] ?? t.name;
+              const name = chainLabel(t.chain_key, t.name, isTestMode);
               /**
                * A signed chain is not a choice any more — re-signing it would
                * replace a grant the payer already gave, for nothing. So only

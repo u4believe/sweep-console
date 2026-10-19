@@ -1,3 +1,4 @@
+import { TestModeBanner } from "@/components/checkout/TestModeBanner";
 import { useState, type JSX, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useAccount, useConnectorClient } from "wagmi";
@@ -538,6 +539,7 @@ export function ManageSubscriptionsPage() {
 
   return (
     <div style={{ minHeight: "100vh", fontFamily: "var(--font-body)", display: "flex", flexDirection: "column", background: "var(--color-bg)" }}>
+      <TestModeBanner />
       <header style={{ borderBottom: "2px solid var(--color-text)" }}>
         <div
           style={{
@@ -1154,7 +1156,11 @@ function SubscriptionDetail({
           <h2 style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 32, lineHeight: 1, letterSpacing: "-0.03em", margin: "0 0 10px" }}>
             {sub.plan.name}
           </h2>
-          <StatusChip sub={sub} />
+          <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+            <StatusChip sub={sub} />
+            {/* The same marker mandates have, so both kinds of row read alike. */}
+            {sub.test_mode && <span className="tag tag-neutral">Test</span>}
+          </span>
         </div>
         <div style={{ textAlign: "right" }}>
           <p style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 40, lineHeight: 1, letterSpacing: "-0.035em", margin: 0 }}>

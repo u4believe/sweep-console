@@ -240,6 +240,10 @@ customerPortalRouter.post("/subscriptions", async (req, res) => {
           merchant: { name: s.merchant.name },
           status: s.status,
           wallet_address: s.walletAddress,
+          // Mandates already carried this and hosted subscriptions did not, so
+          // the page labelled half its rows "Test" and left the rest bare —
+          // from which a payer reasonably concludes the bare ones are live.
+          test_mode: s.isTestMode,
           plan: { name: s.plan.name, amount, interval, currency: s.plan.currency },
           created_at: s.createdAt.toISOString(),
           current_period_end: s.currentPeriodEnd.toISOString(),
