@@ -29,8 +29,23 @@ const arcMainnet = defineChain({
   },
 });
 
-function chain() {
+/**
+ * The Arc chain this deployment runs against, RPC included.
+ *
+ * Exported because cctp.ts built its own and hardcoded the TESTNET endpoint
+ * while taking the chain id from arcChainId(), which is network-aware. On
+ * mainnet that produced a client for chain 5042 pointed at
+ * rpc.testnet.arc.io — every mint would have gone to the wrong network, at
+ * the last step of settlement, after the money had already moved.
+ *
+ * One definition means the id and the endpoint cannot disagree again.
+ */
+export function arcChain() {
   return process.env.ARC_NETWORK === "mainnet" ? arcMainnet : arcTestnet;
+}
+
+function chain() {
+  return arcChain();
 }
 
 // ─── Clients ──────────────────────────────────────────────────────────────────

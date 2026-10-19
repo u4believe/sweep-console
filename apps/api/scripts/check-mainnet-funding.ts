@@ -6,9 +6,15 @@
 //
 // WHAT EACH ACCOUNT NEEDS, AND WHY IT DIFFERS
 //
-// The settlement MSCA holds the USDC it bridges, on every chain a grant can
-// name. It needs ETH on Optimism ONLY: Base and Arbitrum take gas from USDC
-// through Circle Paymaster v0.7, which is not deployed on Optimism — verified
+// The settlement MSCA needs NO USDC float. The first version of this script
+// reported an empty settlement balance as "nothing to bridge", which inverts
+// the design: the USDC arrives WITH the payment, and the paymaster's gas is
+// topped up out of the platform's own fee toward SETTLEMENT_GAS_FLOOR_USDC
+// (settlement-userop.ts). Pre-funding it would be the hand-managed float that
+// design exists to avoid.
+//
+// It needs ETH on Optimism ONLY: Base and Arbitrum take gas from USDC through
+// Circle Paymaster v0.7, which is not deployed on Optimism — verified
 // on-chain by check-mainnet-addresses.ts.
 //
 // The delegate MSCAs self-bundle, which means they call handleOps themselves
@@ -87,9 +93,10 @@ async function main(): Promise<void> {
 
     console.log(`  settlement   USDC ${bal < 0n ? "(read failed)" : formatUnits(bal, 6)}   ETH ${eth < 0n ? "?" : formatEther(eth)}   ${code && code !== "0x" ? "deployed" : "not deployed (expected before first use)"}`);
 
+    // An empty settlement balance is the NORMAL resting state, not a gap:
+    // each payment finishes having bridged everything it brought.
     if (bal === 0n) {
-      console.log(`               ^ no USDC — a charge settling on ${key} has nothing to bridge`);
-      short++;
+      console.log(`               (no USDC — expected: it arrives with each payment)`);
     }
     if (needsEth && eth === 0n) {
       console.log(`               ^ no ETH — ${key} has no Circle Paymaster, so it pays its own gas`);

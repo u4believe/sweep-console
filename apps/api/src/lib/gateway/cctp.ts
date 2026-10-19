@@ -24,6 +24,7 @@ import {
   type Hex,
 } from "viem";
 import { arcChainId, isMainnet } from "./chains";
+import { arcChain } from "../chain/contract";
 import { getRelayerAccount } from "../chain/signers";
 import { withNonce } from "../chain/nonce";
 
@@ -228,14 +229,10 @@ export async function fetchAttestation(
 
 function arcRelayer() {
   const account = getRelayerAccount("hosted");
-  const chain = defineChain({
-    id: arcChainId(),
-    name: "Arc",
-    nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 18 },
-    rpcUrls: {
-      default: { http: [process.env.ARC_TESTNET_RPC_URL ?? "https://rpc.testnet.arc.io"] },
-    },
-  });
+  // The shared definition, not a local one: this built its own chain with a
+  // network-aware id and a hardcoded TESTNET rpc, so on mainnet it addressed
+  // chain 5042 at rpc.testnet.arc.io.
+  const chain = arcChain();
   return {
     account,
     publicClient: createPublicClient({ chain, transport: http() }),
@@ -324,7 +321,7 @@ async function settledElsewhere(publicClient: ArcClient, nonce: Hex): Promise<He
       `MessageReceived log could not be read — either it is outside the ` +
       `${LOG_WINDOWS_BACK * Number(LOG_WINDOW)}-block lookback, or this RPC does not serve ` +
       `eth_getLogs. Settling without a settlement reference. The funds arrived; only the ` +
-      `transaction hash is missing. Point ARC_TESTNET_RPC_URL at a provider that serves logs ` +
+      `transaction hash is missing. Point ARC_${isMainnet() ? "MAINNET" : "TESTNET"}_RPC_URL at a provider that serves logs ` +
       `to stop losing these references.`
   );
   return null;
