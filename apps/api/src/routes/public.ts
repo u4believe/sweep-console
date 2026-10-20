@@ -29,6 +29,7 @@ import { revokeSubscription } from "../lib/subscriptions/revoke";
 import { verifyTurnstile, clientIp } from "../lib/turnstile";
 import type { Hex } from "viem";
 import { WALLET_SELECT, walletFor } from "../lib/merchant-wallet";
+import { payerScope } from "../lib/payer-scope";
 import { chargeFloorMicros, formatFloor } from "../lib/charge-floor";
 import { isMainnet, supportedSourceChains } from "../lib/gateway/chains";
 
@@ -121,8 +122,8 @@ publicRouter.get("/customer/recall", async (req, res) => {
   }
   try {
     const session = sessionId
-      ? await withRetry(() => prisma.checkoutSession.findUnique({
-          where: { sessionId },
+      ? await withRetry(() => prisma.checkoutSession.findFirst({
+          where: { sessionId , ...payerScope() },
           select: { merchantId: true },
         }))
       : null;
@@ -147,7 +148,7 @@ publicRouter.get("/customer/wallet-status", async (req, res) => {
   }
   try {
     const session = sessionId
-      ? await withRetry(() => prisma.checkoutSession.findUnique({ where: { sessionId }, select: { merchantId: true } }))
+      ? await withRetry(() => prisma.checkoutSession.findFirst({ where: { sessionId , ...payerScope() }, select: { merchantId: true } }))
       : null;
     if (!session) return ok(res, { linked: false, verified: false, email_masked: null });
     const result = await lookupCustomerByWallet(session.merchantId, address);
@@ -178,8 +179,8 @@ publicRouter.post("/customer/wallet-availability", async (req, res) => {
   const { session_id, address, email, email_token } = parsed.data;
 
   try {
-    const session = await withRetry(() => prisma.checkoutSession.findUnique({
-      where: { sessionId: session_id },
+    const session = await withRetry(() => prisma.checkoutSession.findFirst({
+      where: { sessionId: session_id , ...payerScope() },
       select: {
         merchantId: true,
         tierId: true,
@@ -229,8 +230,8 @@ publicRouter.post("/customer/otp/request", async (req, res) => {
   try {
     let merchantName = "your subscription";
     if (parsed.data.session_id) {
-      const session = await withRetry(() => prisma.checkoutSession.findUnique({
-        where: { sessionId: parsed.data.session_id },
+      const session = await withRetry(() => prisma.checkoutSession.findFirst({
+        where: { sessionId: parsed.data.session_id , ...payerScope() },
         include: { merchant: { select: { name: true } } },
       }));
       if (session) merchantName = session.merchant.name;
@@ -278,8 +279,8 @@ publicRouter.post("/customer/subscriptions", async (req, res) => {
   if (!parsed.success) return err(res, "Invalid payload", 422);
   const { session_id, email, email_token } = parsed.data;
   try {
-    const session = await withRetry(() => prisma.checkoutSession.findUnique({
-      where: { sessionId: session_id },
+    const session = await withRetry(() => prisma.checkoutSession.findFirst({
+      where: { sessionId: session_id , ...payerScope() },
       select: { merchantId: true },
     }));
     if (!session) return err(res, "Checkout session not found", 404);
@@ -296,6 +297,10 @@ publicRouter.post("/customer/subscriptions", async (req, res) => {
     const subs = await withRetry(() => prisma.subscription.findMany({
       where: {
         merchantId: session.merchantId,
+        // A live checkout showed a payer their TESTNET subscription and offered
+        // to replace it. The database is shared, so merchant + status alone
+        // spans both networks.
+        ...payerScope(),
         status: { in: ["active", "trialing", "past_due"] },
         OR: [{ customerId: proven.customerDbId }, { subscriberEmail: proven.email }],
       },
@@ -334,8 +339,8 @@ publicRouter.post("/customer/subscriptions/:id/revoke", async (req, res) => {
   if (!parsed.success) return err(res, "Invalid payload", 422);
   const { session_id, email, email_token } = parsed.data;
   try {
-    const session = await withRetry(() => prisma.checkoutSession.findUnique({
-      where: { sessionId: session_id },
+    const session = await withRetry(() => prisma.checkoutSession.findFirst({
+      where: { sessionId: session_id , ...payerScope() },
       select: { merchantId: true, merchant: { select: { merchantId: true } } },
     }));
     if (!session) return err(res, "Checkout session not found", 404);
@@ -351,6 +356,7 @@ publicRouter.post("/customer/subscriptions/:id/revoke", async (req, res) => {
       where: {
         subscriptionId: req.params.id as string,
         merchantId: session.merchantId,
+        ...payerScope(),
         OR: [{ customerId: proven.customerDbId }, { subscriberEmail: proven.email }],
       },
       include: { plan: true },
@@ -495,8 +501,8 @@ publicRouter.get("/checkout/:session_id", async (req, res) => {
   const { session_id } = req.params as { session_id: string };
 
   try {
-    const session = await withRetry(() => prisma.checkoutSession.findUnique({
-      where: { sessionId: session_id },
+    const session = await withRetry(() => prisma.checkoutSession.findFirst({
+      where: { sessionId: session_id , ...payerScope() },
       include: {
         plan: { include: { tiers: { where: { archived: false }, orderBy: { amount: "asc" } } } },
         merchant: {
@@ -588,8 +594,8 @@ publicRouter.post("/checkout/:session_id/tier", async (req, res) => {
   const parsed = selectTierSchema.safeParse(req.body);
   if (!parsed.success) return err(res, "Invalid payload", 422);
   try {
-    const session = await withRetry(() => prisma.checkoutSession.findUnique({
-      where: { sessionId: req.params.session_id as string },
+    const session = await withRetry(() => prisma.checkoutSession.findFirst({
+      where: { sessionId: req.params.session_id as string , ...payerScope() },
       select: { id: true, sessionToken: true, status: true, planId: true },
     }));
     if (!session) return err(res, "Checkout session not found", 404);
@@ -632,8 +638,8 @@ publicRouter.post("/internal/checkout/confirm", async (req, res) => {
   const { session_id, tx_hash, allowance_tx_hash, wallet_address, email, email_token, block_number } = parsed.data;
 
   try {
-    const session = await withRetry(() => prisma.checkoutSession.findUnique({
-      where: { sessionId: session_id },
+    const session = await withRetry(() => prisma.checkoutSession.findFirst({
+      where: { sessionId: session_id , ...payerScope() },
       include: { plan: true, merchant: true },
     }));
 

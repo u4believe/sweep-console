@@ -6,8 +6,11 @@ import {
   rainbowWallet,
   injectedWallet,
 } from "@rainbow-me/rainbowkit/wallets";
-import { baseSepolia, arbitrumSepolia, optimismSepolia } from "viem/chains";
-import { arcTestnet } from "./chain/config";
+import {
+  base, arbitrum, optimism,
+  baseSepolia, arbitrumSepolia, optimismSepolia,
+} from "viem/chains";
+import { arcMainnet, arcTestnet } from "./chain/config";
 
 // Arc is the subscription/destination chain. The CCTP V2 source chains are
 // included so the wallet can switch to each one to sign its gasless ERC-3009
@@ -28,6 +31,19 @@ export const wagmiConfig = getDefaultConfig({
       wallets: [coinbaseWallet, walletConnectWallet, rainbowWallet, injectedWallet],
     },
   ],
-  // Arc Testnet (destination) + the CCTP V2 "Pay from other chains" source testnets.
-  chains: [arcTestnet, arbitrumSepolia, baseSepolia, optimismSepolia],
+  /**
+   * Both networks, because one build serves both deployments.
+   *
+   * This listed only the testnets, so a live checkout asking the wallet to
+   * switch to Base failed with "Chain not configured" and no prompt ever
+   * appeared — wagmi cannot switch to a chain it has never been told about.
+   *
+   * Listing both is safe: the checkout only ever asks for a chain the API
+   * offered, and the API offers one network's chains. A wallet knowing about
+   * Base Sepolia while paying on Base costs nothing.
+   */
+  chains: [
+    arcMainnet, base, arbitrum, optimism,
+    arcTestnet, baseSepolia, arbitrumSepolia, optimismSepolia,
+  ],
 });
