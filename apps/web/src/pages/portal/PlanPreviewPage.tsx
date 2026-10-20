@@ -19,6 +19,10 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 export function PlanPreviewPage() {
   const { planId = "" } = useParams();
   const [plan, setPlan] = useState<Plan | null>(null);
+  // Defaults to test: a preview wrongly promising "no real USDC" on live is
+  // worse than one that omits the badge, so err toward the warning only when
+  // we have actually been told it is live.
+  const [isTestMode, setIsTestMode] = useState(true);
   const [merchantName, setMerchantName] = useState("");
   const [error, setError] = useState("");
 
@@ -35,7 +39,13 @@ export function PlanPreviewPage() {
     // The subscriber sees the merchant's own name in the checkout header.
     fetch(`${API_URL}/portal/me`, { credentials: "include" })
       .then((r) => r.json())
-      .then((json: { data?: { name?: string } }) => setMerchantName(json.data?.name ?? ""))
+      .then((json: { data?: { name?: string; testMode?: boolean } }) => {
+        setMerchantName(json.data?.name ?? "");
+        // The same call already knew this. The preview hardcoded `isTestMode`,
+        // so the live dashboard previewed a checkout promising "no real USDC
+        // is charged" for a plan that charges real USDC.
+        setIsTestMode(json.data?.testMode !== false);
+      })
       .catch(() => { /* falls back to the plan name below */ });
   }, [planId]);
 
@@ -116,7 +126,7 @@ export function PlanPreviewPage() {
 
       <CheckoutFrame
         merchant={{ name: merchantName || plan.name }}
-        isTestMode
+        isTestMode={isTestMode}
         // The frame's ✕ cancels a checkout; in a preview it just goes back.
         cancelUrl={`/plans/${plan.id}`}
         rail="pick"
