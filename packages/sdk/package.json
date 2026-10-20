@@ -1,7 +1,7 @@
 {
   "name": "@sweepconsole/node",
-  "version": "0.2.1",
-  "description": "Node/TypeScript client for the Sweep Console payment rail — charge a USDC wallet from your own app",
+  "version": "0.3.0",
+  "description": "Node/TypeScript client for the Sweep Console payment rail \u2014 charge a USDC wallet from your own app",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",

@@ -63,6 +63,27 @@ export function belowChargeFloor(amount: number | bigint): boolean {
   return BigInt(amount) < floor;
 }
 
+/** The error code this refusal carries. Documented in rail/charges.md. */
+export const CHARGE_FLOOR_CODE = "amount_below_minimum";
+
+/**
+ * The whole refusal: status, code, message and the field it is about.
+ *
+ * A code of its own rather than the generic `validation_error`, because this
+ * is a business rule and not a malformed field. An integrator can catch it,
+ * round the amount up and retry; they can do nothing programmatic with "one
+ * of your fields was wrong".
+ */
+export function chargeFloorRefusal(what: string, amount: number | bigint): {
+  status: 422;
+  code: string;
+  message: string;
+  details: { amount: string };
+} {
+  const message = chargeFloorMessage(what, amount);
+  return { status: 422, code: CHARGE_FLOOR_CODE, message, details: { amount: message } };
+}
+
 /**
  * The refusal, naming the floor and the amount.
  *

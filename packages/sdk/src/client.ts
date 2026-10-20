@@ -1,7 +1,15 @@
 import { errorFrom, SweepError } from "./errors.js";
 import type {
-  Charge, CheckoutSession, CreateChargeParams, CreateMandateParams,
-  CreateSessionParams, Mandate, RetrievedSession, Subscription, Usdc,
+  Charge,
+  CheckoutSession,
+  CreateChargeParams,
+  CreateMandateParams,
+  CreateSessionParams,
+  Mandate,
+  RetrievedSession,
+  Subscription,
+  SweepConfig,
+  Usdc,
 } from "./types.js";
 
 // The API is its own origin, not a path under the website. www.sweepconsole.xyz
@@ -193,6 +201,37 @@ export class Sweep {
       }
     }
     throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  }
+
+  /**
+   * Which network this key is talking to, and what it may charge.
+   *
+   * The key's prefix implies the answer, but the deployment is what decides
+   * it — so asking beats inferring. Useful in a health check that should fail
+   * loudly when a staging box has somehow been handed a live key, and for
+   * reading `minChargeUsdc` instead of hardcoding a floor that can move.
+   *
+   * Unauthenticated on the server, so it works before a key is valid.
+   */
+  async config(): Promise<SweepConfig> {
+    const raw = await this.request<{
+      mode?: string;
+      platform_fee_bps?: number;
+      source_chains?: Array<{ key: string; name: string }>;
+      settlement_chain?: string;
+      currency?: string;
+      live_keys_available?: boolean;
+      min_charge_usdc?: string;
+    }>("GET", "/config");
+    return {
+      mode: raw.mode === "live" ? "live" : "test",
+      platformFeeBps: raw.platform_fee_bps ?? 0,
+      sourceChains: raw.source_chains ?? [],
+      settlementChain: raw.settlement_chain ?? "arc",
+      currency: raw.currency ?? "USDC",
+      liveKeysAvailable: !!raw.live_keys_available,
+      minChargeUsdc: raw.min_charge_usdc ?? null,
+    };
   }
 }
 

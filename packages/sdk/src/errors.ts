@@ -37,8 +37,36 @@ export class SweepError extends Error {
   }
 }
 
-/** 403 — the account has not been granted the rail. Ask in portal → Payment rail. */
+/**
+ * 403 — the account has not been granted the rail.
+ *
+ * Mainnet only: testnet has the rail open to every account, so this cannot
+ * happen there. Ask in portal → Payment rail.
+ */
 export class RailNotEnabled extends SweepError {}
+
+/**
+ * 403 — a `test_` key reached the live API, or a `live_` key reached the
+ * sandbox.
+ *
+ * The message names the host to use. Not retryable: it is a configuration
+ * mismatch, not a transient failure, and the same key will be refused every
+ * time. The client routes by key prefix, so seeing this usually means an
+ * explicit `baseUrl` is pointing somewhere the key does not belong.
+ */
+export class WrongEnvironment extends SweepError {}
+
+/**
+ * 422 — the amount is under the mainnet minimum, 1.00 USDC by default.
+ *
+ * `details.amount` names the floor and what was sent. Collecting a charge
+ * costs the same gas whatever its size, so under about a dollar the platform
+ * fee stops covering it. Testnet has no floor.
+ *
+ * Catchable on purpose: an integrator can round up and retry, which is not
+ * something a generic validation failure allows.
+ */
+export class AmountBelowMinimum extends SweepError {}
 
 /** 404 — no mandate with that id on this account. */
 export class MandateNotFound extends SweepError {}
@@ -91,6 +119,8 @@ export class WebhookSignatureError extends Error {
 
 const BY_CODE: Record<string, typeof SweepError> = {
   rail_not_enabled: RailNotEnabled,
+  wrong_environment: WrongEnvironment,
+  amount_below_minimum: AmountBelowMinimum,
   not_found: MandateNotFound,
   mandate_revoked: MandateRevoked,
   mandate_not_active: MandateNotActive,

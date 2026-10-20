@@ -29,6 +29,7 @@ import { revokeSubscription } from "../lib/subscriptions/revoke";
 import { verifyTurnstile, clientIp } from "../lib/turnstile";
 import type { Hex } from "viem";
 import { WALLET_SELECT, walletFor } from "../lib/merchant-wallet";
+import { chargeFloorMicros, formatFloor } from "../lib/charge-floor";
 import { isMainnet, supportedSourceChains } from "../lib/gateway/chains";
 
 
@@ -408,6 +409,16 @@ publicRouter.get("/config", (_req, res) => {
      */
     mode: isMainnet() ? "live" : "test",
     live_keys_available: isMainnet(),
+    /**
+     * The smallest charge this deployment accepts, or null where there is no
+     * floor. Served so an integrator reads it instead of hardcoding a number
+     * that moves with gas — and so a client can round up before signing a
+     * mandate, rather than after, when maxAmount no longer covers it.
+     */
+    min_charge_usdc: (() => {
+      const floor = chargeFloorMicros();
+      return floor === null ? null : formatFloor(floor);
+    })(),
   });
 });
 

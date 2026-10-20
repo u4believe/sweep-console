@@ -486,3 +486,24 @@ export type TypedWebhookEvent<K extends WebhookEventType = WebhookEventType> = {
     data: WebhookPayloads[T];
   };
 }[K];
+
+/**
+ * What `sweep.config()` answers: the network this key reaches and the rules
+ * it works under.
+ */
+export interface SweepConfig {
+  /** "live" on mainnet, "test" on the sandbox. Set by the deployment. */
+  mode: "live" | "test";
+  /** The platform's cut, in basis points. 200 = 2%. */
+  platformFeeBps: number;
+  /** Chains a payer may authorize on, as this deployment serves them. */
+  sourceChains: Array<{ key: string; name: string }>;
+  settlementChain: string;
+  currency: string;
+  liveKeysAvailable: boolean;
+  /**
+   * The smallest charge this deployment accepts, in USDC, or null where there
+   * is no floor (testnet). Read it rather than hardcoding: it moves with gas.
+   */
+  minChargeUsdc: string | null;
+}

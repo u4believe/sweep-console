@@ -28,7 +28,7 @@ import { ids } from "../lib/ids";
 import { merchantScope, verifyApiKey, type AuthedRequest } from "../middleware/auth";
 import { requireExternalRail } from "../middleware/externalRail";
 import { ok, err, validationError } from "../lib/response";
-import { belowChargeFloor, chargeFloorMessage } from "../lib/charge-floor";
+import { belowChargeFloor, chargeFloorRefusal } from "../lib/charge-floor";
 import { claimKey, completeKey, releaseKey, hashRequest } from "../lib/idempotency";
 import { executeCharge } from "../billing/direct-charge";
 import { mandatePeriodStart, periodCommitted } from "../lib/rail";
@@ -123,7 +123,8 @@ chargesRouter.post("/", verifyApiKey, requireExternalRail, async (req, res) => {
    * constrains them not at all. This is the only place that does.
    */
   if (belowChargeFloor(d.amount)) {
-    return validationError(res, { amount: chargeFloorMessage("charge", d.amount) });
+    const r = chargeFloorRefusal("charge", d.amount);
+    return err(res, r.message, r.status, r.code, { details: r.details });
   }
 
   // Claim the key BEFORE looking anything up, so two identical requests racing

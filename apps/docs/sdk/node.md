@@ -75,6 +75,23 @@ sweep.webhooks.express(process.env.SWEEP_WEBHOOK_SECRET!, {
 
 `verify` and `construct` are available separately if you are not on Express.
 
+## Which network am I on
+
+```ts
+const cfg = await sweep.config();
+// { mode: "live", platformFeeBps: 200, minChargeUsdc: "1.00",
+//   sourceChains: [{ key: "base", name: "Base" }, …], … }
+```
+
+The key's prefix implies the answer, but the **deployment** decides it, so
+asking beats inferring. Two things it is worth reading rather than
+hardcoding: `minChargeUsdc`, which moves with gas and is `null` on testnet,
+and `sourceChains`, which is what a payer will actually be offered.
+
+Unauthenticated on the server, so it answers before a key is valid — useful in
+a health check that should fail loudly when a staging deployment has somehow
+been handed a live key.
+
 ## Errors
 
 One class per refusal, so `catch` can ask which it is without parsing a string:
@@ -93,9 +110,25 @@ try {
 ```
 
 `RailNotEnabled`, `MandateNotFound`, `MandateRevoked`, `MandateNotActive`,
-`MandateExists`, `AmountOverCap`, `PeriodCapExceeded`, `IdempotencyKeyRequired`,
-`IdempotencyKeyReused`, `IdempotencyKeyInFlight`, `ChargeConflict`,
-`WebhookSignatureError` — all extending `SweepError`.
+`MandateExists`, `AmountOverCap`, `PeriodCapExceeded`, `AmountBelowMinimum`,
+`WrongEnvironment`, `IdempotencyKeyRequired`, `IdempotencyKeyReused`,
+`IdempotencyKeyInFlight`, `ChargeConflict`, `WebhookSignatureError` — all
+extending `SweepError`.
+
+`AmountBelowMinimum` is the one worth catching rather than logging: you can
+round the amount up and retry.
+
+```ts
+try {
+  await sweep.charges.create({ mandateId, amount: usdc("0.50") });
+} catch (e) {
+  if (e instanceof AmountBelowMinimum) {
+    const { minChargeUsdc } = await sweep.config();
+    // charge minChargeUsdc instead, or batch until it is worth collecting
+  }
+  throw e;
+}
+```
 
 Two refusals come from the environment rather than the request:
 
@@ -103,6 +136,7 @@ Two refusals come from the environment rather than the request:
 | --- | --- | --- |
 | `wrong_environment` | 403 | a `test_` key reached the live API, or the reverse. The message names the host to use |
 | `payout_wallet_missing` | 409 | the merchant has no payout wallet **for this mode**. A wallet is configured per environment, so a test one does not serve live charges |
+| `amount_below_minimum` | 422 | the amount is under the mainnet floor, 1.00 USDC by default. `details.amount` names the floor and what you sent. Testnet has no floor |
 
 Neither is retryable — both mean a configuration mismatch, not a transient
 failure.

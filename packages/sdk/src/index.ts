@@ -50,9 +50,10 @@ export type {
 } from "./types.js";
 export type { ConstructOptions } from "./webhooks.js";
 export {
-  AmountOverCap, ChargeConflict, IdempotencyKeyInFlight, IdempotencyKeyRequired,
-  IdempotencyKeyReused, MandateExists, MandateNotActive, MandateNotFound, MandateRevoked,
-  PeriodCapExceeded, RailNotEnabled, SweepError, WebhookSignatureError,
+  AmountBelowMinimum, AmountOverCap, ChargeConflict, IdempotencyKeyInFlight,
+  IdempotencyKeyRequired, IdempotencyKeyReused, MandateExists, MandateNotActive,
+  MandateNotFound, MandateRevoked, PeriodCapExceeded, RailNotEnabled, SweepError,
+  WebhookSignatureError, WrongEnvironment,
 } from "./errors.js";
 
 /// The client, with `webhooks` attached. Verification needs no API key — it is

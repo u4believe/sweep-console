@@ -32,6 +32,35 @@ curl -X POST https://api-sandbox.sweepconsole.xyz/v1/charges \
 { "id": "chg_7ed2374c97ea164c4e27", "status": "pending", "amount": 2000000 }
 ```
 
+## The smallest charge
+
+On **mainnet**, a charge must be at least **1.00 USDC**. Below that a `422`
+comes back naming the floor and the amount you sent:
+
+```json
+{
+  "error": {
+    "code": "amount_below_minimum",
+    "message": "Validation failed",
+    "details": {
+      "amount": "A charge must be at least 1.00 USDC on mainnet — this one is 0.50. Below that the network fee for collecting it exceeds what the payment is worth."
+    }
+  }
+}
+```
+
+Collecting a charge costs the same gas whether it is for one dollar or a
+hundred, and the platform fee is a percentage of the amount — so under about a
+dollar the fee stops covering the cost and every renewal is subsidised, for as
+long as the subscription lives.
+
+**Testnet has no floor.** A one-cent charge works there, which is what you want
+when you are checking how the flow behaves rather than what it earns.
+
+The exact figure can move as gas does. Read it from the error rather than
+hardcoding it, and if you are rounding up to meet it, do so before you sign
+the mandate — a `maxAmount` sized for the old price will not cover the new one.
+
 ## It answers 202, never 200
 
 Every charge is cross-chain — Arc cannot back a mandate — so collecting is a
