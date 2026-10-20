@@ -38,7 +38,12 @@ charge, or that charge fails with `no_payout_wallet` for the same reason.
 Share your payment link (`/pay/<id>`), and optionally generate API keys and
 register a webhook endpoint.
 
-::: info Live keys are not issued yet
-Everything is test mode today. The SDK refuses a key beginning `live_` rather
-than letting you discover it three calls later.
+::: info Test and live are separate
+A `test_` key works only against `https://api-sandbox.sweepconsole.xyz` and a
+`live_` key only against `https://api.sweepconsole.xyz`. Each refuses the
+other with a `403` naming the right host, and the Node client picks for you
+from the key's prefix.
+
+Your plans, keys, webhook endpoints and payout wallet are tracked separately
+per mode, so what you set up in test does not carry across.
 :::

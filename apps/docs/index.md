@@ -68,8 +68,10 @@ One account can run both. Mandates are invisible to the renewal engine, so the
 two never collide.
 
 ::: warning Two things to know before you build on either
-**Live API keys are not issued yet**, so both are test-mode today — the SDK
-refuses a key beginning `live_`.
+**Test and live are separate deployments.** A `test_` key reaches
+`https://api-sandbox.sweepconsole.xyz` and a `live_` key reaches
+`https://api.sweepconsole.xyz`; each refuses the other's keys. The Node client
+picks the host from the key, so going live is one environment variable.
 
 **Neither has refunds.** Every charge settles straight to your payout wallet, so
 there is nothing held that could be returned. Refunding is a transfer you make
