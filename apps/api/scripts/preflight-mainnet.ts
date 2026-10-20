@@ -120,6 +120,44 @@ async function main(): Promise<void> {
     console.log(`  ${bad ? "FAIL" : "ok  "}  ${line}`);
   };
 
+  /**
+   * Does the configured MSCA match what the configured OWNER derives?
+   *
+   * These are two independent settings and nothing kept them in step. Turning
+   * KMS on changes the owner, which changes the account CREATE2 puts it at —
+   * so SETTLEMENT_MSCA_ADDRESS silently becomes an address this deployment
+   * cannot sign for.
+   *
+   * settlement-userop.ts:177 catches it, but only at the moment of settling,
+   * which is after the payer's money has been pulled. This check exists to
+   * make that unreachable, and on 2026-10-20 it did not exist: a preflight
+   * PASSED against a KMS owner paired with the old key's MSCA.
+   */
+  async function checkMscaMatchesOwner(): Promise<void> {
+    const configured = process.env.SETTLEMENT_MSCA_ADDRESS;
+    if (!configured) return;
+    try {
+      const { getSettlementAccount } = await import("../src/lib/chain/signers");
+      const { toCircleSmartAccount } = await import("@circle-fin/modular-wallets-core");
+      const owner = getSettlementAccount();
+      // One chain is enough: the address is identical on all of them, which
+      // setup-kms-settlement.ts verifies when it derives them.
+      const client = createPublicClient({ chain: base, transport: http(process.env.RPC_URL_8453 ?? "https://mainnet.base.org") });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sa = await toCircleSmartAccount({ client: client as any, owner: owner as any });
+      const agrees = sa.address.toLowerCase() === configured.toLowerCase();
+      note(
+        !agrees,
+        agrees
+          ? `SETTLEMENT_MSCA_ADDRESS matches the owner ${owner.address}`
+          : `SETTLEMENT_MSCA_ADDRESS is ${configured} but owner ${owner.address} derives ${sa.address} — ` +
+              `settlement would refuse rather than pay into an account it cannot spend from`
+      );
+    } catch (e) {
+      note(true, `could not derive the settlement MSCA: ${(e as Error).message.slice(0, 90)}`);
+    }
+  }
+
   console.log(`SETTLEMENT_MSCA_ADDRESS   ${process.env.SETTLEMENT_MSCA_ADDRESS ?? "(unset)"}`);
   console.log(`SETTLEMENT_MSCA_ENABLED   ${process.env.SETTLEMENT_MSCA_ENABLED ?? "(unset)"}`);
   console.log(`KMS_PROVIDER              ${process.env.KMS_PROVIDER ?? "(unset)"}\n`);
@@ -185,9 +223,18 @@ async function main(): Promise<void> {
    *
    * Addresses only below. The keys themselves are never read into output.
    */
+  console.log("settlement account");
+  await checkMscaMatchesOwner();
+  console.log();
+
   console.log("keys");
   const ROLES: Array<[string, string]> = [
-    ["SETTLEMENT_PRIVATE_KEY", "owns the settlement MSCA, payee in every grant"],
+    [
+      "SETTLEMENT_PRIVATE_KEY",
+      process.env.KMS_PROVIDER
+        ? "NOT the owner any more — KMS_PROVIDER is set, so the KMS key signs"
+        : "owns the settlement MSCA, payee in every grant",
+    ],
     ["RENEWAL_DELEGATE_PRIVATE_KEY", "owns the renewal delegate MSCA"],
     ["EXTERNAL_RELAYER_PRIVATE_KEY", "owns the external relayer MSCA"],
     ["PLATFORM_PRIVATE_KEY", "hosted relayer"],
