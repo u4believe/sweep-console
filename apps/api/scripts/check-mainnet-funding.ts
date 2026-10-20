@@ -37,6 +37,8 @@ const CHAINS = [
 ];
 
 const BALANCE_OF = "0x70a08231";
+/// EntryPoint v0.7 — where a smart account's gas actually sits.
+const ENTRY_POINT = "0x0000000071727De22E5E9d8BAf0edAc6f37da032";
 
 /**
  * Only the `call` is needed, so only `call` is required.
@@ -46,6 +48,13 @@ const BALANCE_OF = "0x70a08231";
  * method this uses sidesteps that without casting the whole client away.
  */
 type Caller = { call: (args: { to: Address; data: `0x${string}` }) => Promise<{ data?: `0x${string}` | undefined }> };
+
+/// balanceOf(address) on the EntryPoint is that account's gas deposit.
+async function entryPointDeposit(client: Caller, account: string): Promise<bigint> {
+  const data = `${BALANCE_OF}${account.slice(2).toLowerCase().padStart(64, "0")}` as `0x${string}`;
+  const r = await client.call({ to: getAddress(ENTRY_POINT) as Address, data });
+  return r.data && r.data !== "0x" ? BigInt(r.data) : 0n;
+}
 
 async function usdcOf(client: Caller, token: string, who: string): Promise<bigint> {
   const data = `${BALANCE_OF}${who.slice(2).toLowerCase().padStart(64, "0")}` as `0x${string}`;
@@ -62,9 +71,18 @@ async function main(): Promise<void> {
   }
 
   const settlement = process.env.SETTLEMENT_MSCA_ADDRESS;
+  // [label, the MSCA whose deposit pays, the OWNER whose ETH funds it]
+  const { getRelayerAccount } = await import("../src/lib/chain/signers");
+  const ownerOf = (mode: "hosted" | "external"): string | undefined => {
+    try {
+      return getRelayerAccount(mode).address;
+    } catch {
+      return undefined;
+    }
+  };
   const delegates = [
-    ["renewal", process.env.RENEWAL_DELEGATE_MSCA_ADDRESS],
-    ["external", process.env.EXTERNAL_RELAYER_MSCA_ADDRESS],
+    ["renewal", process.env.RENEWAL_DELEGATE_MSCA_ADDRESS, ownerOf("hosted")],
+    ["external", process.env.EXTERNAL_RELAYER_MSCA_ADDRESS, ownerOf("external")],
   ] as const;
 
   if (!settlement) {
@@ -106,15 +124,25 @@ async function main(): Promise<void> {
       console.log(`               (ETH here is unused: Base and Arbitrum take gas from USDC)`);
     }
 
-    for (const [name, addr] of delegates) {
-      if (!addr) {
-        console.log(`  ${name.padEnd(12)} (address not set)`);
+    for (const [name, msca, owner] of delegates) {
+      if (!owner) {
+        console.log(`  ${name.padEnd(12)} (key not set)`);
         continue;
       }
-      const dEth = await client.getBalance({ address: getAddress(addr) as Address }).catch(() => -1n);
-      const low = dEth >= 0n && dEth < BigInt(Math.floor(Number(ethFloor) * 1e18));
-      console.log(`  ${name.padEnd(12)} ETH ${dEth < 0n ? "?" : formatEther(dEth)}${low ? `   BELOW the ${ethFloor} floor — self-bundling pays gas here` : ""}`);
-      if (low) short++;
+      const oEth = await client.getBalance({ address: getAddress(owner) as Address }).catch(() => -1n);
+      const dep = msca ? await entryPointDeposit(client, msca).catch(() => -1n) : -1n;
+      const needed = BigInt(Math.floor(Number(ethFloor) * 1e18));
+      // Fund the OWNER; the deposit is what it has already moved in. Either
+      // alone can be zero; both zero means the next redeem cannot pay.
+      const dry = oEth >= 0n && oEth < needed && (dep < 0n || dep < needed);
+      console.log(
+        `  ${name.padEnd(12)} owner ${owner.slice(0, 10)}…  ETH ${oEth < 0n ? "?" : formatEther(oEth)}` +
+          `   deposited ${dep < 0n ? "?" : formatEther(dep)}`
+      );
+      if (dry) {
+        console.log(`               ^ fund the OWNER — it sends depositTo and pays that gas`);
+        short++;
+      }
     }
     console.log();
   }

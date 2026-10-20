@@ -9,9 +9,11 @@
  *                      deployed on Optimism. It needs no USDC float — each
  *                      payment brings its own and tops the account toward
  *                      SETTLEMENT_GAS_FLOOR_USDC out of the platform's fee.
- *   delegate MSCAs     ETH on all three. They self-bundle, so they call
- *                      handleOps themselves and pay that transaction's gas
- *                      natively, with no paymaster involved anywhere.
+ *   delegate OWNERS    ETH on all three. The MSCAs hold nothing: their gas
+ *                      sits as an EntryPoint deposit, and delegate-msca.ts:293
+ *                      tops that up FROM THE OWNER EOA, which also pays for
+ *                      the depositTo transaction. Send ETH to an MSCA and it
+ *                      sits there paying for nothing.
  *   renewal EOA        USDC on Arc. Arc's gas token IS USDC, and this key —
  *                      not its MSCA — is what submits CCTP mints there.
  *
@@ -95,11 +97,20 @@ export async function readTreasury(): Promise<TreasuryRow[]> {
 
       for (const [role, addr] of delegates) {
         if (!addr) continue;
+        // The OWNER is what runs dry, not the MSCA. Reporting the MSCA's
+        // balance would send an operator to top up an address that pays for
+        // nothing, while the account that actually funds gas sits empty.
+        let owner: string | null = null;
+        try {
+          owner = getRelayerAccount(role === "external" ? "external" : "hosted").address;
+        } catch {
+          /* key not configured — show the MSCA row without an owner */
+        }
         rows.push({
           role,
-          address: addr,
+          address: owner ?? addr,
           chain: key,
-          balance: await eth(addr),
+          balance: owner ? await eth(owner) : "?",
           symbol: "ETH",
           required: true,
         });

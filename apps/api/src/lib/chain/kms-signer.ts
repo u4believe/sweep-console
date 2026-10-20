@@ -260,6 +260,9 @@ export const digestOf = toHex;
  *   turnkey  @turnkey/sdk-server. Returns r and s directly, so return
  *            them as { r, s } and the DER path is skipped entirely.
  */
+/// Logged once per role, not per signature.
+const announced = new Set<string>();
+
 export function kmsSignerFromEnv(role: "hosted" | "external" | "settlement"): RemoteSigner | null {
   const provider = process.env.KMS_PROVIDER;
   if (!provider) return null;
@@ -267,11 +270,42 @@ export function kmsSignerFromEnv(role: "hosted" | "external" | "settlement"): Re
   const suffix = role.toUpperCase();
   const keyId = process.env[`KMS_KEY_${suffix}`];
   const address = process.env[`KMS_ADDRESS_${suffix}`] as Address | undefined;
+
+  /**
+   * KMS is opted into PER ROLE, not for the whole process.
+   *
+   * This used to throw whenever KMS_PROVIDER was set and a role's key was
+   * absent. But KMS_PROVIDER is one switch and the roles are four, so
+   * configuring KMS for settlement alone made getRelayerAccount("hosted") and
+   * ("external") throw — and with them every renewal, every external redeem
+   * and the Arc relayer, which all go through it. A key management change for
+   * one account stopped three others from signing at all.
+   *
+   * Neither key present means this role was never meant to be on KMS: use its
+   * local key, and say so once at startup so it is visible rather than
+   * assumed.
+   *
+   * ONE key present is different — that is a half-finished configuration, and
+   * falling back there would silently use the key KMS was brought in to
+   * replace. That still throws.
+   */
+  if (!keyId && !address) {
+    if (!announced.has(role)) {
+      announced.add(role);
+      console.log(
+        `[kms] ${role} uses its local key — KMS_PROVIDER=${provider} is set but ` +
+          `KMS_KEY_${suffix} is not, so KMS was not intended for this role`
+      );
+    }
+    return null;
+  }
+
   if (!keyId || !address) {
     throw new Error(
-      `KMS_PROVIDER=${provider} is set but KMS_KEY_${suffix} and KMS_ADDRESS_${suffix} are not — ` +
-        `refusing to fall back to a local key for ${role}, because silently using the key a KMS was ` +
-        `configured to replace is the one outcome nobody wants`
+      `KMS_PROVIDER=${provider} and ${keyId ? `KMS_KEY_${suffix}` : `KMS_ADDRESS_${suffix}`} are set ` +
+        `but ${keyId ? `KMS_ADDRESS_${suffix}` : `KMS_KEY_${suffix}`} is not — refusing to fall back to ` +
+        `a local key for ${role}, because silently using the key a KMS was configured to replace is ` +
+        `the one outcome nobody wants. Set both, or neither.`
     );
   }
 
