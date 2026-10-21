@@ -62,6 +62,10 @@ const UNSCOPABLE = [
 
 const ROUTES = join(__dirname, "..", "src", "routes");
 
+/// The web app, whose components make CLAIMS about the mode rather than
+/// queries against it.
+const WEB_SRC = join(__dirname, "..", "..", "web", "src");
+
 /**
  * The PAYER door, which has no merchant in it at all.
  *
@@ -71,10 +75,16 @@ const ROUTES = join(__dirname, "..", "src", "routes");
  * networks' rows, and on 2026-10-19 the live portal showed a payer their
  * Sepolia subscriptions beside real ones, each with a working revoke button.
  *
- * So this file is checked by a different rule: any read of a mode-bearing
+ * So these files are checked by a different rule: any read of a mode-bearing
  * model must carry the mode somehow — payerScope() or an explicit isTestMode.
+ *
+ * public.ts was added after the same bug reached a LIVE checkout: it listed a
+ * payer's existing subscriptions by merchant and status alone, so the page
+ * told them they already subscribed, naming a TESTNET subscription, and
+ * offered to replace it. customer-portal.ts was in this list and public.ts was
+ * not, which is the whole reason the second one got through.
  */
-const PAYER_ROUTES = ["customer-portal.ts"];
+const PAYER_ROUTES = ["customer-portal.ts", "public.ts"];
 
 /**
  * The two doors, and how each names the merchant.
@@ -215,6 +225,51 @@ function main(): void {
     }
   }
 
+  /**
+   * Third pass: a component that asserts the mode instead of reading it.
+   *
+   * `<CheckoutFrame isTestMode />` is `isTestMode={true}` in JSX, and it reads
+   * like "pass the variable". PlanPreviewPage did exactly that, so the LIVE
+   * dashboard previewed a checkout promising "no real USDC is charged" for a
+   * plan that charges real USDC. PortalLayout had the same shape as a
+   * hardcoded badge beside the wordmark.
+   *
+   * Neither is a query, so neither pass above could see it: the data was
+   * right and the page said otherwise. A claim about money being fake is
+   * worth checking as closely as a claim about whose rows these are.
+   */
+  const claims: Finding[] = [];
+  const walkTsx = (dir: string): void => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) {
+        walkTsx(full);
+      } else if (e.name.endsWith(".tsx")) {
+        const lines = readFileSync(full, "utf8").split("\n");
+        lines.forEach((line, i) => {
+          if (line.trim().startsWith("//") || line.trim().startsWith("*")) return;
+          // A bare prop, or one asserted true outright.
+          const bare = /^\s*isTestMode\s*$/.test(line);
+          const literal = /isTestMode=\{\s*true\s*\}/.test(line);
+          if (!bare && !literal) return;
+          claims.push({
+            file: full.slice(WEB_SRC.length + 1),
+            line: i + 1,
+            model: "isTestMode",
+            method: bare ? "bare prop" : "literal true",
+            fix: "pass the real value — a bare prop is `={true}`, which claims test mode on live",
+          });
+        });
+      }
+    }
+  };
+  try {
+    walkTsx(WEB_SRC);
+  } catch {
+    /* web app not present — skip rather than fail */
+  }
+  findings.push(...claims);
+
   if (deferred.length > 0) {
     console.log(`${deferred.length} read(s) on models with no isTestMode column — deferred, not forgotten:`);
     const byModel = new Map<string, number>();
@@ -226,11 +281,14 @@ function main(): void {
   }
 
   if (findings.length === 0) {
-    console.log("PASS. Every merchant-scoped read of a mode-bearing model carries the mode.");
+    console.log(
+      "PASS. Every read carries the mode, every create stamps it, and nothing in the UI claims it."
+    );
     return;
   }
 
-  console.log(`FAIL. ${findings.length} read(s) can see the other mode's rows:\n`);
+  // Three kinds of finding now, so the headline cannot say "reads".
+  console.log(`FAIL. ${findings.length} place(s) where the mode is wrong or missing:\n`);
   for (const f of findings) {
     console.log(`  ${f.file}:${f.line}  ${f.model}.${f.method}  -> ${f.fix}`);
   }
