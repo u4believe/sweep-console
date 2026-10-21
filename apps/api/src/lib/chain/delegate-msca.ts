@@ -66,6 +66,7 @@ import { toCircleSmartAccount } from "@circle-fin/modular-wallets-core";
 import { getRelayerAccount, type RelayerMode } from "./signers";
 import { rpcUrlForChain } from "./delegation";
 import { withNonce } from "./nonce";
+import { delegate7702Enabled } from "./delegate-7702";
 
 const ENTRY_POINT: Address = "0x0000000071727De22E5E9d8BAf0edAc6f37da032";
 
@@ -319,6 +320,25 @@ export function delegateMscaAddress(mode: RelayerMode): Address | null {
  */
 export function delegateAddressForNewGrant(mode: RelayerMode): Address {
   const msca = delegateMscaAddress(mode);
+  /**
+   * A 7702 account's address IS its key's address, so a grant naming it names
+   * the EOA — the same address this returns with the MSCA off.
+   *
+   * Both flags on is not a preference to resolve, it is a contradiction: the
+   * two paths write DIFFERENT addresses into grants, and picking one silently
+   * would make a batch of grants unredeemable by whichever path lost. It
+   * refuses instead, at the moment a grant would be minted rather than later
+   * when one cannot be collected.
+   */
+  if (delegate7702Enabled()) {
+    if (delegateMscaEnabled() && msca) {
+      throw new Error(
+        "DELEGATE_7702_ENABLED and DELEGATE_MSCA_ENABLED are both true. They pin different " +
+          "delegate addresses into grants. Set exactly one."
+      );
+    }
+    return getRelayerAccount(mode).address;
+  }
   return delegateMscaEnabled() && msca ? msca : getRelayerAccount(mode).address;
 }
 

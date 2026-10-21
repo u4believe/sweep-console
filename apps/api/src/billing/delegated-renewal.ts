@@ -28,6 +28,7 @@ import {
   periodicTransferExecution,
 } from "../lib/chain/delegation";
 import { ownerOfDelegateMsca, redeemBatchViaSelfBundler } from "../lib/chain/delegate-msca";
+import { ownerFor7702Delegate, redeemBatchVia7702 } from "../lib/chain/delegate-7702";
 import { settlementTargetFor } from "../lib/chain/settlement-target";
 import { periodConsumed } from "../lib/rail";
 import { advanceBridge } from "./bridge";
@@ -505,6 +506,62 @@ async function redeemPrepared(prepared: PreparedRenewal[], outcomes: RenewalOutc
     const chainId = first.chosenMandate.chainId;
     const delegate = first.chosenMandate.delegateAddress as Address;
     const held = ownerOfDelegateMsca(delegate);
+    const eoa7702 = ownerFor7702Delegate(delegate);
+
+    /**
+     * A 7702 batch: one ordinary transaction, no EntryPoint.
+     *
+     * Checked before the MSCA branch because the two are mutually exclusive
+     * by address — a grant names one or the other — so whichever matches is
+     * the only one that can redeem it.
+     *
+     * ALL-OR-NOTHING, unlike handleOps. A 7579 batch is a single transaction,
+     * so one reverting redemption reverts every other in it. That is handled
+     * the same way a failed handleOps already is: every claim in the group is
+     * released and the whole group retries next pass. Nothing was pulled, so
+     * nothing is stranded.
+     */
+    if (eoa7702 && items.length > 1) {
+      const source = getSourceChain(first.chosenKey);
+      try {
+        const out = await redeemBatchVia7702({
+          chainId,
+          owner: eoa7702,
+          items: items.map((p) => ({
+            delegationManager: p.chosenMandate.delegationManager as Address,
+            context: p.chosenMandate.context as Hex,
+            // Settlement, not the delegate — the same pinning the MSCA path
+            // relies on, and for the same reason.
+            ...periodicTransferExecution(
+              source.usdc,
+              settlementTargetFor(p.chosenMandate.chainId, p.chosenMandate.context as Hex).address,
+              p.amount
+            ),
+            ref: p.sub.id,
+          })),
+        });
+        for (const p of items) {
+          if (out.results.get(p.sub.id)?.success) {
+            p.redeemed = true;
+            continue;
+          }
+          await releaseClaim(p.sub.id, p.periodKey).catch(() => {});
+          outcomes.push({
+            subscriptionId: p.sub.subscriptionId,
+            result: "error",
+            chain: p.chosenKey,
+            detail: `the 7702 batch reverted (tx ${out.txHash}) — nothing was pulled, retries next pass`,
+          });
+        }
+      } catch (e) {
+        const detail = e instanceof Error ? e.message : String(e);
+        for (const p of items) {
+          await releaseClaim(p.sub.id, p.periodKey).catch(() => {});
+          outcomes.push(outcomeForRedeemError(p.sub, detail));
+        }
+      }
+      continue;
+    }
 
     if (held && items.length > 1) {
       const source = getSourceChain(first.chosenKey);
