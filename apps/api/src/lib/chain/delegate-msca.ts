@@ -47,6 +47,7 @@
  */
 
 import {
+  concat,
   createPublicClient,
   createWalletClient,
   decodeEventLog,
@@ -160,6 +161,39 @@ function depositFloor(): bigint {
   } catch {
     return parseEther("0.002");
   }
+}
+
+/**
+ * The initCode that deploys this account, or "0x" when it already exists.
+ *
+ * The self-bundler omitted this entirely, so every UserOperation it sent named
+ * a sender that had no code. The EntryPoint rejects that in validation with
+ * AA20 — an early revert, no logs, ~72k gas — which is what a mainnet redeem
+ * did twice on 2026-10-21 while the deposit sat funded and untouched.
+ *
+ * It never showed on testnet because those delegate MSCAs had been deployed by
+ * earlier probes, and an account only needs initCode once.
+ *
+ * Returning "0x" for a deployed account is not an optimisation: sending
+ * initCode for an account that exists is AA10, so this has to be read from the
+ * chain each time rather than cached.
+ */
+async function initCodeFor(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  account: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  publicClient: any
+): Promise<Hex> {
+  const code = await publicClient.getCode({ address: account.address }).catch(() => undefined);
+  if (code && code !== "0x") return "0x";
+  const args = await account.getFactoryArgs?.();
+  if (!args?.factory || !args?.factoryData) {
+    throw new Error(
+      `${account.address} is not deployed and the account exposes no factory args, so the ` +
+        `UserOperation cannot deploy it. Deploy it once, or redeem through a bundler.`
+    );
+  }
+  return concat([args.factory as Hex, args.factoryData as Hex]);
 }
 
 /**
@@ -434,7 +468,7 @@ export async function redeemViaSelfBundler(
   const op = {
     sender: p.sender,
     nonce: p.nonce,
-    initCode: (p.initCode ?? "0x") as Hex,
+    initCode: (p.initCode ?? (await initCodeFor(account, publicClient))) as Hex,
     callData: p.callData,
     accountGasLimits: packTwo(VERIFICATION_GAS, CALL_GAS),
     preVerificationGas: PRE_VERIFICATION_GAS,
@@ -618,6 +652,9 @@ export async function redeemBatchViaSelfBundler(input: {
   };
   const ops: PackedOp[] = [];
   const hashToRef = new Map<string, string>();
+  // Read once: every op in this batch shares one account, and the answer
+  // cannot change mid-loop.
+  const batchInitCode = await initCodeFor(account, publicClient);
 
   for (let i = 0; i < input.items.length; i++) {
     const item = input.items[i]!;
@@ -660,7 +697,9 @@ export async function redeemBatchViaSelfBundler(input: {
     ops.push({
       sender: p.sender,
       nonce: p.nonce,
-      initCode: (p.initCode ?? "0x") as Hex,
+      // First op only: handleOps validates all before executing any, so op 1's
+      // initCode deploys the account and a second one would be AA10.
+      initCode: (p.initCode ?? (i === 0 ? batchInitCode : "0x")) as Hex,
       callData: p.callData,
       accountGasLimits: packTwo(VERIFICATION_GAS, CALL_GAS),
       preVerificationGas: PRE_VERIFICATION_GAS,
