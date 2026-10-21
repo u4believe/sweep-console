@@ -162,6 +162,43 @@ function depositFloor(): bigint {
   }
 }
 
+/**
+ * How much to actually deposit, given what the owner can afford.
+ *
+ * depositFloor() is a target, not a requirement, and treating it as one broke
+ * a mainnet charge: the owners held ~0.00008 ETH each while the floor asked
+ * for 0.002, so depositTo reverted on `value` with viem's generic "total cost
+ * exceeds the balance of the account" — which names no account and no number
+ * and reads like the wallet is empty.
+ *
+ * So: aim for the floor, settle for what is there, and refuse only when even
+ * the operation's own gas cannot be covered. A small balance should mean
+ * frequent small top-ups, not a hard stop.
+ *
+ * `reserve` keeps back enough for the deposit transaction itself, which is
+ * paid by the same account that is funding the deposit.
+ */
+function topUpAmount(opts: {
+  required: bigint;
+  ownerBalance: bigint;
+  maxFeePerGas: bigint;
+  owner: Address;
+  chainId: number;
+}): bigint {
+  const reserve = opts.maxFeePerGas * 100_000n;
+  const affordable = opts.ownerBalance > reserve ? opts.ownerBalance - reserve : 0n;
+  if (affordable < opts.required) {
+    throw new Error(
+      `delegate owner ${opts.owner} holds ${formatEther(opts.ownerBalance)} ETH on chain ` +
+        `${opts.chainId}, which after ${formatEther(reserve)} for this transaction's own gas ` +
+        `leaves ${formatEther(affordable)} — under the ${formatEther(opts.required)} the operation ` +
+        `needs. Fund that address; it is the owner, not the smart account.`
+    );
+  }
+  const floor = depositFloor();
+  return affordable < floor ? affordable : floor;
+}
+
 /** Off unless explicitly switched on. This changes who redeems a grant. */
 export function delegateMscaEnabled(): boolean {
   return process.env.DELEGATE_MSCA_ENABLED === "true";
@@ -286,7 +323,14 @@ export async function redeemViaSelfBundler(
     args: [account.address],
   });
   if (deposit < required) {
-    const top = depositFloor();
+    const ownerBalance = await publicClient.getBalance({ address: input.owner.address });
+    const top = topUpAmount({
+      required,
+      ownerBalance,
+      maxFeePerGas,
+      owner: input.owner.address,
+      chainId: input.chainId,
+    });
     console.warn(
       `[delegate/self-bundler] ${account.address} deposit ${formatEther(deposit)} ETH is under the ` +
         `${formatEther(required)} this operation needs — depositing ${formatEther(top)} from ${input.owner.address}`
@@ -476,7 +520,17 @@ export async function redeemBatchViaSelfBundler(input: {
     args: [account.address],
   });
   if (deposit < required) {
-    const top = required * 3n > depositFloor() ? required * 3n : depositFloor();
+    const ownerBalance = await publicClient.getBalance({ address: input.owner.address });
+    // Three operations' worth when affordable, so a batch is not one deposit
+    // per op; topUpAmount caps it at what the owner actually holds.
+    const want = required * 3n;
+    const top = topUpAmount({
+      required: want > required ? required : want,
+      ownerBalance,
+      maxFeePerGas,
+      owner: input.owner.address,
+      chainId: input.chainId,
+    });
     console.warn(
       `[delegate/self-bundler] ${account.address} deposit ${formatEther(deposit)} ETH under the ` +
         `${formatEther(required)} needed for ${input.items.length} ops — depositing ${formatEther(top)}`
