@@ -163,6 +163,56 @@ function depositFloor(): bigint {
 }
 
 /**
+ * Confirm a deposit landed, by its OUTCOME rather than its receipt.
+ *
+ * waitForTransactionReceipt alone abandoned a working payment on 2026-10-21:
+ * the deposit transaction took over three minutes on Base, viem gave up, and
+ * the charge failed — while the ETH had in fact arrived. The EntryPoint held
+ * exactly the amount the log said it was depositing.
+ *
+ * A receipt is evidence of the deposit, not the thing we need. What we need is
+ * the balance being sufficient, and that can be read directly. So: wait for
+ * the receipt, and if that times out or the transaction was replaced, poll the
+ * deposit instead. A slow L2 inclusion should delay a payment, never fail it.
+ */
+async function confirmDeposit(opts: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  publicClient: any;
+  hash: Hex;
+  account: Address;
+  required: bigint;
+}): Promise<void> {
+  const readDeposit = async (): Promise<bigint> =>
+    (await opts.publicClient.readContract({
+      address: ENTRY_POINT,
+      abi: ENTRY_POINT_ABI,
+      functionName: "balanceOf",
+      args: [opts.account],
+    })) as bigint;
+
+  try {
+    const r = await opts.publicClient.waitForTransactionReceipt({ hash: opts.hash });
+    if (r.status === "success") return;
+    // A reverted deposit is a real failure, but check anyway: a replacement
+    // may have carried the same value through under a different hash.
+  } catch {
+    /* timed out, or replaced — the balance decides, not the receipt */
+  }
+
+  // Up to two more minutes, which is generous for an L2 and still bounded.
+  for (let i = 0; i < 24; i++) {
+    if ((await readDeposit()) >= opts.required) return;
+    await new Promise((r) => setTimeout(r, 5_000));
+  }
+
+  throw new Error(
+    `EntryPoint deposit for ${opts.account} did not arrive: ${opts.hash} never confirmed and the ` +
+      `deposit is still under the ${formatEther(opts.required)} needed. The ETH may yet land — ` +
+      `check the deposit before re-funding the owner.`
+  );
+}
+
+/**
  * How much to actually deposit, given what the owner can afford.
  *
  * depositFloor() is a target, not a requirement, and treating it as one broke
@@ -343,8 +393,7 @@ export async function redeemViaSelfBundler(
         nonce,
       })
     );
-    const r = await publicClient.waitForTransactionReceipt({ hash });
-    if (r.status !== "success") throw new Error(`EntryPoint deposit failed: ${hash}`);
+    await confirmDeposit({ publicClient, hash, account: account.address, required });
   }
 
   const redeemCall = encodeFunctionData({
@@ -543,8 +592,7 @@ export async function redeemBatchViaSelfBundler(input: {
         nonce,
       })
     );
-    const r = await publicClient.waitForTransactionReceipt({ hash });
-    if (r.status !== "success") throw new Error(`EntryPoint deposit failed: ${hash}`);
+    await confirmDeposit({ publicClient, hash, account: account.address, required });
   }
 
   // Sequential nonces in key 0. handleOps validates every operation before it
