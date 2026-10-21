@@ -17,18 +17,33 @@
 // Circle Paymaster v0.7, which is not deployed on Optimism — verified
 // on-chain by check-mainnet-addresses.ts.
 //
-// The delegate MSCAs self-bundle, which means they call handleOps themselves
-// and pay that transaction's gas in native ETH on every chain. No paymaster is
-// involved there at all, so they need ETH on all three.
+// The delegates need ETH on all three chains, under either design. No
+// paymaster is involved in redemption at all.
 //
-// Nothing needs a balance before its first use: all three are counterfactual
+// WHERE THAT ETH GOES DIFFERS, and so does what counts as funded:
+//
+//   MSCA (default)   The owner moves ETH into an EntryPoint deposit and the
+//                    MSCA spends from there, so there are TWO numbers and a
+//                    redeem can fail with either empty. Both are reported.
+//   7702             The owner IS the delegate and sends an ordinary
+//                    transaction. One number, no deposit. A deposit figure
+//                    here would be a leftover from the old design, so it is
+//                    not shown and not counted.
+//
+// Nothing needs a balance before its first use: the MSCAs are counterfactual
 // and deploy via initCode. "not deployed" below is the expected state of an
 // account that has not settled or redeemed yet, not a problem to fix.
+//
+// Under 7702 the account is not counterfactual at all — it is the EOA, which
+// exists already. What it needs is the delegation indicator, and the first
+// redeem sets that in the same transaction, so "not upgraded" is also not a
+// problem to fix.
 
 import "dotenv/config";
 import { createPublicClient, formatEther, formatUnits, http, getAddress, type Address } from "viem";
 import { base, arbitrum, optimism } from "viem/chains";
 import { isMainnet } from "../src/lib/gateway/chains";
+import { DELEGATOR_IMPL, delegate7702Enabled } from "../src/lib/chain/delegate-7702";
 
 const CHAINS = [
   { key: "base", chain: base, rpc: "https://mainnet.base.org", usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", needsEth: false },
@@ -96,7 +111,10 @@ async function main(): Promise<void> {
   const gasFloor = process.env.SETTLEMENT_GAS_FLOOR_USDC ?? "0.10";
   const ethFloor = process.env.DELEGATE_MSCA_DEPOSIT_FLOOR_ETH ?? "0.002";
 
+  const use7702 = delegate7702Enabled();
+
   console.log(`settlement MSCA  ${settlement}`);
+  console.log(`delegate design  ${use7702 ? "7702 — the owner IS the delegate, no EntryPoint deposit" : "MSCA — the owner funds an EntryPoint deposit"}`);
   console.log(`gas floor        ${gasFloor} USDC (from the platform fee, never the merchant's share)\n`);
 
   let short = 0;
@@ -130,8 +148,33 @@ async function main(): Promise<void> {
         continue;
       }
       const oEth = await client.getBalance({ address: getAddress(owner) as Address }).catch(() => -1n);
-      const dep = msca ? await entryPointDeposit(client, msca).catch(() => -1n) : -1n;
       const needed = BigInt(Math.floor(Number(ethFloor) * 1e18));
+
+      if (use7702) {
+        // One number. The owner sends the transaction and pays for it, so an
+        // empty owner is the whole failure — there is no deposit to fall back
+        // on and none to report.
+        const code = await client.getCode({ address: getAddress(owner) as Address }).catch(() => null);
+        const upgraded = !!code && code.toLowerCase() === `0xef0100${DELEGATOR_IMPL.slice(2).toLowerCase()}`;
+        const foreign = !!code && code !== "0x" && !upgraded;
+        console.log(
+          `  ${name.padEnd(12)} ${owner.slice(0, 10)}…  ETH ${oEth < 0n ? "?" : formatEther(oEth)}` +
+            `   ${foreign ? "DELEGATED ELSEWHERE" : upgraded ? "upgraded" : "not upgraded (set on first redeem)"}`
+        );
+        if (foreign) {
+          // Not a funding gap — a takeover. Executing through it would run
+          // code this deployment did not choose, and redeemBatchVia7702
+          // refuses rather than do that.
+          console.log(`               ^ points at ${code?.slice(8, 48)} — NOT our implementation; see delegation-watch.ts`);
+          short++;
+        } else if (oEth >= 0n && oEth < needed) {
+          console.log(`               ^ fund this address — it sends the redeem and pays for it`);
+          short++;
+        }
+        continue;
+      }
+
+      const dep = msca ? await entryPointDeposit(client, msca).catch(() => -1n) : -1n;
       // Fund the OWNER; the deposit is what it has already moved in. Either
       // alone can be zero; both zero means the next redeem cannot pay.
       const dry = oEth >= 0n && oEth < needed && (dep < 0n || dep < needed);

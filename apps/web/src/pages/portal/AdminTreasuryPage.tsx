@@ -6,6 +6,8 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
 interface TreasuryRow {
   role: string;
+  /// "7702" | "entrypoint" on delegate rows; absent elsewhere.
+  spends?: string;
   address: string;
   chain: string;
   balance: string;
@@ -18,10 +20,24 @@ interface TreasuryRow {
 /// the funding rules are not uniform between them.
 const ROLE_NOTE: Record<string, string> = {
   settlement: "Receives every pull, bridges it, pays the fee",
-  renewal: "Redeems hosted grants — self-bundles, so it pays its own gas",
-  external: "Redeems external-rail grants — same",
+  renewal: "Redeems hosted grants",
+  external: "Redeems external-rail grants",
   "renewal-arc": "Submits CCTP mints on Arc, where gas is USDC",
 };
+
+/**
+ * What a delegate's ETH pays for, which the two designs answer differently.
+ *
+ * Taken from the row rather than hardcoded: the API knows which design is
+ * live, and a note that says "self-bundles" under 7702 would send an operator
+ * looking for an EntryPoint deposit that does not exist.
+ */
+function spendNote(rs: Array<{ spends?: string }>): string {
+  const spends = rs.find((r) => r.spends)?.spends;
+  if (spends === "7702") return " — this address IS the delegate and pays for the redeem directly";
+  if (spends === "entrypoint") return " — funds an EntryPoint deposit the smart account spends from";
+  return "";
+}
 
 const ROLE_ORDER = ["settlement", "renewal", "external", "renewal-arc"];
 
@@ -88,7 +104,7 @@ export function AdminTreasuryPage() {
                 {role === "renewal-arc" ? "Renewal delegate — Arc" : role[0]!.toUpperCase() + role.slice(1)}
               </h3>
               <p className="m-0 mb-2" style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
-                {ROLE_NOTE[role] ?? ""}
+                {(ROLE_NOTE[role] ?? "") + spendNote(rs)}
               </p>
               {/* The whole address, selectable. These are copied into Railway
                   variables and into a wallet's send field, and a shortened one

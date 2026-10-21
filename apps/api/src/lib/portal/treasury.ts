@@ -1,21 +1,33 @@
 /**
  * What the platform's own accounts hold, for the operator screen.
  *
- * These are not merchant balances. They are the four addresses that make
- * settlement work, and each runs out in its own way:
+ * These are not merchant balances. They are the addresses that make settlement
+ * work, and each runs out in its own way:
  *
  *   settlement MSCA    ETH on Optimism only. Base and Arbitrum take gas from
  *                      USDC through Circle Paymaster v0.7, which is not
  *                      deployed on Optimism. It needs no USDC float — each
  *                      payment brings its own and tops the account toward
  *                      SETTLEMENT_GAS_FLOOR_USDC out of the platform's fee.
- *   delegate OWNERS    ETH on all three. The MSCAs hold nothing: their gas
- *                      sits as an EntryPoint deposit, and delegate-msca.ts:293
- *                      tops that up FROM THE OWNER EOA, which also pays for
- *                      the depositTo transaction. Send ETH to an MSCA and it
- *                      sits there paying for nothing.
- *   renewal EOA        USDC on Arc. Arc's gas token IS USDC, and this key —
- *                      not its MSCA — is what submits CCTP mints there.
+ *   delegate OWNERS    ETH on all three, under either delegate design — which
+ *                      is why this screen has always shown the owner and not
+ *                      the MSCA, and why the number below stayed correct
+ *                      across the switch. What changed is WHERE that ETH goes.
+ *   renewal EOA        USDC on Arc. Arc's gas token IS USDC, and this key is
+ *                      what submits CCTP mints there.
+ *
+ * UNDER THE MSCA DESIGN the owner's ETH moves into an EntryPoint deposit and
+ * the operation spends it from there; the owner also pays for the depositTo.
+ * Send ETH to an MSCA directly and it sits there paying for nothing.
+ *
+ * UNDER 7702 (DELEGATE_7702_ENABLED) the owner IS the delegate and pays for an
+ * ordinary transaction. There is no deposit, no EntryPoint and no second
+ * address — so a deposit figure would be a leftover, not a balance.
+ *
+ * Both can be live at once. A grant is immutable, so grants minted before the
+ * switch still redeem through their MSCA while new ones redeem from the EOA,
+ * and an operator needs to see whichever applies rather than one chosen for
+ * them.
  *
  * Running dry is silent in different places: a delegate without ETH stops
  * redeeming, and the Arc EOA without USDC stops minting AFTER the money has
@@ -28,6 +40,7 @@ import { base, arbitrum, optimism } from "viem/chains";
 import { arcChain } from "../chain/contract";
 import { getRelayerAccount } from "../chain/signers";
 import { isMainnet } from "../gateway/chains";
+import { delegate7702Enabled } from "../chain/delegate-7702";
 
 /// balanceOf(address)
 const BALANCE_OF = "0x70a08231";
@@ -50,6 +63,14 @@ export interface TreasuryRow {
   required: boolean;
   /// Set when `required` and the balance is at or near zero.
   warning?: string;
+  /**
+   * For a delegate row: what this ETH pays for.
+   *
+   * "7702"       the owner IS the delegate and sends ordinary transactions.
+   * "entrypoint" the owner funds an EntryPoint deposit the MSCA spends from,
+   *              so the deposit is a second number worth checking.
+   */
+  spends?: "7702" | "entrypoint";
 }
 
 function rpcFor(chainId: number, fallback: string): string {
@@ -113,6 +134,9 @@ export async function readTreasury(): Promise<TreasuryRow[]> {
           balance: owner ? await eth(owner) : "?",
           symbol: "ETH",
           required: true,
+          // Says what this ETH is FOR, which differs by design and decides
+          // whether a deposit elsewhere also needs watching.
+          spends: delegate7702Enabled() ? "7702" : "entrypoint",
         });
       }
     })
