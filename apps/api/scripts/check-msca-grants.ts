@@ -37,31 +37,51 @@ async function main(): Promise<void> {
   for (const [name, addr] of configured) {
     const all = await prisma.renewalDelegation.findMany({
       where: { delegateAddress: { equals: addr!, mode: "insensitive" } },
-      select: { grantId: true, chainId: true, status: true, mandateId: true },
+      select: { grantId: true, chainId: true, status: true, mandateId: true, subscriptionId: true },
     });
     const active = all.filter((g) => g.status === "active");
 
+    /**
+     * Active is not the same as reachable.
+     *
+     * The renewal pass selects on `subscriptionId: { not: null }`, so a grant
+     * with no subscription behind it is never chosen, whatever its status
+     * says. Those are the leftovers of a checkout whose activation never
+     * completed: the grant was signed, the payment failed, no subscription was
+     * ever created.
+     *
+     * Counting them as blocking would keep a variable alive forever on the
+     * strength of rows nothing can use — which is how dead configuration
+     * outlives the thing it configured.
+     */
+    const reachable = active.filter((g) => g.subscriptionId !== null);
+    const orphans = active.length - reachable.length;
+
     console.log(`${name}`);
     console.log(`  ${addr}`);
-    console.log(`  ${all.length} grant(s) name it, ${active.length} still active\n`);
+    console.log(
+      `  ${all.length} grant(s) name it, ${active.length} active, ` +
+        `${reachable.length} redeemable${orphans ? ` (${orphans} orphaned — no subscription)` : ""}\n`
+    );
 
-    for (const g of active) {
-      console.log(`    ACTIVE  chain ${String(g.chainId).padEnd(6)} ${g.grantId ?? g.mandateId}`);
+    for (const g of reachable) {
+      console.log(`    REDEEMABLE  chain ${String(g.chainId).padEnd(6)} ${g.grantId ?? g.mandateId}`);
       blocking++;
     }
-    if (active.length > 0) console.log();
+    if (reachable.length > 0) console.log();
   }
 
   if (blocking === 0) {
     console.log(
-      "Safe to remove. No active grant names a delegate MSCA, so nothing needs that\n" +
-        "address to be redeemed. Remove the variables from both live services."
+      "Safe to remove. No grant that the renewal pass can select names a delegate\n" +
+        "MSCA, so nothing needs that address to be redeemed. Remove the variables\n" +
+        "from both live services."
     );
     return;
   }
 
   console.log(
-    `NOT safe to remove. ${blocking} active grant(s) can only be redeemed through an MSCA.\n` +
+    `NOT safe to remove. ${blocking} redeemable grant(s) can only be collected through an MSCA.\n` +
       `Revoke or let them lapse first — or leave the variables set, which costs nothing\n` +
       `and lets both designs coexist until the last one is gone.`
   );
