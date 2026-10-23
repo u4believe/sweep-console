@@ -18,7 +18,7 @@
 //   • there is no escrow, so there is no refund path — the contract calls the
 //     settlement window "the ONLY refund path", and this path no longer has one.
 
-import { type Address, type Hex } from "viem";
+import { createPublicClient, http, type Address, type Hex } from "viem";
 import { prisma, withRetry } from "../prisma";
 import { completeCheckoutSession } from "./complete";
 import { findWalletConflict } from "./wallet-guard";
@@ -35,10 +35,10 @@ import {
   getPublicClient,
   getUsdcAddress,
 } from "../chain/contract";
-import { redeemPeriodicTransfer, relayerBridgeToArc } from "../chain/delegation";
+import { redeemPeriodicTransfer, relayerBridgeToArc, rpcUrlForChain } from "../chain/delegation";
 import { settlementTargetFor } from "../chain/settlement-target";
 import { settleViaUserOp } from "../chain/settlement-userop";
-import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../gateway/cctp";
+import { assertCctpContract, fetchAttestation, getTokenMessenger, receiveOnArc } from "../gateway/cctp";
 import { getSettlementAddress } from "../chain/signers";
 import { payFeeToTreasury, treasuryAddress } from "../chain/fee-payout";
 import { ARC_DOMAIN, chainKeyForId, getSourceChain } from "../gateway/chains";
@@ -269,6 +269,31 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
     // sent the pull to the EOA and then tried to burn from the MSCA, which
     // holds nothing — a subscriber's money moved and the settle reverted.
     const viaUserOp = !!treasury && settlementTarget.viaMsca;
+
+    /**
+     * Before the money moves, prove the burner exists.
+     *
+     * A call to an address with no code succeeds, so a testnet TokenMessenger
+     * on a mainnet deployment burns nothing while reporting success — which is
+     * exactly what happened to swp_a4436e70d1bbcc7f285a: the pull completed,
+     * the UserOperation said success, no CCTP message was emitted, and the
+     * payment then waited out its attestation timeout with the USDC sitting on
+     * the source chain.
+     *
+     * Checked here rather than inside the burn because by then the subscriber's
+     * USDC has already been pulled into settlement, and the honest place to
+     * refuse is before that.
+     */
+    await assertCctpContract(
+      createPublicClient({
+        chain: source.chain,
+        transport: http(rpcUrlForChain(source.chain.id)),
+      }),
+      getTokenMessenger(chosenKey),
+      "CCTP TokenMessenger",
+      `CCTP_TOKEN_MESSENGER_${chosenKey.toUpperCase()}`
+    );
+
     let burnTxHash: Hex;
     let maxFee: bigint;
     if (viaUserOp) {

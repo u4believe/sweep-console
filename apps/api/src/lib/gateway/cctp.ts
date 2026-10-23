@@ -170,21 +170,51 @@ const LOG_WINDOW = BigInt(process.env.CCTP_LOG_WINDOW_BLOCKS ?? "9000");
 const LOG_WINDOWS_BACK = Number(process.env.CCTP_LOG_WINDOWS_BACK ?? "6");
 
 // CCTP V2 deploys its contracts at the SAME address on every supported EVM
-// testnet. These are the published V2 testnet addresses — override per chain via
-// env if Circle's deployment differs (CONFIRM Arc + the source chains at
-// developers.circle.com/cctp before a real run).
+// chain within a network — one set for testnet, a different set for mainnet.
 const CCTP_V2_TESTNET_TOKEN_MESSENGER = "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA" as Address;
 const CCTP_V2_TESTNET_MESSAGE_TRANSMITTER = "0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275" as Address;
 
-/// CCTP TokenMessengerV2 on a source chain (override: CCTP_TOKEN_MESSENGER_<KEY>).
+/**
+ * CCTP V2 on mainnet. Verified on Base: 2,175 bytes at this address.
+ *
+ * This constant exists because its absence cost a real payment. The testnet
+ * address was the unconditional fallback, so a mainnet deployment that had not
+ * set CCTP_TOKEN_MESSENGER_BASE burned nothing at all — and did it quietly.
+ */
+const CCTP_V2_MAINNET_TOKEN_MESSENGER = "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d" as Address;
+/// Verified on Arc AND Base mainnet: 2,175 bytes at this address on both.
+const CCTP_V2_MAINNET_MESSAGE_TRANSMITTER = "0x81D40F21F12A8F0E3252Bccb954D722d4c464B64" as Address;
+
+/**
+ * CCTP TokenMessengerV2 on a source chain (override: CCTP_TOKEN_MESSENGER_<KEY>).
+ *
+ * THE DEFAULT FOLLOWS THE NETWORK. It used to be the testnet address on both,
+ * which on mainnet is an address with NO CODE — and a call to an address with
+ * no code succeeds and does nothing. So depositForBurn "worked": the
+ * UserOperation reported success, the settlement log said "burned", no CCTP
+ * message was ever emitted, and the attestation that was then waited for could
+ * never arrive. The money stayed on the source chain while the subscriber's
+ * payment timed out.
+ *
+ * A wrong address that reverts is a bug you find in a minute. A wrong address
+ * that silently succeeds is the one that reaches production, so the default is
+ * now network-aware rather than a single value that happens to be right on one
+ * side.
+ */
 export function getTokenMessenger(chainKey: string): Address {
-  return (process.env[`CCTP_TOKEN_MESSENGER_${chainKey.toUpperCase()}`] ??
-    CCTP_V2_TESTNET_TOKEN_MESSENGER) as Address;
+  const override = process.env[`CCTP_TOKEN_MESSENGER_${chainKey.toUpperCase()}`];
+  if (override) return override as Address;
+  return isMainnet() ? CCTP_V2_MAINNET_TOKEN_MESSENGER : CCTP_V2_TESTNET_TOKEN_MESSENGER;
 }
 
 /// CCTP MessageTransmitterV2 on Arc (override: CCTP_MESSAGE_TRANSMITTER_ARC).
 function getArcMessageTransmitter(): Address {
-  return (process.env.CCTP_MESSAGE_TRANSMITTER_ARC ?? CCTP_V2_TESTNET_MESSAGE_TRANSMITTER) as Address;
+  const override = process.env.CCTP_MESSAGE_TRANSMITTER_ARC;
+  if (override) return override as Address;
+  // Network-aware for the same reason as getTokenMessenger: the testnet
+  // address has no code on Arc mainnet, and receiveMessage against it would
+  // succeed while minting nothing.
+  return isMainnet() ? CCTP_V2_MAINNET_MESSAGE_TRANSMITTER : CCTP_V2_TESTNET_MESSAGE_TRANSMITTER;
 }
 
 // Circle's attestation + fee service. The default follows the network: pointing
@@ -370,4 +400,72 @@ export async function receiveOnArc(att: CctpAttestation): Promise<Hex | null> {
     throw new Error(`receiveMessage reverted on Arc: ${txHash}`);
   }
   return txHash;
+}
+
+/**
+ * Refuse to call a CCTP contract that is not there.
+ *
+ * The EVM returns success for a call to an address with no code. That is why
+ * a mainnet deployment pointed at the testnet TokenMessenger did not fail: it
+ * "burned" 0.98 USDC, emitted no message, reported success, and left the
+ * payment waiting for an attestation that could never exist.
+ *
+ * One eth_getCode before the first burn on a chain turns that into an error
+ * naming the address and the variable that sets it. It is cached because the
+ * answer cannot change for a deployed contract, so this costs one call per
+ * chain per process, not one per payment.
+ */
+const codeChecked = new Map<string, boolean>();
+
+export async function assertCctpContract(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  publicClient: any,
+  address: Address,
+  what: string,
+  envVar: string
+): Promise<void> {
+  const chainId = publicClient?.chain?.id ?? "?";
+  const key = `${chainId}:${address.toLowerCase()}`;
+  if (codeChecked.get(key)) return;
+
+  /**
+   * A FAILED READ IS NOT AN EMPTY ONE.
+   *
+   * The first version of this collapsed both into `catch(() => undefined)`,
+   * and a rate-limited RPC immediately made it refuse the CORRECT mainnet
+   * TokenMessenger — telling the operator to change a variable that was right.
+   * A guard that cries wolf on a blip is worse than no guard, because the
+   * first thing it teaches is to ignore it.
+   *
+   * So the read is retried, and the two outcomes carry different messages: one
+   * says the contract is absent, the other says the check could not be made.
+   */
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const code = await publicClient.getCode({ address });
+      if (code && code !== "0x") {
+        codeChecked.set(key, true);
+        return;
+      }
+      // A successful read of an empty address. This is the real failure.
+      throw new Error(
+        `${what} at ${address} has no code on chain ${chainId}. A call to it would ` +
+          `succeed and do nothing, so the burn would emit no CCTP message and the ` +
+          `attestation would never arrive. This is almost always a testnet address on ` +
+          `a mainnet deployment — set ${envVar}, or check ARC_NETWORK.`
+      );
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("has no code")) throw e;
+      lastErr = e;
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    }
+  }
+
+  throw new Error(
+    `Could not verify ${what} at ${address} on chain ${chainId} — the node did not ` +
+      `answer eth_getCode after 3 attempts (${lastErr instanceof Error ? lastErr.message.split("\n")[0] : String(lastErr)}). ` +
+      `This says nothing about ${envVar}; it is an RPC problem. Refusing rather than ` +
+      `burning into an address that has not been checked.`
+  );
 }
