@@ -21,16 +21,16 @@
 // here, a crash between the two would leave a minted bridge with nothing to show
 // for it.
 
-import type { Address, Hex } from "viem";
+import { createPublicClient, http, type Address, type Hex } from "viem";
 import type { BridgeTransfer } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { chainKeyForId, getSourceChain, ARC_DOMAIN } from "../lib/gateway/chains";
-import { relayerBridgeToArc } from "../lib/chain/delegation";
+import { relayerBridgeToArc, rpcUrlForChain } from "../lib/chain/delegation";
 import { settlementTargetFor } from "../lib/chain/settlement-target";
 import { settleViaUserOp } from "../lib/chain/settlement-userop";
 import { payFeeToTreasury, treasuryAddress } from "../lib/chain/fee-payout";
 import { getSettlementAddress } from "../lib/chain/signers";
-import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../lib/gateway/cctp";
+import { assertCctpContract, fetchAttestation, getTokenMessenger, receiveOnArc } from "../lib/gateway/cctp";
 
 /// Called once the mint lands on Arc. Must record whatever the caller considers
 /// settlement AND mark the bridge row minted, atomically.
@@ -122,6 +122,22 @@ export async function advanceBridge(bridge: BridgeTransfer, settle: SettleBridge
           `settling the direct way, which is where its funds are`
       );
     }
+
+    /**
+     * Same check the checkout path makes, for the same reason.
+     *
+     * A TokenMessenger with no code accepts a burn and emits nothing, so the
+     * renewal would mark itself "burned", wait out the attestation and strand
+     * the money on the source chain. The default is network-aware now, but an
+     * override env var can still name a wrong address, and a renewal runs
+     * unattended where a checkout at least has someone watching it fail.
+     */
+    await assertCctpContract(
+      createPublicClient({ chain: source.chain, transport: http(rpcUrlForChain(b.chainId)) }),
+      getTokenMessenger(chainKey),
+      "CCTP TokenMessenger",
+      `CCTP_TOKEN_MESSENGER_${chainKey.toUpperCase()}`
+    );
 
     if (treasury && target?.viaMsca) {
       const settled = await settleViaUserOp({
