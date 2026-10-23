@@ -105,6 +105,64 @@ const CHAINS = [
   { key: "optimism", chain: optimism, rpc: "https://mainnet.optimism.io" },
 ];
 
+/**
+ * Does the CCTP contract this deployment would burn into actually exist?
+ *
+ * This is the check that was missing when a mainnet payment burned nothing.
+ * getTokenMessenger defaulted to the TESTNET address on every network, the
+ * live services never set CCTP_TOKEN_MESSENGER_BASE, and the burn called an
+ * address with no code — which the EVM reports as success. The UserOperation
+ * said success, the log said "burned", no message was emitted, and the payment
+ * died 180 seconds later waiting for an attestation of nothing.
+ *
+ * The default follows the network now, so this cannot happen by omission. It
+ * can still happen by OVERRIDE: CCTP_TOKEN_MESSENGER_<CHAIN> set to a testnet
+ * address, or left over from a testnet deployment, beats the default silently.
+ * An operator cannot tell by reading the variable — only the chain knows
+ * whether something is there.
+ *
+ * Every mainnet source chain, because the fault was in one function shared by
+ * all of them and Base was merely the first one routed through.
+ */
+async function checkCctpContracts(note: (bad: boolean, line: string) => void): Promise<void> {
+  const { getTokenMessenger } = await import("../src/lib/gateway/cctp");
+  const { getSourceChain } = await import("../src/lib/gateway/chains");
+  const { rpcUrlForChain } = await import("../src/lib/chain/delegation");
+  const { createPublicClient, http } = await import("viem");
+
+  console.log("CCTP contracts");
+  for (const key of ["base", "arbitrum", "optimism"]) {
+    const addr = getTokenMessenger(key);
+    const overridden = !!process.env[`CCTP_TOKEN_MESSENGER_${key.toUpperCase()}`];
+    let bytes = -1;
+    try {
+      const source = getSourceChain(key);
+      // The configured RPC when there is one, else the chain's own public
+      // endpoint. This is a read-only check and must work from a laptop that
+      // has no DELEGATION_RPC_* set — a preflight you cannot run locally is
+      // one that only ever runs after the thing it was meant to prevent.
+      let rpc: string;
+      try {
+        rpc = rpcUrlForChain(source.chain.id);
+      } catch {
+        rpc = source.chain.rpcUrls.default.http[0]!;
+      }
+      const client = createPublicClient({ chain: source.chain, transport: http(rpc) });
+      const code = await client.getCode({ address: addr });
+      bytes = code && code !== "0x" ? (code.length - 2) / 2 : 0;
+    } catch (e) {
+      note(true, `${key.padEnd(9)} ${addr} — could not read: ${e instanceof Error ? e.message.split("\n")[0] : e}`);
+      continue;
+    }
+    note(
+      bytes <= 0,
+      `${key.padEnd(9)} ${addr}  ${bytes > 0 ? `${bytes} bytes` : "NO CODE — a burn here emits nothing"}` +
+        `${overridden ? "  [CCTP_TOKEN_MESSENGER_" + key.toUpperCase() + " override]" : ""}`
+    );
+  }
+  console.log();
+}
+
 async function main(): Promise<void> {
   if (!isMainnet()) {
     console.log("ARC_NETWORK is not 'mainnet'. Re-run as:\n");
@@ -226,6 +284,8 @@ async function main(): Promise<void> {
   console.log("settlement account");
   await checkMscaMatchesOwner();
   console.log();
+
+  await checkCctpContracts(note);
 
   console.log("keys");
   const ROLES: Array<[string, string]> = [
