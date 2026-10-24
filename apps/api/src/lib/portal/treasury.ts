@@ -38,7 +38,7 @@
 import { createPublicClient, formatEther, formatUnits, getAddress, http, type Address } from "viem";
 import { base, arbitrum, optimism } from "viem/chains";
 import { arcChain } from "../chain/contract";
-import { getRelayerAccount } from "../chain/signers";
+import { getRelayerAccount, type RelayerMode } from "../chain/signers";
 import { isMainnet } from "../gateway/chains";
 import { delegate7702Enabled } from "../chain/delegate-7702";
 
@@ -87,9 +87,24 @@ function rpcFor(chainId: number, fallback: string): string {
 export async function readTreasury(): Promise<TreasuryRow[]> {
   const rows: TreasuryRow[] = [];
   const settlement = process.env.SETTLEMENT_MSCA_ADDRESS;
-  const delegates: Array<[string, string | undefined]> = [
-    ["renewal", process.env.RENEWAL_DELEGATE_MSCA_ADDRESS],
-    ["external", process.env.EXTERNAL_RELAYER_MSCA_ADDRESS],
+  /**
+   * Keyed on the ROLE, not on an MSCA address.
+   *
+   * These rows used to be gated on RENEWAL_DELEGATE_MSCA_ADDRESS and
+   * EXTERNAL_RELAYER_MSCA_ADDRESS being set — while displaying the OWNER's
+   * balance, which has nothing to do with those variables. Removing them
+   * (correct once no grant names an MSCA, and correct under 7702 where there
+   * is no MSCA at all) made both delegates vanish from the screen while their
+   * owners still paid for every redeem.
+   *
+   * An operator screen whose rows disappear when configuration is tidied is
+   * worse than one that is wrong: an empty section reads as "nothing to see"
+   * rather than "this is no longer being watched". The accounts exist as long
+   * as the KEYS exist, so the keys decide what is listed.
+   */
+  const delegates: Array<[string, RelayerMode]> = [
+    ["renewal", "hosted"],
+    ["external", "external"],
   ];
 
   await Promise.all(
@@ -116,20 +131,20 @@ export async function readTreasury(): Promise<TreasuryRow[]> {
         });
       }
 
-      for (const [role, addr] of delegates) {
-        if (!addr) continue;
+      for (const [role, mode] of delegates) {
         // The OWNER is what runs dry, not the MSCA. Reporting the MSCA's
         // balance would send an operator to top up an address that pays for
         // nothing, while the account that actually funds gas sits empty.
         let owner: string | null = null;
         try {
-          owner = getRelayerAccount(role === "external" ? "external" : "hosted").address;
+          owner = getRelayerAccount(mode).address;
         } catch {
-          /* key not configured — show the MSCA row without an owner */
+          // No key for this role at all. Still listed, with the balance
+          // unknown, so the gap is visible rather than silent.
         }
         rows.push({
           role,
-          address: owner ?? addr,
+          address: owner ?? "(no key configured)",
           chain: key,
           balance: owner ? await eth(owner) : "?",
           symbol: "ETH",

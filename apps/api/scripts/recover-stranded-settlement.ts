@@ -42,7 +42,7 @@ import { settlementMscaAddress } from "../src/lib/chain/settlement-target";
 import { settleViaUserOp } from "../src/lib/chain/settlement-userop";
 import { treasuryAddress } from "../src/lib/chain/fee-payout";
 import { settlementGasFloor } from "../src/lib/chain/settlement-target";
-import { getTokenMessenger, assertCctpContract } from "../src/lib/gateway/cctp";
+import { getTokenMessenger, assertCctpContract, fetchAttestation, receiveOnArc } from "../src/lib/gateway/cctp";
 import { ARC_DOMAIN } from "../src/lib/gateway/chains";
 import { walletFor } from "../src/lib/merchant-wallet";
 import { rpcUrlForChain } from "../src/lib/chain/delegation";
@@ -260,8 +260,32 @@ async function main(): Promise<void> {
 
   console.log(`  burn ${settled.burnTxHash}`);
   console.log(`  maxFee ${formatUnits(settled.maxFee, 6)}  gasPaid ${formatUnits(settled.gasPaid, 6)}`);
+
+  /**
+   * THE BURN IS NOT THE PAYMENT. The mint is.
+   *
+   * The first version of this stopped here and printed "the mint follows the
+   * attestation", which is true of the live path — cctp-activate.ts calls
+   * receiveOnArc itself — and false of a recovery. The hosted path writes no
+   * BridgeTransfer row, so no worker would ever have collected it, and the
+   * money would have sat burned on Base with an attestation nobody redeemed.
+   * Strictly worse than where it started: at least settlement was an address
+   * someone could still spend from.
+   *
+   * So this waits and mints. Twenty minutes rather than the live path's three,
+   * because a recovery is not holding a checkout open and a fast transfer that
+   * falls back to standard finality still takes about fifteen on Base.
+   */
+  console.log(`\n  waiting for Circle's attestation (up to 20 minutes)…`);
+  const att = await fetchAttestation(getSourceChain(key).domain, settled.burnTxHash, {
+    timeoutMs: 20 * 60_000,
+    pollMs: 10_000,
+  });
+  const mintTx = await receiveOnArc(att);
+  console.log(`  mint ${mintTx ?? "(already delivered by someone else)"}`);
+
   console.log(
-    `\nBurned. The mint follows the attestation — watch for it arriving at ${payout} on Arc.\n` +
+    `\nDone. ${formatUnits(toMerchant, 6)} USDC should now be at ${payout} on Arc.\n` +
       `This script does NOT mark the sweep settled: the subscriber still has no\n` +
       `subscription, and that is a separate decision.`
   );
