@@ -5,6 +5,7 @@ import { addMinutes } from "date-fns";
 import { verifyMessage } from "viem";
 import type { Prisma } from "@prisma/client";
 import { WALLET_SELECT, walletFor, walletWrite } from "../lib/merchant-wallet";
+import { circleBlockchain, usdcOnSettlementChain } from "../lib/circle";
 import { portalScope } from "../middleware/portalAuth";
 import { prisma, withRetry } from "../lib/prisma";
 import { ids } from "../lib/ids";
@@ -2415,8 +2416,35 @@ portalRouter.post(
         console.warn(`[portal/withdraw] ${dbId} Circle read failed: ${read.reason}`);
         return err(res, "We couldn't check your balance just now. Try again shortly.", 503, "balance_unavailable");
       }
-      const usdc = read.balances.find((b) => b.token.symbol === "USDC");
-      if (!usdc) return err(res, "No USDC balance found in your wallet", 404);
+      /**
+       * USDC on the chain this deployment settles to, not merely "a USDC".
+       *
+       * Picking by symbol sends a withdrawal out on whatever chain Circle
+       * happens to list first, and reports "no balance" when the wallet was
+       * registered on the other network — over money that is on-chain and
+       * visible in a block explorer. The two are told apart below because an
+       * operator can act on one and not the other.
+       */
+      const pick = usdcOnSettlementChain(read.balances);
+      if (!pick.found) {
+        if (pick.elsewhere.length > 0) {
+          const where = pick.elsewhere.map((b) => `${b.amount} on ${b.token.blockchain}`).join(", ");
+          console.warn(
+            `[portal/withdraw] ${dbId} wallet ${w.circleWalletId} holds USDC on the wrong chain ` +
+              `(${where}); this deployment settles to ${circleBlockchain()} — check CIRCLE_BLOCKCHAIN`
+          );
+          return err(
+            res,
+            `Your wallet's USDC is registered on ${pick.elsewhere[0]!.token.blockchain}, but this ` +
+              `account settles on ${circleBlockchain()}. Contact support — this is a configuration ` +
+              `problem on our side, not a missing balance.`,
+            409,
+            "wallet_wrong_chain"
+          );
+        }
+        return err(res, "No USDC balance found in your wallet", 404);
+      }
+      const usdc = pick.found;
       if (parseFloat(usdc.amount) < parseFloat(amount)) {
         return err(
           res,

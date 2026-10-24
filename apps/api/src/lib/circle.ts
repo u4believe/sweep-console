@@ -8,9 +8,25 @@ import { isMainnet } from "./gateway/chains";
 
 const BASE = normalizeBaseUrl(process.env.CIRCLE_BASE_URL ?? "https://api.circle.com");
 
-// Per the addendum this should be ARC-TESTNET once Circle user-controlled
-// wallets support Arc; ETH-SEPOLIA is the working sandbox default until then.
-const CIRCLE_BLOCKCHAIN = process.env.CIRCLE_BLOCKCHAIN ?? "ETH-SEPOLIA";
+/**
+ * The chain a creator's Circle wallet is registered on.
+ *
+ * THE DEFAULT FOLLOWS THE NETWORK. It used to be ETH-SEPOLIA unconditionally
+ * — a sandbox placeholder from before Circle supported Arc — which meant a
+ * mainnet deployment that had not set CIRCLE_BLOCKCHAIN registered its
+ * creators' payout wallets on a TESTNET chain.
+ *
+ * That does not fail at creation. A Circle EOA gets one EVM address, so
+ * mainnet USDC still arrives at it and the on-chain balance is real. What
+ * breaks is everything that asks CIRCLE: /balances reports the registered
+ * chain only, so the wallet reads empty, the dashboard shows nothing, and the
+ * withdraw route refuses with "No USDC balance found in your wallet" over
+ * money that is demonstrably there. The same shape as the CCTP TokenMessenger
+ * default: wrong in a way that succeeds.
+ *
+ * Arc is the settlement chain either way, so the only question is which Arc.
+ */
+const CIRCLE_BLOCKCHAIN = process.env.CIRCLE_BLOCKCHAIN ?? (isMainnet() ? "ARC" : "ARC-TESTNET");
 
 function authHeaders(userToken?: string): Record<string, string> {
   const apiKey = process.env.CIRCLE_API_KEY;
@@ -251,4 +267,33 @@ export async function createCircleTransferChallenge(
     },
     userToken
   );
+}
+
+/** The chain this deployment registers wallets on and expects balances from. */
+export function circleBlockchain(): string {
+  return CIRCLE_BLOCKCHAIN;
+}
+
+/**
+ * The USDC balance on the chain this deployment settles to.
+ *
+ * Matching on symbol alone is wrong in both directions. A wallet registered
+ * on the other network reports USDC that cannot be spent here, and selecting
+ * it sends a withdrawal out on the wrong chain. A wallet registered correctly
+ * but holding nothing reports no entry at all, which reads the same as "we
+ * looked on the wrong chain" unless the two are told apart.
+ *
+ * So this returns which of those happened, and the caller can say something
+ * true. `elsewhere` is the diagnostic that matters: it means the money is
+ * real and Circle is looking at a different chain, which is a configuration
+ * problem and not an empty wallet.
+ */
+export function usdcOnSettlementChain(balances: TokenBalance[]):
+  | { found: TokenBalance }
+  | { found: null; elsewhere: TokenBalance[] } {
+  const want = CIRCLE_BLOCKCHAIN.toUpperCase();
+  const usdc = balances.filter((b) => b.token.symbol === "USDC");
+  const here = usdc.find((b) => (b.token.blockchain ?? "").toUpperCase() === want);
+  if (here) return { found: here };
+  return { found: null, elsewhere: usdc };
 }
