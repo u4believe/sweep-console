@@ -102,6 +102,23 @@ export function RailPage() {
   const [requesting, setRequesting] = useState(false);
   const [requestError, setRequestError] = useState("");
 
+  /**
+   * Send a rail-enabled account from /rail to /rail/charges.
+   *
+   * /rail is the REQUEST screen, and it stays that for an account without
+   * access. For one that has it, the bare path renders the charges table with
+   * no nav item lit, because neither /rail/charges nor /rail/mandates matches
+   * it — a tab bar showing nowhere, which is the thing the layout's
+   * active-state comment warns about. Old bookmarks and old emails land here.
+   *
+   * replace, so the back button does not bounce between the two.
+   */
+  useEffect(() => {
+    if (data?.enabled && pathname === "/rail") {
+      navigate("/rail/charges", { replace: true });
+    }
+  }, [data?.enabled, pathname, navigate]);
+
   const requestAccess = async () => {
     setRequesting(true);
     setRequestError("");
