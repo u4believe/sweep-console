@@ -144,6 +144,10 @@ function Header() {
         <a href="#features" style={{ color: "var(--color-text)" }}>Features</a>
         <a href="#how" style={{ color: "var(--color-text)" }}>How it works</a>
         <a href="#pricing" style={{ color: "var(--color-text)" }}>Pricing</a>
+        {/* Before Documentation on purpose: the hosted-or-rail choice comes
+            first, and someone who reads the docs without having made it is
+            reading the wrong half. */}
+        <Link to="/integration" style={{ color: "var(--color-text)" }}>Integration</Link>
         <a href={DOCS_URL} style={{ color: "var(--color-text)" }}>Documentation</a>
       </nav>
 

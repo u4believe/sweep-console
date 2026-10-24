@@ -26,6 +26,7 @@ import { PaymentLinkPage } from "@/pages/PaymentLinkPage";
 import { DevGrantTestPage } from "@/pages/DevGrantTestPage";
 import { LandingPage } from "@/pages/LandingPage";
 import { DocsRedirect } from "@/pages/DocsRedirect";
+import { IntegrationPathsPage } from "@/pages/IntegrationPathsPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import { ManageSubscriptionsPage } from "@/pages/ManageSubscriptionsPage";
@@ -37,6 +38,12 @@ export default function App() {
       {/* Public marketing landing page + documentation */}
       <Route path="/" element={<LandingPage />} />
       <Route path="/docs" element={<DocsRedirect />} />
+      {/*
+        Public, and deliberately outside the portal shell: the choice between
+        hosted and rail is made BEFORE signing up, and a page explaining it
+        behind a login is a page nobody who needs it can read.
+      */}
+      <Route path="/integration" element={<IntegrationPathsPage />} />
       <Route path="/analytics" element={<AnalyticsPage />} />
 
       {/* Auth pages — redirect to dashboard if already logged in */}

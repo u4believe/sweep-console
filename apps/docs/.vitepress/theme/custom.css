@@ -1,10 +1,14 @@
 /**
  * Sweep Console docs theme.
  *
- * VitePress's own palette with Arc Blue as the brand — #2f6fc9 in light,
- * #8ab8ee in dark. Those are --color-accent and --color-accent-400 from the
- * app's arc-blue.css, so the docs and the dashboard are the same blue rather
- * than two blues that nearly match.
+ * VitePress's own palette with the v2 indigo as the brand — #4447D6 in light,
+ * #C9CAF6 in dark. Those are --color-accent and --color-accent-400 from the
+ * app's sweep-v2.css, so the docs and the dashboard are the same colour
+ * rather than two that nearly match.
+ *
+ * Kept in step by hand: VitePress has its own variable namespace and cannot
+ * read the app's tokens. They had already drifted — these were still the
+ * #2f6fc9 of the previous design while the app had moved on.
  *
  * Dark is the default (see appearance in config.ts) and is the palette these
  * values were chosen against; light is the same design with the ramp inverted,
@@ -15,11 +19,11 @@
   --vp-font-family-base: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --vp-font-family-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* ── brand: Arc Blue ─────────────────────────────────────────────────── */
-  --vp-c-brand-1: #2f6fc9;
-  --vp-c-brand-2: #2359a6;
-  --vp-c-brand-3: #2f6fc9;
-  --vp-c-brand-soft: rgba(47, 111, 201, 0.12);
+  /* ── brand: indigo ─────────────────────────────────────────────────── */
+  --vp-c-brand-1: #4447D6;
+  --vp-c-brand-2: #3639C4;
+  --vp-c-brand-3: #4447D6;
+  --vp-c-brand-soft: rgba(68, 71, 214, 0.12);
 
   /* surfaces */
   --vp-c-bg: #ffffff;
@@ -41,14 +45,14 @@
 
   /* The home hero, when there is one. */
   --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: linear-gradient(120deg, #2f6fc9, #4d8ee9);
+  --vp-home-hero-name-background: linear-gradient(120deg, #4447D6, #8A8CE8);
 }
 
 .dark {
-  --vp-c-brand-1: #8ab8ee;
-  --vp-c-brand-2: #4d8ee9;
-  --vp-c-brand-3: #8ab8ee;
-  --vp-c-brand-soft: rgba(138, 184, 238, 0.16);
+  --vp-c-brand-1: #C9CAF6;
+  --vp-c-brand-2: #8A8CE8;
+  --vp-c-brand-3: #C9CAF6;
+  --vp-c-brand-soft: rgba(201, 202, 246, 0.16);
 
   --vp-c-bg: #1b1b1f;
   --vp-c-bg-alt: #161618;
@@ -62,7 +66,7 @@
   --vp-code-block-bg: #161618;
   --vp-c-text-code: #e1e4e8;
 
-  --vp-home-hero-name-background: linear-gradient(120deg, #8ab8ee, #4d8ee9);
+  --vp-home-hero-name-background: linear-gradient(120deg, #C9CAF6, #8A8CE8);
 }
 
 /* ── Type ───────────────────────────────────────────────────────────────── */
