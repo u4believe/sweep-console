@@ -342,11 +342,25 @@ async function main(): Promise<void> {
        * else when it is missing, and platformKey() does throw.
        */
       const fallsBackSilently = envVar !== "PLATFORM_PRIVATE_KEY";
+      /**
+       * Name the key it would ACTUALLY fall back to.
+       *
+       * getRelayerAccount tries EXTERNAL, then RENEWAL, then PLATFORM — so an
+       * unset external key lands on the RENEWAL key whenever that is set, not
+       * on the platform key. Saying "PLATFORM" there sends someone to check a
+       * variable that is not involved, at the one moment it matters: rotating
+       * the delegate keys, where the whole risk is the two roles silently
+       * collapsing onto one address.
+       */
+      const landsOn =
+        envVar === "EXTERNAL_RELAYER_PRIVATE_KEY" && process.env.RENEWAL_DELEGATE_PRIVATE_KEY
+          ? "RENEWAL_DELEGATE_PRIVATE_KEY — both delegates would be the SAME address"
+          : "PLATFORM_PRIVATE_KEY";
       note(
         fallsBackSilently,
         `${envVar} is unset` +
           (fallsBackSilently
-            ? ` — would SILENTLY use PLATFORM_PRIVATE_KEY (signers.ts:${
+            ? ` — would SILENTLY use ${landsOn} (signers.ts:${
                 envVar === "SETTLEMENT_PRIVATE_KEY" ? "121" : "92"
               })`
             : " — platformKey() throws where it is used")
