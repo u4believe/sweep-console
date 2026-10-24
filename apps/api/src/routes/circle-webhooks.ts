@@ -3,7 +3,7 @@ import express from "express";
 import { createPublicKey, verify as cryptoVerify } from "crypto";
 import { prisma, withRetry } from "../lib/prisma";
 import { IS_PRODUCTION } from "../lib/env";
-import { getWebhookPublicKey, getCircleWalletBalances } from "../lib/circle";
+import { getWebhookPublicKey, getCircleWalletBalances, circleBlockchain, usdcOnSettlementChain } from "../lib/circle";
 import { walletWrite } from "../lib/merchant-wallet";
 
 export const circleWebhooksRouter = Router();
@@ -140,8 +140,26 @@ async function handleInboundDeposit(n: InboundNotification): Promise<void> {
       return;
     }
 
-    const usdc        = read.balances.find((b) => b.token.symbol === "USDC");
-    const newBalance  = usdc?.amount ?? "0";
+    /**
+     * Same selection the portal makes, for the same reason — and here it
+     * matters more, because this runs unattended.
+     *
+     * A wallet registered on the wrong chain reports no USDC on ours, and
+     * writing the "0" that follows would cache a false zero over real money
+     * with nobody watching. The warning above about not writing zeros Circle
+     * never reported applies just as much to zeros Circle reported for the
+     * wrong chain.
+     */
+    const pick        = usdcOnSettlementChain(read.balances);
+    if (!pick.found && pick.elsewhere.length > 0) {
+      const where = pick.elsewhere.map((b) => `${b.amount} on ${b.token.blockchain}`).join(", ");
+      console.warn(
+        `[circle-webhook] ${walletId} holds USDC on the wrong chain (${where}); this deployment ` +
+          `settles to ${circleBlockchain()} — not writing a balance. Check CIRCLE_BLOCKCHAIN.`
+      );
+      return;
+    }
+    const newBalance  = pick.found?.amount ?? "0";
 
     await withRetry(() =>
       prisma.merchant.update({

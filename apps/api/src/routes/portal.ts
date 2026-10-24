@@ -1753,9 +1753,22 @@ portalRouter.post(
     const dbId = (req as PortalRequest).merchantDbId;
     const merchant = await prisma.merchant.findUnique({
       where: { id: dbId },
-      select: { walletAddress: true },
+      select: WALLET_SELECT,
     });
-    if (!merchant?.walletAddress) return next();
+    /**
+     * Step up when there is a wallet IN THIS MODE to replace.
+     *
+     * First-time setup is exempt — there is no payout destination to protect
+     * yet. Replacing one is not, because the new address receives the money.
+     *
+     * Read unscoped, as `walletAddress`, that exemption leaked across modes: a
+     * merchant with a live payout wallet and no test one has a null in the
+     * test column, so a LIVE wallet change skipped step-up entirely. Whoever
+     * held the session could redirect live payouts without re-authenticating,
+     * which is the one thing this gate exists to prevent.
+     */
+    const existing = walletFor(merchant ?? ({} as never), portalScope(req).isTestMode);
+    if (!existing.address) return next();
     return stepUpForWalletChange(req, res, next);
   },
   async (req, res) => {
@@ -2303,8 +2316,40 @@ portalRouter.get("/wallet/circle/balance", async (req, res) => {
       });
     }
 
-    const usdc = read.balances.find((b) => b.token.symbol === "USDC");
-    const liveBalance = usdc?.amount ?? "0";
+    /**
+     * USDC on the chain this deployment settles to.
+     *
+     * Matching on symbol alone writes whatever chain Circle lists first into
+     * Merchant.usdcBalance — so a wallet registered on the wrong network
+     * showed a testnet number as a real balance, or a zero that then CACHED,
+     * which is the exact failure the comment above getCircleWalletBalances
+     * describes.
+     *
+     * Money on another chain is reported rather than written. A stale balance
+     * an operator can see is recoverable; a fresh zero over real money is the
+     * thing that sent someone hunting.
+     */
+    const pick = usdcOnSettlementChain(read.balances);
+    if (!pick.found && pick.elsewhere.length > 0) {
+      const where = pick.elsewhere.map((b) => `${b.amount} on ${b.token.blockchain}`).join(", ");
+      console.warn(
+        `[portal/balance] ${dbId} wallet ${w.circleWalletId} holds USDC on the wrong chain ` +
+          `(${where}); this deployment settles to ${circleBlockchain()} — check CIRCLE_BLOCKCHAIN`
+      );
+      return ok(res, {
+        data: {
+          usdcBalance: w.usdcBalance,
+          updatedAt: w.balanceUpdatedAt?.toISOString() ?? null,
+          fromCache: true,
+          stale: true,
+          error:
+            `Your wallet's USDC is registered on ${pick.elsewhere[0]!.token.blockchain}, but this ` +
+            `account settles on ${circleBlockchain()}. The funds are safe — this is a configuration ` +
+            `problem on our side.`,
+        },
+      });
+    }
+    const liveBalance = pick.found?.amount ?? "0";
 
     await withRetry(() =>
       prisma.merchant.update({
@@ -2319,7 +2364,7 @@ portalRouter.get("/wallet/circle/balance", async (req, res) => {
     return ok(res, {
       data: {
         usdcBalance: liveBalance,
-        tokenId: usdc?.token.id ?? null,
+        tokenId: pick.found?.token.id ?? null,
         walletId: w.circleWalletId,
         updatedAt: new Date().toISOString(),
         fromCache: false,
