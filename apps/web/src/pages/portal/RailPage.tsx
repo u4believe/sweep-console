@@ -1,3 +1,4 @@
+import { useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
 import { PageHeader } from "@/components/portal/PageHeader";
@@ -21,6 +22,9 @@ interface Mandate {
   email: string | null;
   walletAddress: string | null;
   maxAmount: number;
+  /// Drawn against the ceiling in the CURRENT period — the API computes the
+  /// window from each mandate's own authorization date.
+  drawnThisPeriod: number;
   interval: string;
   status: string;
   isTestMode: boolean;
@@ -79,7 +83,22 @@ type Tab = "charges" | "mandates";
 export function RailPage() {
   const [data, setData] = useState<RailData | null>(null);
   const [error, setError] = useState("");
-  const [tab, setTab] = useState<Tab>("charges");
+  /**
+   * The tab is the URL, not state.
+   *
+   * Mandates and Charges are separate nav destinations now, so they need
+   * separate addresses: one a rail merchant can bookmark, link a colleague
+   * to, and reach with the back button after following a mandate into its
+   * detail. Keeping it in useState would give both tabs one URL and make the
+   * nav's active-item highlight a lie.
+   *
+   * Still one component, because the two tables share a single fetch and
+   * splitting them would double it.
+   */
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const tab: Tab = pathname.endsWith("/mandates") ? "mandates" : "charges";
+  const setTab = (next: Tab) => navigate(`/rail/${next}`, { replace: true });
   const [requesting, setRequesting] = useState(false);
   const [requestError, setRequestError] = useState("");
 
@@ -303,6 +322,7 @@ export function RailPage() {
                     <th>Payer</th>
                     <th>Status</th>
                     <th>Ceiling</th>
+                    <th>Drawn this period</th>
                     <th>Charges</th>
                     <th>Wallet</th>
                     <th>Expires</th>
@@ -327,6 +347,28 @@ export function RailPage() {
                       </td>
                       <td style={{ color: "var(--color-neutral-700)" }}>
                         {usdc(m.maxAmount)} USDC / {INTERVAL_NOUN[m.interval] ?? m.interval}
+                      </td>
+                      {/*
+                        The ceiling alone says what a mandate COULD take; this
+                        says what is left of it before the next charge is
+                        refused. The two together are the question a developer
+                        is actually asking when they open this table.
+
+                        Zero is shown as a dash rather than "0.00": a quiet
+                        row reads as untouched, which is what it is, and a
+                        column of zeroes competes with the rows that matter.
+                      */}
+                      <td style={{ color: "var(--color-neutral-700)" }}>
+                        {m.drawnThisPeriod > 0 ? (
+                          <>
+                            {usdc(m.drawnThisPeriod)}
+                            <span style={{ color: "var(--color-neutral-600)" }}>
+                              {" "}of {usdc(m.maxAmount)}
+                            </span>
+                          </>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td style={{ color: "var(--color-neutral-700)" }}>{m.chargeCount}</td>
                       <td style={{ color: "var(--color-neutral-700)" }}>

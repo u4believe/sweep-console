@@ -189,7 +189,7 @@ export function otpEmailHtml(code: string, merchantName: string): string {
     kicker: "Confirm",
     title: "Your confirmation code",
     body:
-      lede(`Enter this code to confirm your email and complete your subscription with <strong style="color:#201e1d;">${esc(merchantName)}</strong>. It works once.`) +
+      lede(`Enter this code to confirm your email and complete your subscription with <strong style="color:#23233B;">${esc(merchantName)}</strong>. It works once.`) +
       codeBlock(code) +
       detailRows([
         { k: "Merchant", v: esc(merchantName) },
@@ -394,7 +394,7 @@ export function receiptEmailHtml(d: ReceiptEmailData): string {
       heroAmount(
         d.amount,
         d.currency,
-        `Charged ${esc(DATE.format(d.chargedAt))} for <strong style="color:#201e1d;">${esc(d.planName)}</strong>` +
+        `Charged ${esc(DATE.format(d.chargedAt))} for <strong style="color:#23233B;">${esc(d.planName)}</strong>` +
           (d.tierName ? ` — ${esc(d.tierName)} tier` : "") +
           `, billed ${esc(d.interval)}.`
       ) +
@@ -423,7 +423,7 @@ export function receiptEmailHtml(d: ReceiptEmailData): string {
                   `enough USDC. Nothing for you to do — we submit it and pay the gas.`
               : `Want to be charged automatically from your wallet on any of the supported ` +
                   `chains holding enough USDC? Head to the ` +
-                  `<strong style="color:#201e1d;">Manage your subscriptions</strong> page by ` +
+                  `<strong style="color:#23233B;">Manage your subscriptions</strong> page by ` +
                   `clicking the button below to grant permission to the remaining supported chains.`
           )
         : "") +
@@ -508,7 +508,7 @@ export function railChargeReceiptEmailHtml(d: RailChargeReceiptData): string {
       heroAmount(
         d.amount,
         d.currency,
-        `Charged ${esc(DATE.format(d.chargedAt))} by <strong style="color:#201e1d;">${esc(d.merchantName)}</strong>` +
+        `Charged ${esc(DATE.format(d.chargedAt))} by <strong style="color:#23233B;">${esc(d.merchantName)}</strong>` +
           (d.description ? ` for ${esc(d.description)}` : "") +
           `, under the permission you authorized from your wallet.`
       ) +
@@ -642,7 +642,7 @@ export function railAccessRequestEmailHtml(d: RailAccessRequestData): string {
     title: "A creator asked for the payment rail",
     body:
       lede(
-        `<strong style="color:#201e1d;">${esc(d.merchantName)}</strong> requested access to the external ` +
+        `<strong style="color:#23233B;">${esc(d.merchantName)}</strong> requested access to the external ` +
         `payment rail. Nothing has been granted — the switch is still ` +
         `<code>scripts/external-rail.ts</code>.`
       ) +
@@ -714,7 +714,7 @@ export function priceChangeEmailHtml(d: PriceChangeEmailData): string {
         d.newAmount,
         d.currency,
         `per ${esc(noun)}, from ${esc(d.oldAmount)} ${esc(d.currency)}. Changed by ` +
-          `<strong style="color:#201e1d;">${esc(d.merchantName)}</strong>` +
+          `<strong style="color:#23233B;">${esc(d.merchantName)}</strong>` +
           (d.effectiveFrom ? `, applying from ${esc(DATE.format(d.effectiveFrom))}.` : ".")
       ) +
       detailRows([

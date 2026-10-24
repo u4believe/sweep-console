@@ -86,7 +86,17 @@ export default function App() {
           <Route path="/plans/:planId" element={<PlanDetailPage />} />
           <Route path="/subscriptions" element={<SubscriptionsPage />} />
           <Route path="/payments" element={<PaymentsPage />} />
+          {/*
+            Three addresses, one page. /rail is what the nav offers while the
+            account cannot use the rail — it is the request screen — and the
+            two below are where a rail merchant actually works. Kept as a
+            route rather than a redirect because the request screen IS /rail,
+            and anything already linking there (an email, a bookmark) must
+            keep landing somewhere real.
+          */}
           <Route path="/rail" element={<RailPage />} />
+          <Route path="/rail/charges" element={<RailPage />} />
+          <Route path="/rail/mandates" element={<RailPage />} />
           <Route path="/admin/rail" element={<AdminRailPage />} />
           <Route path="/admin/treasury" element={<AdminTreasuryPage />} />
           <Route path="/webhooks" element={<WebhooksPage />} />

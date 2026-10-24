@@ -9,12 +9,40 @@ import { StepUpDialog } from "@/components/portal/StepUpDialog";
 const LIVE_SITE_URL = "https://www.sweepconsole.xyz";
 const SANDBOX_SITE_URL = "https://sandbox.sweepconsole.xyz";
 
-const NAV = [
+/**
+ * The hosted side, which every account has.
+ */
+const NAV_HOSTED = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/plans", label: "Plans" },
   { href: "/subscriptions", label: "Subscriptions" },
   { href: "/payments", label: "Payments" },
-  { href: "/rail", label: "Payment rail" },
+];
+
+/**
+ * The rail, once the account has it.
+ *
+ * The design draws these as a SEPARATE console — a rail merchant sees
+ * Dashboard · Mandates · Charges and no Plans at all. That is a demo toggle
+ * in the mockup (`flow === 'rail'`) showing two kinds of customer, and this
+ * product does not work that way: rail access is a grant on top of a hosted
+ * account, and a merchant can run both. So these are added to the hosted
+ * items rather than replacing them.
+ *
+ * They were one "Payment rail" tab holding two tables behind a sub-tab.
+ * Promoting them matches the design's intent — these are destinations a rail
+ * merchant lives in, not a section they visit — without inventing an
+ * either/or the account model does not have.
+ */
+const NAV_RAIL = [
+  { href: "/rail/mandates", label: "Mandates" },
+  { href: "/rail/charges", label: "Charges" },
+];
+
+/// Shown instead, while the account cannot use the rail: the page that asks.
+const NAV_RAIL_LOCKED = [{ href: "/rail", label: "Payment rail" }];
+
+const NAV_TAIL = [
   { href: "/webhooks", label: "Webhooks" },
   { href: "/api-keys", label: "API Keys" },
   { href: "/settings", label: "Settings" },
@@ -41,15 +69,27 @@ const ADMIN_NAV = [
  */
 export function PortalLayout() {
   const [isAdmin, setIsAdmin] = useState(false);
+  /**
+   * Undefined until /portal/me answers.
+   *
+   * Three states, not two: a `false` default would show "Payment rail" to
+   * every account for a moment and then swap it for two different tabs,
+   * moving the nav under a cursor already travelling towards it. Unknown
+   * shows neither.
+   */
+  const [railEnabled, setRailEnabled] = useState<boolean | undefined>(undefined);
 
   const [mode, setMode] = useState<{ testMode: boolean; isLive: boolean } | null>(null);
 
   useEffect(() => {
     fetch(`${API_URL}/portal/me`, { credentials: "include" })
       .then((r) => r.json())
-      .then((json: { data?: { isAdmin?: boolean; testMode?: boolean; isLive?: boolean } }) => {
+      .then((json: { data?: { isAdmin?: boolean; testMode?: boolean; isLive?: boolean; railEnabled?: boolean } }) => {
         setIsAdmin(!!json.data?.isAdmin);
-        if (json.data) setMode({ testMode: json.data.testMode !== false, isLive: !!json.data.isLive });
+        if (json.data) {
+          setMode({ testMode: json.data.testMode !== false, isLive: !!json.data.isLive });
+          setRailEnabled(!!json.data.railEnabled);
+        }
       })
       .catch(() => setIsAdmin(false));
   }, []);
@@ -62,16 +102,31 @@ export function PortalLayout() {
    * that only ever errors is worse than no tab.
    */
   const showAdmin = isAdmin && mode?.testMode === false;
-  const nav = showAdmin ? [...NAV, ...ADMIN_NAV] : NAV;
+  const railNav =
+    railEnabled === undefined ? [] : railEnabled ? NAV_RAIL : NAV_RAIL_LOCKED;
+  const nav = [
+    ...NAV_HOSTED,
+    ...railNav,
+    ...NAV_TAIL,
+    ...(showAdmin ? ADMIN_NAV : []),
+  ];
 
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
   const navigate = useNavigate();
 
-  // Match on the leading segment, not the whole path, so "Plans" stays lit on
-  // /plans/new and /plans/:planId. Laid out horizontally, an unlit tab bar on a
-  // child route reads as "nowhere" far more loudly than it did in the rail.
-  const section = pathname.split("/")[1] ?? "";
+  /**
+   * A tab is lit on its own path and on anything beneath it, so "Plans" stays
+   * lit on /plans/new and /plans/:planId. Laid out horizontally, an unlit tab
+   * bar on a child route reads as "nowhere" far more loudly than it did in
+   * the rail.
+   *
+   * This compares whole paths rather than the leading segment, which it used
+   * to. The segment worked while every tab was one level deep; "Mandates" at
+   * /rail/mandates would have compared "rail" against "rail/mandates" and
+   * never lit at all.
+   */
+  const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
 
   return (
     <div className="flex min-h-screen flex-col" style={{ background: "var(--color-bg)" }}>
@@ -168,7 +223,7 @@ export function PortalLayout() {
           }}
         >
           {nav.map((item) => {
-            const active = section === item.href.slice(1);
+            const active = isActive(item.href);
             return (
               <button
                 key={item.href}

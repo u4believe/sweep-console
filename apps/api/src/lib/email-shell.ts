@@ -16,17 +16,43 @@
 //   NOTICE  — Sweep Console speaking to a subscriber for a merchant. The
 //             merchant's name leads, because that is who they bought from.
 
-const INK = "#201e1d";
-const PAPER = "#f3f2f2";
-const OUTER = "#e8e7e6";
-const RULE = "#d4d2d0";
-const MUTED = "#6a6664";
-const BODY = "#3d3937";
-const ACCENT = "#2f6fc9";
-const ACCENT_DARK = "#1f549e";
-const ACCENT_WASH = "#e9eef8";
+/**
+ * The v2 palette, spelled out rather than read from a token.
+ *
+ * Email clients do not resolve CSS custom properties — Outlook strips them
+ * and Gmail ignores them in a <style> block — so these are literals, and the
+ * price of that is that they have to be kept in step with
+ * apps/web/src/styles/sweep-v2.css by hand. They were not: a receipt arrived
+ * in the old modernist ink-on-warm-grey while the checkout that produced it
+ * had already moved to indigo on white, which reads as a phishing attempt
+ * more than a brand inconsistency.
+ */
+const INK = "#23233B";
+const PAPER = "#F4F4FB";
+const OUTER = "#ECECF3";
+const RULE = "#E2E2EC";
+const MUTED = "#5D5E73";
+const BODY = "#3E3F55";
+const ACCENT = "#4447D6";
+const ACCENT_DARK = "#3639C4";
+const ACCENT_WASH = "#EEEEFC";
+/// For the inverted `alarm` block, where the ground is INK. Measured on it:
+/// 6.21:1 and 13.95:1. The warm greys these replace still passed, which is
+/// why they survived the sweep — they just belonged to the other palette.
+const ON_INK_FAINT = "#A3A4B5";
+const ON_INK_BODY = "#F4F4FB";
 
-const FONT = "Arial,Helvetica,sans-serif";
+/**
+ * Not Plus Jakarta Sans.
+ *
+ * A webfont in an email is a request every client either blocks, strips or
+ * renders after the text has already painted in something else. The app's
+ * stack falls back to system-ui for exactly this reason, and an email is all
+ * fallback — so it asks for the system face directly and gets the same
+ * typeface the recipient's OS uses everywhere, which is the closest an email
+ * gets to looking deliberate.
+ */
+const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,Helvetica,sans-serif";
 
 /// Escapes anything interpolated into an email. Plan names, merchant names and
 /// email addresses are user-supplied, and a stray `<` would otherwise break the
@@ -231,8 +257,8 @@ export function panel(kicker: string, headline: string, body: string): string {
 /// from the system's own contrast rather than a borrowed red.
 export function alarm(kicker: string, body: string): string {
   return `<tr><td class="px" style="padding:24px 40px;background-color:${INK};">
-    <p style="margin:0 0 8px 0;font-family:${FONT};font-size:10px;line-height:14px;mso-line-height-rule:exactly;letter-spacing:1.6px;text-transform:uppercase;color:#b9b6b3;">${esc(kicker)}</p>
-    <p style="margin:0;font-family:${FONT};font-size:14px;line-height:22px;mso-line-height-rule:exactly;color:#f3f2f2;">${body}</p>
+    <p style="margin:0 0 8px 0;font-family:${FONT};font-size:10px;line-height:14px;mso-line-height-rule:exactly;letter-spacing:1.6px;text-transform:uppercase;color:${ON_INK_FAINT};">${esc(kicker)}</p>
+    <p style="margin:0;font-family:${FONT};font-size:14px;line-height:22px;mso-line-height-rule:exactly;color:${ON_INK_BODY};">${body}</p>
   </td></tr>`;
 }
 

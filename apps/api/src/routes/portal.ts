@@ -19,6 +19,7 @@ import { refusePriceChange, applyPriceChange, type PriceScope } from "../lib/pla
 import { sendPriceChangeNotices } from "../lib/email/price-change";
 import { readTreasury } from "../lib/portal/treasury";
 import { isMainnet } from "../lib/gateway/chains";
+import { mandatePeriodStart } from "../lib/rail";
 import { belowChargeFloor, chargeFloorRefusal } from "../lib/charge-floor";
 import { isAdminRequest, sessionEmail, isAdminEmail, adminNotificationRecipients } from "../lib/portal/admin";
 import { railAccessGrantedEmailHtml, railAccessWithdrawnEmailHtml } from "../lib/email";
@@ -162,6 +163,7 @@ portalRouter.get("/me", async (req, res) => {
         pendingWalletIsTestMode: true,
         isLive: true,
         railChargeReceipts: true,
+        externalRailEnabled: true,
         createdAt: true,
       },
     });
@@ -194,6 +196,18 @@ portalRouter.get("/me", async (req, res) => {
         // A verification begun in the other mode is not this mode's business.
         pendingWalletAddress: pendingForThisMode ? merchant.pendingWalletAddress : null,
         isAdmin: isAdminEmail(merchant.email),
+        /**
+         * Whether this account can use the external rail, so the nav can show
+         * Mandates and Charges instead of a link asking to be let in.
+         *
+         * Same rule the rail route applies — off mainnet there is nothing to
+         * ask for — rather than the raw column, which would have a sandbox
+         * merchant requesting access they already have.
+         *
+         * Advisory, like isAdmin: every rail route decides for itself, so a
+         * client that lies about this reaches nothing.
+         */
+        railEnabled: !isMainnet() || merchant.externalRailEnabled,
         // Which mode the dashboard is showing, from the session rather than
         // the row — two people on one account can differ.
         testMode: (req as PortalRequest).isTestMode,
@@ -1110,6 +1124,10 @@ portalRouter.get("/rail", async (req, res) => {
           authorizedAt: true,
           revokedAt: true,
           createdAt: true,
+          // For the current period's window — see the drawn-this-period block
+          // below. `id` is the FK charges carry; `mandateId` is the public one.
+          id: true,
+          periodDuration: true,
           _count: { select: { charges: true } },
         },
       }),
@@ -1144,6 +1162,40 @@ portalRouter.get("/rail", async (req, res) => {
       prisma.mandate.count({ where: { ...portalScope(req), status: "active" } }),
     ]);
 
+    /**
+     * What each mandate has drawn in its CURRENT period.
+     *
+     * Every mandate has its own window — periodStart is anchored to the
+     * moment that subscriber authorized, not to a shared calendar — so this
+     * cannot be one aggregate with one `since`. The obvious shape is
+     * periodCommitted() per mandate, which is what the charge path does, and
+     * that is N round trips for a list of 50 on a pooled connection.
+     *
+     * So: one query from the EARLIEST window start across the page, then each
+     * mandate sums only the charges inside its own. Same arithmetic as
+     * periodCommitted — pending and succeeded both count, because a pending
+     * charge has already reserved its share of the ceiling — just done once.
+     */
+    const now = new Date();
+    const windows = new Map(mandates.map((m) => [m.id, mandatePeriodStart(m, now)]));
+    const drawn = new Map<string, bigint>();
+    if (windows.size > 0) {
+      const earliest = new Date(Math.min(...[...windows.values()].map((d) => d.getTime())));
+      const rows = await prisma.charge.findMany({
+        where: {
+          mandateId: { in: [...windows.keys()] },
+          status: { in: ["pending", "succeeded"] },
+          createdAt: { gte: earliest },
+        },
+        select: { mandateId: true, amount: true, createdAt: true },
+      });
+      for (const r of rows) {
+        const from = windows.get(r.mandateId);
+        if (!from || r.createdAt < from) continue;   // belongs to an earlier period
+        drawn.set(r.mandateId, (drawn.get(r.mandateId) ?? 0n) + r.amount);
+      }
+    }
+
     return ok(res, {
       data: {
         enabled: true,
@@ -1156,6 +1208,10 @@ portalRouter.get("/rail", async (req, res) => {
         },
         mandates: mandates.map((m) => ({
           id: m.mandateId,
+          // What the ceiling has already been drawn down by, this period.
+          // Present so the table can show headroom rather than a limit with
+          // no indication of how much of it is left.
+          drawnThisPeriod: Number(drawn.get(m.id) ?? 0n),
           externalRef: m.externalRef,
           email: m.email,
           walletAddress: m.walletAddress,

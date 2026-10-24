@@ -508,6 +508,33 @@ export function AuthorizePage() {
             <dt className="text-gray-500">Paid in</dt>
             <dd className="text-right font-medium text-gray-900">USDC from {chainNames.join(", ")}</dd>
           </div>
+          {/*
+            True on this rail, and worth saying because a payer who has used
+            a wallet before expects to pay gas on every one of these chains
+            and may stop here rather than find out. They do not: the delegate
+            pays to redeem, and settlement's gas comes out of the platform's
+            own fee — never the amount shown above.
+          */}
+          <div className="flex justify-between gap-4 border-t border-gray-100 py-3">
+            <dt className="text-gray-500">Network fee</dt>
+            <dd className="text-right font-medium text-gray-900">Covered by Sweep Console</dd>
+          </div>
+          {/*
+            The authorization's own expiry, not the link's. The link dying is
+            this page's problem and is handled by the "gone" state; this is
+            the date the standing permission stops, which is the one the payer
+            is agreeing to.
+          */}
+          <div className="flex justify-between gap-4 border-t border-gray-100 py-3">
+            <dt className="text-gray-500">Expires</dt>
+            <dd className="text-right font-medium text-gray-900">
+              {new Date(view.expires_at).toLocaleDateString(undefined, {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+              })}
+            </dd>
+          </div>
           <div className="border-t border-gray-100" />
         </dl>
 
