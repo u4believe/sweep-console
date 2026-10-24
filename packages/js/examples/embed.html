@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sweep embed — test harness</title>
+<!--
+  A stand-in for a developer's own subscription page, so the modal can be
+  exercised without one.
+
+  Open it over HTTP, not file:// — postMessage needs a real origin, and the
+  authorize page checks it:
+
+      npx serve packages/js        # then /examples/embed.html
+
+  Point "Mandate URL" at a real /authorize/<id> on the deployment you want to
+  test. The page deliberately does NOT create the mandate: that is the one
+  thing a browser must not do, because a payer reference that came from the
+  page is a payer reference the customer picked. In production this field is
+  your server's answer.
+-->
+<style>
+  :root { color-scheme: light }
+  body { margin:0; font:15px/1.55 "Plus Jakarta Sans",system-ui,sans-serif; color:#23233B; background:#F4F4FB }
+  .wrap { max-width:720px; margin:0 auto; padding:48px 20px 80px }
+  .card { background:#fff; border-radius:14px; padding:28px; box-shadow:0 0 0 1px #E6E6F0,0 4px 14px -4px rgba(35,35,80,.16) }
+  h1 { font-size:24px; margin:0 0 6px; letter-spacing:-.02em }
+  p.sub { margin:0 0 24px; color:#5D5E73 }
+  label { display:block; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:#8A8BA0; margin:18px 0 6px }
+  input, select { width:100%; padding:10px 12px; border:1px solid #E2E2EC; border-radius:7px; font:inherit; background:#fff; color:inherit }
+  input:focus-visible, select:focus-visible { outline:2px solid #4447D6; outline-offset:1px }
+  #log { margin-top:24px; padding:14px; background:#1D1D33; color:#C9CAF6; border-radius:9px; font:12.5px/1.6 "JetBrains Mono",ui-monospace,monospace; min-height:92px; white-space:pre-wrap; overflow-x:auto }
+  .row { display:flex; gap:10px; align-items:center; margin-top:22px; flex-wrap:wrap }
+  .note { margin-top:28px; font-size:13px; color:#5D5E73; border-top:1px solid #ECECF3; padding-top:16px }
+  code { font-family:"JetBrains Mono",ui-monospace,monospace; font-size:12.5px; background:#F4F4FB; padding:1px 5px; border-radius:4px }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Your subscription</h1>
+    <p class="sub">Pretend this is the developer's own page. The checkout should open <em>over</em> it — this content stays put, and the scroll position survives.</p>
+
+    <label for="url">Mandate URL (your server would return this)</label>
+    <input id="url" value="http://localhost:5173/authorize/REPLACE_ME" spellcheck="false">
+
+    <label for="mode">Mode</label>
+    <select id="mode">
+      <option value="modal">modal — panel over this page (default)</option>
+      <option value="popup">popup — separate window</option>
+      <option value="redirect">redirect — navigate away, like mount()</option>
+    </select>
+
+    <div class="row">
+      <span id="btn"></span>
+    </div>
+
+    <div id="log">events appear here…</div>
+
+    <p class="note">
+      <strong>What to check.</strong> Desktop: a centred panel, this page dimmed and
+      unscrollable behind it. Under 560px: a full-height sheet. Escape, the X and a
+      backdrop click all dismiss and fire <code>onCancelled</code>. On success the panel
+      closes by itself and <code>onAuthorized</code> carries the mandate id.
+      <br><br>
+      <strong>The fallback.</strong> Disable your wallet extension and open the modal:
+      the button inside should read “Continue in a new window” and open a popup that
+      finishes the signature and reports back through the frame. That path is the
+      reason this is not an iframe-only embed.
+    </p>
+  </div>
+</div>
+
+<script type="module">
+  import { authorize } from "../dist/index.js";
+
+  const log = document.getElementById("log");
+  let n = 0;
+  const say = (msg) => {
+    log.textContent = `${String(++n).padStart(2, "0")}  ${new Date().toLocaleTimeString()}  ${msg}\n` + log.textContent;
+  };
+
+  authorize("#btn", {
+    // A function instead of a URL string: this harness has no server, and
+    // `session` accepts either. A real integration passes its own endpoint.
+    session: () => document.getElementById("url").value.trim(),
+    get mode() { return document.getElementById("mode").value; },
+    label: "Authorize payments",
+    onAuthorized: (m) => say(`onAuthorized  ${JSON.stringify(m)}`),
+    onCancelled: () => say("onCancelled   payer dismissed the panel"),
+    onError: (e) => say(`onError       ${e.message}`),
+  });
+
+  say("ready — set a mandate URL and click the button");
+</script>
+</body>
+</html>

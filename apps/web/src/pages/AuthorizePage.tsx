@@ -3,6 +3,15 @@ import { fetchConfig } from "@/lib/gateway";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useAccount } from "wagmi";
+import {
+  beginEmbedHandshake,
+  injectedProviderReachable,
+  isEmbedded,
+  openAuthorizePopup,
+  relayPopupResult,
+  reportAuthorized,
+  reportCancelled,
+} from "../lib/embed";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { formatUnits } from "viem";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
@@ -88,6 +97,18 @@ export function AuthorizePage() {
       .catch(() => { /* shortening stays on, which is the mainnet behaviour */ });
     return () => { alive = false; };
   }, []);
+  /**
+   * Framed by @sweepconsole/js, as opposed to opened directly.
+   *
+   * Read once rather than per render: it cannot change for the life of the
+   * page, and a value that flickers would move the layout under the payer.
+   */
+  const [embedded] = useState(isEmbedded);
+
+  // Knock on the host's door as soon as this mounts. Before the view loads —
+  // otherwise the merchant watches an empty panel while we fetch.
+  useEffect(() => { beginEmbedHandshake(); }, []);
+
   const [phase, setPhase] = useState<Phase>("loading");
   const [error, setError] = useState("");
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -240,15 +261,93 @@ export function AuthorizePage() {
   // Inside the shell, so every phase of the flow carries it — loading,
   // connect, sign and done alike.
   const shell = (children: React.ReactNode) => (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-ground px-4 py-10">
-      <div className="fixed inset-x-0 top-0 z-50"><TestModeBanner /></div>
-      <main className="w-full max-w-md">{children}</main>
+    /**
+     * Framed, this fills the panel the host already sized and centred, so
+     * centring again inside it would leave the content floating in a box
+     * within a box. Unframed it is the page, unchanged.
+     */
+    <div
+      className={
+        embedded
+          ? "flex min-h-full flex-col bg-white px-5 py-5"
+          : "flex min-h-screen flex-col items-center justify-center bg-ground px-4 py-10"
+      }
+    >
+      <div className={embedded ? "" : "fixed inset-x-0 top-0 z-50"}><TestModeBanner /></div>
+      <main className={embedded ? "w-full" : "w-full max-w-md"}>{children}</main>
+      {/*
+        The provenance line, and in a frame it is also the only thing telling
+        the payer whose checkout this is. The link is dropped there: it would
+        navigate the panel to the marketing site with no way back, stranding
+        them inside a box on someone else's page.
+      */}
       <p className="mt-6 text-center text-[11px] uppercase tracking-[0.14em] text-gray-400">
-        <Link to="/" className="hover:text-gray-600">Secured by Sweep Console</Link>
+        {embedded ? (
+          <span>Secured by Sweep Console</span>
+        ) : (
+          <Link to="/" className="hover:text-gray-600">Secured by Sweep Console</Link>
+        )}
         {" · "}Non-custodial
       </p>
     </div>
   );
+
+  /**
+   * Tell whoever opened us, once.
+   *
+   * In an effect rather than at the moment of signing, because this must also
+   * fire for a payer who arrives already authorized — the load path jumps
+   * straight to "done" and never passes through the signing code.
+   *
+   * reportAuthorized decides where it goes: to the host when framed, to the
+   * opening iframe when we are the popup it spawned, and nowhere at all when
+   * the page was opened directly, which is the ordinary case.
+   */
+  useEffect(() => {
+    if (phase === "done") reportAuthorized(mandateId);
+  }, [phase, mandateId]);
+
+  /**
+   * Framed, with no injected wallet to talk to.
+   *
+   * A browser extension is not obliged to inject itself into a cross-origin
+   * iframe. Where it has not, every connector that needs an injected provider
+   * is a dead end that looks like a broken button: the payer clicks Connect
+   * and nothing happens, with no error to act on.
+   *
+   * So the button changes what it does instead of what it says afterwards.
+   * WalletConnect would still work in the frame, so this is not "no wallet
+   * possible" — it is "the one most payers use is missing", which is enough
+   * to be worth the window. A payer who does have MetaMask never sees this.
+   */
+  const needsPopup = embedded && !injectedProviderReachable();
+
+  const connectWallet = () => {
+    if (!needsPopup) {
+      openConnectModal?.();
+      return;
+    }
+    // Inside the click, or the popup is blocked — and blocked silently.
+    const win = openAuthorizePopup();
+    if (!win) {
+      setError(
+        "Your browser blocked the wallet window. Allow pop-ups for this site, " +
+          "or open the link this checkout came from directly."
+      );
+    }
+  };
+
+  /**
+   * The popup is this same page in another window; when it finishes it
+   * reports to us, and we are the one holding the handshake with the host.
+   */
+  useEffect(() => {
+    if (!embedded) return;
+    return relayPopupResult((id) => {
+      setPhase("done");
+      reportAuthorized(id ?? mandateId);
+    });
+  }, [embedded, mandateId]);
 
   if (phase === "loading") {
     return shell(<p className="text-center text-sm text-gray-500">Loading…</p>);
@@ -271,6 +370,22 @@ export function AuthorizePage() {
           <p className="mt-4 text-sm text-gray-500">
             Ask {view?.merchant_name ?? "the business"} to send you a new link.
           </p>
+          {/*
+            A way out, which a framed dead end otherwise does not have.
+            Unframed the payer closes the tab or uses the back button; inside
+            a panel neither applies, and the host's own X is a 30px target in
+            a corner they have no reason to look at. Telling the host also
+            lets the merchant's page react — onCancelled fires, so it can
+            offer the payer something else.
+          */}
+          {embedded && (
+            <button
+              onClick={reportCancelled}
+              className="mt-6 w-full border border-gray-300 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
+            >
+              Close
+            </button>
+          )}
         </div>
       </div>
     );
@@ -597,10 +712,10 @@ export function AuthorizePage() {
             </p>
           ) : !address || walletStatus !== "connected" ? (
             <button
-              onClick={openConnectModal}
+              onClick={connectWallet}
               className="flex w-full items-center justify-center gap-2.5 bg-brand-600 py-3 font-semibold text-white transition hover:bg-brand-700"
             >
-              Connect wallet
+              {needsPopup ? "Continue in a new window" : "Connect wallet"}
               <MetaMaskMark height={20} />
             </button>
           ) : (

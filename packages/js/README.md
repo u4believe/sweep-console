@@ -43,6 +43,65 @@ app.post("/api/sweep/session", requireLogin, async (req, res) => {
 That is the whole integration. The payer signs in their wallet on Sweep's hosted
 page, and `mandate.authorized` arrives on your webhook endpoint.
 
+## Keeping the payer on your page
+
+`mount()` navigates away and comes back by `return_url`. On a subscription page
+that is the wrong shape: the payer is mid-task in an account they are already
+signed into, and a full navigation costs them their scroll position, any form
+state, and the sense of still being on your site.
+
+`authorize()` opens the same checkout in a panel over your page instead.
+
+```html
+<button id="authorize">Authorize payments</button>
+<script>
+  Sweep.authorize("#authorize", {
+    session: "/api/sweep/mandate-link",
+    onAuthorized: (m) => location.assign("/billing?ok=" + m.mandate_id),
+    onCancelled: () => console.log("payer closed it"),
+  });
+</script>
+```
+
+A centred 520px panel on a desktop, a full-height sheet under 560px. Escape,
+the close button and a backdrop click all dismiss it and fire `onCancelled`.
+Your page's scroll position and the focused element are restored on the way
+out, which is the entire reason for not navigating.
+
+`mode` picks how it opens — `"modal"` (default), `"popup"` for a separate
+window, or `"redirect"` for exactly what `mount()` does.
+
+### Wallets and frames
+
+A browser extension is not obliged to inject itself into a cross-origin
+iframe, and this checkout needs a wallet signature. Where the extension has
+not, the framed page opens its own window for the signing step — a top-level
+context where every wallet behaves normally — and reports the result back
+through the frame. You do not configure this and your `onAuthorized` fires the
+same either way.
+
+It is why the panel is not sandboxed: sandboxing without `allow-popups` would
+close the one exit that page has.
+
+### React
+
+```tsx
+import { SweepAuthorize } from "@sweepconsole/react";
+
+<SweepAuthorize session="/api/sweep/mandate-link" onAuthorized={(m) => save(m.mandate_id)}>
+  Authorize with wallet
+</SweepAuthorize>
+```
+
+A thin wrapper over `authorize()` — everything real lives here, so nothing is
+missing for anyone loading this package from a script tag.
+
+### Trying it
+
+`examples/embed.html` is a stand-in for your page. Serve the package over HTTP
+(`npx serve packages/js`, then `/examples/embed.html`) — `file://` has no
+origin, and the checkout checks it.
+
 ## Why it will not call Sweep for you
 
 This package has no API key and cannot create a session. Everything a browser

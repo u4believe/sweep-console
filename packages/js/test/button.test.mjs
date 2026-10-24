@@ -44,10 +44,17 @@ function makeEl(tag) {
     },
     appendChild(c) {
       el.children.push(c);
+      c._parent = el;
       return c;
     },
     remove() {
       el.removed = true;
+      // Actually detach. Without this a "closed" panel is still findable in
+      // its parent's children, and a test for closing passes or fails on the
+      // stub rather than on the code.
+      const p = el._parent;
+      if (p) p.children = p.children.filter((c) => c !== el);
+      el._parent = null;
     },
     addEventListener(t, fn) {
       (el.listeners[t] ||= []).push(fn);
@@ -219,6 +226,86 @@ ok("destroy removes the handler", (theirs.listeners.click || []).length === 0);
 ok("stylesheet injected once across every mount",
   head.children.length === 1 && head.children[0].id === "sweep-pay-styles",
   `${head.children.length} <style> element(s)`);
+
+/* ══════════════════════════════════════════════════════════════════════
+   The authorize modal.
+
+   The stub grows here rather than up top, so what the button needs stays
+   separable from what the panel needs — and anything the panel reaches for
+   that is not stubbed still throws, which is the point of the stub.
+   ══════════════════════════════════════════════════════════════════════ */
+
+const body = makeEl("body");
+body.style = {};
+document.body = body;
+const docListeners = {};
+document.addEventListener = (t, fn) => ((docListeners[t] ||= []).push(fn));
+document.removeEventListener = (t, fn) => (docListeners[t] = (docListeners[t] || []).filter((f) => f !== fn));
+document.activeElement = null;
+
+const winListeners = {};
+window.addEventListener = (t, fn) => ((winListeners[t] ||= []).push(fn));
+window.removeEventListener = (t, fn) => (winListeners[t] = (winListeners[t] || []).filter((f) => f !== fn));
+window.location.href = "https://merchant.example.com/billing";
+globalThis.requestAnimationFrame = (fn) => fn();
+
+const panelOf = () => body.children.find((c) => c.className === "sweep-modal");
+const frameOf = () => panelOf()?.children[0]?.children.find((c) => c.tagName === "IFRAME");
+
+// ── it opens over the page, and tells the frame it is embedded ──
+assigned.length = 0;
+globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ url: "https://pay.sweep.test/authorize/mdt_m" }) });
+let authorized = null;
+let cancelled = 0;
+const ha = Sweep.authorize(makeEl("div"), {
+  session: "/s",
+  onAuthorized: (m) => (authorized = m),
+  onCancelled: () => cancelled++,
+});
+ha.element.click();
+await new Promise((r) => setTimeout(r, 5));
+
+ok("opens a panel instead of navigating", assigned.length === 0 && !!panelOf(), `${assigned.length} navigation(s)`);
+ok("marks the frame as embedded", (frameOf()?.src || "").includes("embed=1"), frameOf()?.src);
+ok("no sandbox — the popup fallback needs the exit", frameOf()?.attrs.sandbox === undefined);
+ok("locks the page behind it", body.style.overflow === "hidden", String(body.style.overflow));
+ok("default label", ha.element._label.textContent === "Authorize payments", ha.element._label.textContent);
+
+// ── only the frame's own origin may drive it ──
+const fire = (data, origin, source) => {
+  for (const fn of winListeners.message || []) fn({ data, origin, source });
+};
+const frameWin = {};
+frameOf().contentWindow = frameWin;
+
+fire({ source: "sweep", type: "authorized", mandate: { mandate_id: "forged" } }, "https://evil.example", frameWin);
+ok("ignores another origin", authorized === null && !!panelOf());
+
+fire({ source: "sweep", type: "authorized", mandate: { mandate_id: "forged2" } }, "https://pay.sweep.test", {});
+ok("ignores another window on the right origin", authorized === null && !!panelOf());
+
+// ── the real thing ──
+fire({ source: "sweep", type: "authorized", mandate: { mandate_id: "mdt_m" } }, "https://pay.sweep.test", frameWin);
+ok("accepts the frame itself", authorized?.mandate_id === "mdt_m", JSON.stringify(authorized));
+ok("closes the panel", !panelOf());
+ok("gives the page back", body.style.overflow !== "hidden", String(body.style.overflow));
+ok("authorizing is not a cancellation", cancelled === 0, String(cancelled));
+
+// ── Escape dismisses and reports it ──
+const hb = Sweep.authorize(makeEl("div"), { session: "/s", onCancelled: () => cancelled++ });
+hb.element.click();
+await new Promise((r) => setTimeout(r, 5));
+ok("reopens", !!panelOf());
+for (const fn of docListeners.keydown || []) fn({ key: "Escape" });
+ok("Escape closes it", !panelOf());
+ok("and fires onCancelled once", cancelled === 1, String(cancelled));
+
+// ── redirect mode is still the old behaviour ──
+assigned.length = 0;
+const hr = Sweep.authorize(makeEl("div"), { session: "/s", mode: "redirect" });
+hr.element.click();
+await new Promise((r) => setTimeout(r, 5));
+ok("mode:redirect navigates", assigned[0] === "https://pay.sweep.test/authorize/mdt_m", String(assigned[0]));
 
 console.log(out.join("\n"));
 const failed = out.filter((l) => l.startsWith("FAIL")).length;

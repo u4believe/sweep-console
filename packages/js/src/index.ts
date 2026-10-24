@@ -536,11 +536,14 @@ export function authorize(target: string | Element, opts: AuthorizeOptions): Swe
   if (!opts || !opts.session) {
     throw new Error("Sweep.authorize: `session` is required — your endpoint that returns a URL.");
   }
-  const mode = opts.mode ?? "modal";
   return mount(target, {
     ...opts,
     label: opts.label ?? "Authorize payments",
     onRedirect: (url) => {
+      // Read per click, not captured at mount: a caller that flips `mode`
+      // between renders — a settings toggle, a test harness — gets the mode
+      // it is showing rather than the one it started with.
+      const mode = opts.mode ?? "modal";
       if (mode === "redirect") return;          // let mount() navigate
       if (mode === "popup") {
         // Opened inside the click, so it is a user gesture and survives
