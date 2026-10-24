@@ -41,6 +41,7 @@ import { getSettlementAddress } from "../src/lib/chain/signers";
 import { settlementMscaAddress } from "../src/lib/chain/settlement-target";
 import { settleViaUserOp } from "../src/lib/chain/settlement-userop";
 import { treasuryAddress } from "../src/lib/chain/fee-payout";
+import { settlementGasFloor } from "../src/lib/chain/settlement-target";
 import { getTokenMessenger, assertCctpContract } from "../src/lib/gateway/cctp";
 import { ARC_DOMAIN } from "../src/lib/gateway/chains";
 import { walletFor } from "../src/lib/merchant-wallet";
@@ -188,7 +189,39 @@ async function main(): Promise<void> {
         `                so the merchant receives less than the price unless you top it up by hand`
     );
   }
-  console.log(`  destination   ${payout} on Arc\n`);
+  console.log(`  destination   ${payout} on Arc`);
+
+  /**
+   * GAS HAS TO COME OUT OF WHAT IS THERE.
+   *
+   * settleViaUserOp burns `amount + maxFee` and lets the paymaster take its
+   * USDC from the same balance. On a normal payment the platform's share
+   * covers both — `toppedUp` is precisely the reserve the operation spends
+   * gas from. A recovery has no platform share: everything in the account
+   * belongs to the merchant, so asking it to burn the whole balance leaves
+   * nothing to pay with and the UserOperation reverts.
+   *
+   * So a reserve is held back, defaulting to the settlement gas floor. It is
+   * not a fee — it stays in the settlement account, pays this operation's gas,
+   * and whatever is left funds the next payment. The merchant receives the
+   * rest, which is less than they were charged, and that is stated plainly
+   * rather than discovered later.
+   */
+  const reserve = arg("reserve")
+    ? BigInt(Math.round(Number(arg("reserve")) * 1e6))
+    : settlementGasFloor();
+  const toMerchant = held - reserve;
+  if (toMerchant <= 0n) {
+    console.log(
+      `\n  Reserve ${formatUnits(reserve, 6)} USDC is not less than the ${formatUnits(held, 6)} held.\n` +
+        `  Nothing would reach the merchant. Lower it with --reserve, or top the account up.`
+    );
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`  gas reserve   ${formatUnits(reserve, 6)} USDC held back in settlement to pay for this burn`);
+  console.log(`                (--reserve to change it; the last attempt's gas was 0.055689)`);
+  console.log(`  MERCHANT GETS ${formatUnits(toMerchant, 6)} USDC of the ${formatUnits(sweep.totalAmount, 6)} collected\n`);
 
   await assertCctpContract(
     createPublicClient({
@@ -213,14 +246,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  // grossAmount === amount: the fee on the original payment was already taken
-  // or already lost with it, and charging it twice would come out of the
-  // merchant's recovery.
   const settled = await settleViaUserOp({
     chainId,
     token: getSourceChain(key).usdc as Hex,
     tokenMessenger: getTokenMessenger(key),
-    amount: held,
+    amount: toMerchant,
     destinationDomain: ARC_DOMAIN,
     mintRecipient: payout as Hex,
     speed: "fast",
