@@ -324,5 +324,235 @@ export function mount(target: string | Element, opts: MountOptions): SweepButton
   };
 }
 
+
+/* ════════════════════════════════════════════════════════════════════════
+   The authorize modal — the rail checkout, over the merchant's own page.
+   ════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Why a modal rather than a redirect.
+ *
+ * `mount()` sends the payer away and brings them back by `return_url`. That
+ * is fine for a one-off checkout and wrong for a subscription page, where the
+ * payer is mid-task in an account they are already signed into: a full
+ * navigation loses their scroll position, their form state, and any sense
+ * that they are still on the merchant's site.
+ *
+ * So `authorize()` opens the same page in a centered panel over a dimmed
+ * backdrop — desktop — or a full-height sheet on a phone, where a 520px card
+ * floating in the middle of a small screen is just a worse full page.
+ *
+ * WALLETS AND IFRAMES
+ *
+ * The authorize page asks for a wallet signature, and a browser extension is
+ * not obliged to inject itself into a cross-origin frame. When it has not,
+ * the framed page opens its own popup for the signing step — a top-level
+ * context where every wallet works. That handoff lives in the page rather
+ * than here, because only the page knows whether a provider answered. This
+ * side must simply not prevent it: the iframe carries no `sandbox`, because
+ * sandboxing without `allow-popups` would close the one exit the page has.
+ */
+
+const MODAL_STYLE_ID = "sweep-modal-styles";
+
+/** Breakpoint below which the panel becomes a sheet. Matches the design. */
+const SHEET_MAX_WIDTH = 560;
+
+export const MODAL_CSS = `.sweep-modal{position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(35,35,59,.55);opacity:0;transition:opacity .18s ease}
+.sweep-modal[data-open=true]{opacity:1}
+.sweep-modal__panel{position:relative;width:100%;max-width:520px;height:min(680px,calc(100vh - 48px));background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 0 0 1px rgba(35,35,80,.08),0 30px 60px -30px rgba(35,35,80,.45);transform:translateY(8px) scale(.99);transition:transform .18s ease}
+.sweep-modal[data-open=true] .sweep-modal__panel{transform:none}
+.sweep-modal__frame{display:block;width:100%;height:100%;border:0}
+.sweep-modal__close{position:absolute;top:10px;right:10px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:rgba(244,244,251,.9);color:#5D5E73;cursor:pointer;font:inherit;font-size:17px;line-height:1}
+.sweep-modal__close:hover{background:#ECECF3;color:#23233B}
+.sweep-modal__close:focus-visible{outline:2px solid #4447D6;outline-offset:2px}
+@media (max-width:${SHEET_MAX_WIDTH}px){.sweep-modal{padding:0}.sweep-modal__panel{max-width:none;height:100%;border-radius:0}.sweep-modal__close{top:8px;right:8px}}
+@media (prefers-reduced-motion:reduce){.sweep-modal,.sweep-modal__panel{transition:none}}`;
+
+export interface AuthorizeResult {
+  /** The mandate the payer signed, as the authorize page reported it. */
+  mandate_id?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * What opening the panel needs — no `session`, because the caller already has
+ * the URL. Split from AuthorizeOptions so `openAuthorize(url)` can be called
+ * with nothing else, which is the shape anyone driving it by hand wants.
+ */
+export interface OpenAuthorizeOptions {
+  /** Called once the payer has signed. The modal closes first. */
+  onAuthorized?: (result: AuthorizeResult) => void;
+  /** Called if they closed it without signing — backdrop, Escape or the X. */
+  onCancelled?: () => void;
+  /** Set false if your Content-Security-Policy forbids inline styles. */
+  injectStyles?: boolean;
+}
+
+export interface AuthorizeOptions extends MountOptions, OpenAuthorizeOptions {
+  /**
+   * Open in a new window instead of a panel. Worth setting when you already
+   * know your payers' wallets refuse to inject into frames; otherwise leave
+   * it and let the page fall back on its own.
+   */
+  mode?: "modal" | "popup" | "redirect";
+}
+
+export interface SweepModal {
+  /** Close it as though the payer had dismissed it. */
+  close(): void;
+}
+
+/**
+ * Open the authorize page over the current one.
+ *
+ * Returns immediately — the callbacks carry the outcome.
+ */
+export function openAuthorize(url: string, opts: OpenAuthorizeOptions = {}): SweepModal {
+  if (opts.injectStyles !== false) injectModalStyles();
+
+  let frameOrigin: string;
+  try {
+    frameOrigin = new URL(url, window.location.href).origin;
+  } catch {
+    throw new Error(`Sweep.openAuthorize: ${JSON.stringify(url)} is not a URL.`);
+  }
+
+  const root = document.createElement("div");
+  root.className = "sweep-modal";
+  root.setAttribute("role", "dialog");
+  root.setAttribute("aria-modal", "true");
+  root.setAttribute("aria-label", "Authorize payments");
+
+  const panel = document.createElement("div");
+  panel.className = "sweep-modal__panel";
+
+  const frame = document.createElement("iframe");
+  frame.className = "sweep-modal__frame";
+  // Deliberately no `sandbox`: see the note above — the page's popup fallback
+  // is the thing that makes this safe to attempt at all.
+  frame.setAttribute("allow", "clipboard-write; publickey-credentials-get *");
+  frame.setAttribute("title", "Authorize payments");
+  // `embed=1` is what tells the page to render as a panel and to speak this
+  // protocol. Without it the page behaves exactly as it always has.
+  frame.src = url + (url.indexOf("?") === -1 ? "?" : "&") + "embed=1";
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "sweep-modal__close";
+  close.setAttribute("aria-label", "Close");
+  close.textContent = "\u00d7";
+
+  panel.appendChild(frame);
+  panel.appendChild(close);
+  root.appendChild(panel);
+
+  // What the page was scrolled to, and what had focus, so dismissing puts the
+  // merchant's page back exactly as the payer left it. This is the entire
+  // reason for not navigating away.
+  const prevOverflow = document.body.style.overflow;
+  const prevFocus = document.activeElement as HTMLElement | null;
+  document.body.style.overflow = "hidden";
+  document.body.appendChild(root);
+  // Next frame, so the opening transition has somewhere to travel from.
+  requestAnimationFrame(() => root.setAttribute("data-open", "true"));
+
+  let done = false;
+
+  function teardown() {
+    if (done) return;
+    done = true;
+    window.removeEventListener("message", onMessage);
+    document.removeEventListener("keydown", onKey);
+    document.body.style.overflow = prevOverflow;
+    root.remove();
+    if (prevFocus && typeof prevFocus.focus === "function") prevFocus.focus();
+  }
+
+  function dismiss() {
+    const wasDone = done;
+    teardown();
+    if (!wasDone && opts.onCancelled) opts.onCancelled();
+  }
+
+  function onKey(e: KeyboardEvent) {
+    if (e.key === "Escape") dismiss();
+  }
+
+  function onMessage(e: MessageEvent) {
+    // Only this frame's origin may drive this modal. Without the check any
+    // page with a handle on this window could fake an authorization, and the
+    // merchant's `onAuthorized` is where a subscription gets switched on.
+    if (e.origin !== frameOrigin) return;
+    if (e.source !== frame.contentWindow) return;
+    const msg = e.data as { source?: string; type?: string; mandate?: AuthorizeResult } | null;
+    if (!msg || msg.source !== "sweep") return;
+
+    if (msg.type === "ready") {
+      // Reply to the exact origin that spoke, never "*": from here on the
+      // page knows who framed it and can address us specifically.
+      frame.contentWindow?.postMessage({ source: "sweep", type: "host" }, e.origin);
+      return;
+    }
+    if (msg.type === "authorized") {
+      teardown();
+      if (opts.onAuthorized) opts.onAuthorized(msg.mandate ?? {});
+      return;
+    }
+    if (msg.type === "cancelled") {
+      dismiss();
+    }
+  }
+
+  window.addEventListener("message", onMessage);
+  document.addEventListener("keydown", onKey);
+  close.addEventListener("click", dismiss);
+  root.addEventListener("click", (e) => {
+    // Backdrop only — a click that started inside the panel must not close it.
+    if (e.target === root) dismiss();
+  });
+
+  return { close: dismiss };
+}
+
+function injectModalStyles(): void {
+  if (typeof document === "undefined") return;
+  if (document.getElementById(MODAL_STYLE_ID)) return;
+  const tag = document.createElement("style");
+  tag.id = MODAL_STYLE_ID;
+  tag.textContent = MODAL_CSS;
+  document.head.appendChild(tag);
+}
+
+/**
+ * A button that opens the authorize modal.
+ *
+ * Same contract as `mount()` — your endpoint returns a URL — except the payer
+ * stays on your page. `mode: "redirect"` makes it behave exactly like
+ * `mount()`, which is the escape hatch if a modal turns out to be wrong for
+ * your flow.
+ */
+export function authorize(target: string | Element, opts: AuthorizeOptions): SweepButton {
+  if (!opts || !opts.session) {
+    throw new Error("Sweep.authorize: `session` is required — your endpoint that returns a URL.");
+  }
+  const mode = opts.mode ?? "modal";
+  return mount(target, {
+    ...opts,
+    label: opts.label ?? "Authorize payments",
+    onRedirect: (url) => {
+      if (mode === "redirect") return;          // let mount() navigate
+      if (mode === "popup") {
+        // Opened inside the click, so it is a user gesture and survives
+        // popup blockers.
+        window.open(url, "sweep_authorize", "width=520,height=720");
+        return false;
+      }
+      openAuthorize(url, opts);
+      return false;                              // we handled it
+    },
+  });
+}
+
 /** The global the CDN build defines. Same functions, one name to reach them. */
-export const Sweep = { mount, BUTTON_CSS };
+export const Sweep = { mount, authorize, openAuthorize, BUTTON_CSS, MODAL_CSS };
