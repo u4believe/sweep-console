@@ -93,7 +93,7 @@ export function OnboardingLayout({
           style={{ marginBottom: 56, color: "var(--color-bg)" }}
         >
           <Logo height={24} fill="var(--color-bg)" />
-          <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 16 }}>
+          <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 16 }}>
             Sweep Console
           </span>
         </Link>
@@ -122,7 +122,7 @@ export function OnboardingLayout({
             >
               <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12 }}>{s.n}</span>
               <div>
-                <p className="m-0" style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15 }}>
+                <p className="m-0" style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 15 }}>
                   {s.title}
                 </p>
                 <p className="m-0" style={{ marginTop: 2, fontSize: 12, opacity: 0.85 }}>{s.hint}</p>

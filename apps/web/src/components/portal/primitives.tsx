@@ -28,7 +28,7 @@ export function Section({
     <section
       style={{
         padding: padded ? "24px 32px" : undefined,
-        borderBottom: bordered ? "2px solid var(--color-divider)" : undefined,
+        borderBottom: bordered ? "1px solid var(--color-divider)" : undefined,
       }}
     >
       {title && (
@@ -73,7 +73,7 @@ export function KpiBand({ items, loading = false, size = 44 }: { items: Kpi[]; l
   return (
     <div
       className="grid grid-cols-2 lg:grid-cols-4"
-      style={{ borderBottom: "2px solid var(--color-divider)" }}
+      style={{ borderBottom: "1px solid var(--color-divider)" }}
     >
       {cells.map((k, i) => (
         <div
@@ -90,7 +90,7 @@ export function KpiBand({ items, loading = false, size = 44 }: { items: Kpi[]; l
                 className="m-0"
                 style={{
                   fontFamily: "var(--font-heading)",
-                  fontWeight: 800,
+                  fontWeight: 700,
                   fontSize: size,
                   lineHeight: 1,
                   letterSpacing: "-0.035em",
@@ -126,7 +126,7 @@ export function FilterTabs<T extends string>({
   return (
     <div
       className="flex overflow-x-auto"
-      style={{ borderBottom: "2px solid var(--color-divider)", padding: "0 32px" }}
+      style={{ borderBottom: "1px solid var(--color-divider)", padding: "0 32px" }}
     >
       {tabs.map((t) => {
         const on = t.id === active;

@@ -678,7 +678,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
           <p
             className="m-0"
             style={{
-              fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: "clamp(40px, 6vw, 60px)",
+              fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: "clamp(40px, 6vw, 60px)",
               lineHeight: 1, letterSpacing: "-0.04em", marginBottom: 4,
             }}
           >
@@ -694,7 +694,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
             <div className="flex flex-col gap-2" style={{ borderTop: RULE, paddingTop: 16 }}>
               {previewFeatures.slice(0, 6).map((f, i) => (
                 <span key={i} className="flex gap-2.5" style={{ fontSize: 13, lineHeight: 1.45 }}>
-                  <span style={{ color: "var(--color-accent)", fontFamily: "var(--font-heading)", fontWeight: 800 }}>
+                  <span style={{ color: "var(--color-accent)", fontFamily: "var(--font-heading)", fontWeight: 700 }}>
                     —
                   </span>
                   {f}
@@ -961,7 +961,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                             <span className="min-w-0 flex-1">
                               <span
                                 className="block"
-                                style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 14.5 }}
+                                style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 14.5 }}
                               >
                                 {name}
                               </span>
@@ -987,7 +987,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                             </span>
                             <span
                               className="shrink-0"
-                              style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 14 }}
+                              style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 14 }}
                             >
                               {/* While this chain is working, the price is the
                                   least useful thing in the row — it has not
@@ -1081,14 +1081,14 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                   </div>
                   <div
                     className="flex items-baseline justify-between"
-                    style={{ padding: "11px 0", borderBottom: "2px solid var(--color-text)" }}
+                    style={{ padding: "11px 0", borderBottom: "1px solid var(--color-neutral-400)" }}
                   >
-                    <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 18 }}>
+                    <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 18 }}>
                       Due today
                     </span>
                     <span
                       style={{
-                        fontFamily: "var(--font-heading)", fontWeight: 800,
+                        fontFamily: "var(--font-heading)", fontWeight: 700,
                         fontSize: 27, letterSpacing: "-0.03em",
                       }}
                     >

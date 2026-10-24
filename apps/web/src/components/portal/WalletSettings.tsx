@@ -85,7 +85,7 @@ export function WalletSettings({ initialAddress, walletType, addressVerifiedAt }
 
       {/* ── Linked state ── */}
       {isLinked && (
-        <div style={{ border: "2px solid var(--color-divider)", background: "var(--color-surface)", padding: 20 }}>
+        <div style={{ border: "1px solid var(--color-divider)", background: "var(--color-surface)", padding: 20 }}>
           <div className="flex flex-wrap items-center gap-3">
             <span style={{ width: 10, height: 10, flex: "none", display: "block", background: "var(--color-accent)" }} />
             <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 13, wordBreak: "break-all" }}>
@@ -136,9 +136,9 @@ export function WalletSettings({ initialAddress, walletType, addressVerifiedAt }
 
       {/* ── Unlinked state ── */}
       {!isLinked && mode !== "link-external" && (
-        <div style={{ border: "2px solid var(--color-divider)", background: "var(--color-surface)", padding: 20 }}>
+        <div style={{ border: "1px solid var(--color-divider)", background: "var(--color-surface)", padding: 20 }}>
           <p className="m-0" style={{ fontSize: 13, lineHeight: 1.6 }}>
-            <strong style={{ fontFamily: "var(--font-heading)", fontWeight: 800 }}>No wallet linked.</strong>{" "}
+            <strong style={{ fontFamily: "var(--font-heading)", fontWeight: 700 }}>No wallet linked.</strong>{" "}
             <span style={{ color: "var(--color-neutral-800)" }}>
               Revenue is held until you add one — nothing is lost in the meantime.
             </span>

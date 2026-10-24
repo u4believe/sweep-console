@@ -79,7 +79,7 @@ export function PlanPreviewPage() {
         className="flex min-h-screen items-center justify-center"
         style={{ background: "var(--color-surface)", padding: "0 32px" }}
       >
-        <div style={{ maxWidth: 560, width: "100%", borderTop: "2px solid var(--color-divider)", paddingTop: 28 }}>
+        <div style={{ maxWidth: 560, width: "100%", borderTop: "1px solid var(--color-divider)", paddingTop: 28 }}>
           <h1 className="m-0" style={{ fontSize: "clamp(28px, 4vw, 44px)", letterSpacing: "-0.03em", marginBottom: 10 }}>
             {error ? "Preview unavailable" : "Loading preview…"}
           </h1>
@@ -109,7 +109,7 @@ export function PlanPreviewPage() {
           fontSize: 12.5,
         }}
       >
-        <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800 }}>Preview</span>
+        <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700 }}>Preview</span>
         <span style={{ opacity: 0.75 }}>
           How “{plan.name}” appears to a subscriber. Nothing here is live — no payment can be made.
           {tierOptions.length === 1 &&

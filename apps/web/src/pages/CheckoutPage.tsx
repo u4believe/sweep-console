@@ -41,7 +41,7 @@ function CheckoutStatus({ title, body }: { title: string; body: string }) {
       className="flex min-h-screen items-center justify-center"
       style={{ background: "var(--color-surface)", padding: "0 32px" }}
     >
-      <div style={{ maxWidth: 560, width: "100%", borderTop: "2px solid var(--color-divider)", paddingTop: 28 }}>
+      <div style={{ maxWidth: 560, width: "100%", borderTop: "1px solid var(--color-divider)", paddingTop: 28 }}>
         <h1 className="m-0" style={{ fontSize: "clamp(28px, 4vw, 44px)", letterSpacing: "-0.03em", marginBottom: 10 }}>
           {title}
         </h1>

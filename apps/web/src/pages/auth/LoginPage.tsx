@@ -49,7 +49,7 @@ export function LoginPage() {
         Manage plans, subscribers and settlement.
       </p>
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4" style={{ borderTop: "2px solid var(--color-divider)", paddingTop: 20 }}>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4" style={{ borderTop: "1px solid var(--color-divider)", paddingTop: 20 }}>
         <div className="field">
           <label htmlFor="email">Email</label>
           <input

@@ -28,7 +28,7 @@ function VerifyForm() {
         title="That link isn't valid."
         body="The verification link is missing its token, or has already been used. Request a fresh one from sign-up."
       >
-        <div style={{ borderTop: "2px solid var(--color-divider)", paddingTop: 20 }}>
+        <div style={{ borderTop: "1px solid var(--color-divider)", paddingTop: 20 }}>
           <Link to="/signup" className="btn btn-primary" style={{ padding: "11px 18px" }}>
             Back to sign up
           </Link>
@@ -47,7 +47,7 @@ function VerifyForm() {
       >
         <div
           className="flex flex-wrap items-center gap-3"
-          style={{ borderTop: "2px solid var(--color-divider)", paddingTop: 20 }}
+          style={{ borderTop: "1px solid var(--color-divider)", paddingTop: 20 }}
         >
           <Link to="/login" className="btn btn-primary" style={{ padding: "12px 20px" }}>
             Log in
@@ -132,7 +132,7 @@ function VerifyForm() {
           <p className="m-0" style={{ fontSize: 13, color: "var(--color-accent-700)" }}>{error}</p>
         )}
 
-        <div style={{ borderTop: "2px solid var(--color-divider)", paddingTop: 20 }}>
+        <div style={{ borderTop: "1px solid var(--color-divider)", paddingTop: 20 }}>
           <button
             type="submit"
             className="btn btn-primary"

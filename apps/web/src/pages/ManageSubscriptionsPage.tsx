@@ -122,7 +122,7 @@ function Kpi({ label, value, unit, accent }: { label: string; value: string; uni
       <p style={{ ...UPPER, marginBottom: 4 }}>{label}</p>
       <p
         style={{
-          fontFamily: HEADING, fontWeight: 800, fontSize: 20, lineHeight: 1, margin: 0,
+          fontFamily: HEADING, fontWeight: 700, fontSize: 20, lineHeight: 1, margin: 0,
           color: accent ? "var(--color-accent)" : undefined,
         }}
       >
@@ -540,7 +540,7 @@ export function ManageSubscriptionsPage() {
   return (
     <div style={{ minHeight: "100vh", fontFamily: "var(--font-body)", display: "flex", flexDirection: "column", background: "var(--color-bg)" }}>
       <TestModeBanner />
-      <header style={{ borderBottom: "2px solid var(--color-text)" }}>
+      <header style={{ borderBottom: "1px solid var(--color-neutral-400)" }}>
         <div
           style={{
             maxWidth: 1160, margin: "0 auto", padding: "0 32px", height: 60,
@@ -549,7 +549,7 @@ export function ManageSubscriptionsPage() {
         >
           <Link to="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "inherit" }}>
             <Logo height={22} />
-            <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 15, letterSpacing: "-0.01em" }}>
+            <span style={{ fontFamily: HEADING, fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em" }}>
               Sweep Console
             </span>
           </Link>
@@ -570,7 +570,7 @@ export function ManageSubscriptionsPage() {
                 title={address ? "Switch wallet" : "Connect wallet"}
                 style={{
                   display: "flex", alignItems: "center", gap: 9,
-                  border: "2px solid var(--color-text)", background: "var(--color-bg)",
+                  border: "1px solid var(--color-neutral-400)", background: "var(--color-bg)",
                   padding: "6px 12px", cursor: "pointer", fontFamily: "var(--font-body)",
                   color: "var(--color-text)",
                 }}
@@ -600,8 +600,8 @@ export function ManageSubscriptionsPage() {
         }
       >
         {phase !== "list" && (
-          <div className="mx-auto max-w-md" style={{ border: "2px solid var(--color-text)", background: "var(--color-bg)", padding: 32 }}>
-            <h1 style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 26, letterSpacing: "-0.02em", margin: 0 }}>Manage your subscriptions</h1>
+          <div className="mx-auto max-w-md" style={{ border: "1px solid var(--color-neutral-400)", background: "var(--color-bg)", padding: 32 }}>
+            <h1 style={{ fontFamily: HEADING, fontWeight: 700, fontSize: 26, letterSpacing: "-0.02em", margin: 0 }}>Manage your subscriptions</h1>
             <p style={{ fontSize: 13.5, color: "var(--color-neutral-700)", margin: "8px 0 0", lineHeight: 1.6 }}>
               Enter your email and we&apos;ll send a 6-digit code. You&apos;ll see every subscription
               tied to that email.
@@ -694,7 +694,7 @@ export function ManageSubscriptionsPage() {
           <>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 24, flexWrap: "wrap", marginBottom: 24 }}>
               <div>
-                <h1 style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 44, lineHeight: 1, letterSpacing: "-0.035em", margin: "0 0 8px" }}>
+                <h1 style={{ fontFamily: HEADING, fontWeight: 700, fontSize: 44, lineHeight: 1, letterSpacing: "-0.035em", margin: "0 0 8px" }}>
                   Subscriptions
                 </h1>
                 <p style={{ fontSize: 14, color: "var(--color-neutral-700)", margin: 0 }}>
@@ -704,7 +704,7 @@ export function ManageSubscriptionsPage() {
                 </p>
               </div>
               {total > 0 && (
-                <div style={{ marginLeft: "auto", display: "flex", border: "2px solid var(--color-text)" }}>
+                <div style={{ marginLeft: "auto", display: "flex", border: "1px solid var(--color-neutral-400)" }}>
                   <Kpi label="Active" value={String(activeCount)} />
                   <Kpi label="Needs you" value={String(needing.length)} accent={needing.length > 0} />
                   <Kpi label="Total spent" value={fmtUsdc(spent)} unit="USDC" />
@@ -753,13 +753,13 @@ export function ManageSubscriptionsPage() {
             )}
 
             {total === 0 ? (
-              <div style={{ border: "2px solid var(--color-text)", padding: 40, textAlign: "center" }}>
+              <div style={{ border: "1px solid var(--color-neutral-400)", padding: 40, textAlign: "center" }}>
                 <p style={{ fontSize: 13, color: "var(--color-neutral-700)", margin: 0 }}>
                   Nothing active found for this email.
                 </p>
               </div>
             ) : (
-              <div style={{ display: "flex", flexWrap: "wrap", border: "2px solid var(--color-text)" }}>
+              <div style={{ display: "flex", flexWrap: "wrap", border: "1px solid var(--color-neutral-400)" }}>
                 {/* The list. Every subscription stays one click away, which is
                     the point of two panes: someone paying three merchants should
                     not scroll past two to reach the third. */}
@@ -767,7 +767,7 @@ export function ManageSubscriptionsPage() {
                   aria-label="Your subscriptions"
                   style={{ flex: "1 1 280px", maxWidth: "100%", borderRight: "1px solid var(--color-divider)", background: "var(--color-surface)" }}
                 >
-                  <p style={{ ...UPPER, padding: "14px 20px", borderBottom: "2px solid var(--color-text)" }}>
+                  <p style={{ ...UPPER, padding: "14px 20px", borderBottom: "1px solid var(--color-neutral-400)" }}>
                     All subscriptions · {subs.length + mandates.length}
                   </p>
                   {subs.map((x) => {
@@ -793,10 +793,10 @@ export function ManageSubscriptionsPage() {
                           <StatusChip sub={x} style={{ marginLeft: "auto" }} />
                         </span>
                         <span style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-                          <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 16, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <span style={{ fontFamily: HEADING, fontWeight: 700, fontSize: 16, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {x.plan.name}
                           </span>
-                          <span style={{ marginLeft: "auto", fontFamily: HEADING, fontWeight: 800, fontSize: 15, whiteSpace: "nowrap" }}>
+                          <span style={{ marginLeft: "auto", fontFamily: HEADING, fontWeight: 700, fontSize: 15, whiteSpace: "nowrap" }}>
                             {fmtUsdc(x.plan.amount)}
                             <span style={{ fontSize: 11.5, fontWeight: 400, color: "var(--color-neutral-700)" }}>
                               {" "}/{PER_NOUN[x.plan.interval] ?? x.plan.interval}
@@ -840,10 +840,10 @@ export function ManageSubscriptionsPage() {
                           </span>
                         </span>
                         <span style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-                          <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 16, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <span style={{ fontFamily: HEADING, fontWeight: 700, fontSize: 16, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             Direct authorization
                           </span>
-                          <span style={{ marginLeft: "auto", fontFamily: HEADING, fontWeight: 800, fontSize: 15, whiteSpace: "nowrap" }}>
+                          <span style={{ marginLeft: "auto", fontFamily: HEADING, fontWeight: 700, fontSize: 15, whiteSpace: "nowrap" }}>
                             {fmtUsdc(m.max_amount)}
                             <span style={{ fontSize: 11.5, fontWeight: 400, color: "var(--color-neutral-700)" }}>
                               {" "}/{PER_NOUN[m.interval] ?? m.interval}
@@ -900,7 +900,7 @@ export function ManageSubscriptionsPage() {
         <div className="dialog-backdrop" onClick={() => setConfirmMandate(null)}>
           <div
             className="dialog"
-            style={{ border: "2px solid var(--color-text)", maxWidth: 460 }}
+            style={{ border: "1px solid var(--color-neutral-400)", maxWidth: 460 }}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -934,7 +934,7 @@ export function ManageSubscriptionsPage() {
         <div className="dialog-backdrop" onClick={() => setConfirmCancel(null)}>
           <div
             className="dialog"
-            style={{ border: "2px solid var(--color-text)", maxWidth: 460 }}
+            style={{ border: "1px solid var(--color-neutral-400)", maxWidth: 460 }}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -994,10 +994,10 @@ function MandateDetail({
 
   return (
     <section style={{ flex: "999 1 520px", minWidth: 0, animation: "swp-in .2s ease" }}>
-      <div style={{ padding: "22px 24px", borderBottom: "2px solid var(--color-text)" }}>
+      <div style={{ padding: "22px 24px", borderBottom: "1px solid var(--color-neutral-400)" }}>
         <p style={{ ...UPPER, marginBottom: 8 }}>{mandate.merchant.name}</p>
         <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
-          <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 34, lineHeight: 1, letterSpacing: "-0.02em" }}>
+          <span style={{ fontFamily: HEADING, fontWeight: 700, fontSize: 34, lineHeight: 1, letterSpacing: "-0.02em" }}>
             {fmtUsdc(mandate.max_amount)}
           </span>
           <span style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
@@ -1049,7 +1049,7 @@ function MandateDetail({
                   {Mark
                     ? <Mark height={22} opacity={g ? 1 : 0.45} />
                     : <span style={{ width: 22, height: 22, flex: "none", background: "var(--color-neutral-200)" }} />}
-                  <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 14.5, color: g ? undefined : "var(--color-neutral-700)" }}>
+                  <span style={{ fontFamily: HEADING, fontWeight: 700, fontSize: 14.5, color: g ? undefined : "var(--color-neutral-700)" }}>
                     {c.name}
                   </span>
                   <span style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>
@@ -1146,14 +1146,14 @@ function SubscriptionDetail({
       <div
         style={{
           padding: "26px 30px 22px", display: "flex", alignItems: "flex-start", gap: 20,
-          flexWrap: "wrap", borderBottom: "2px solid var(--color-text)",
+          flexWrap: "wrap", borderBottom: "1px solid var(--color-neutral-400)",
         }}
       >
         <div style={{ flex: "1 1 240px", minWidth: 0 }}>
           <p style={{ ...UPPER, letterSpacing: "0.16em", color: "var(--color-accent-700)", marginBottom: 8 }}>
             {sub.merchant.name}
           </p>
-          <h2 style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 32, lineHeight: 1, letterSpacing: "-0.03em", margin: "0 0 10px" }}>
+          <h2 style={{ fontFamily: HEADING, fontWeight: 700, fontSize: 32, lineHeight: 1, letterSpacing: "-0.03em", margin: "0 0 10px" }}>
             {sub.plan.name}
           </h2>
           <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
@@ -1163,7 +1163,7 @@ function SubscriptionDetail({
           </span>
         </div>
         <div style={{ textAlign: "right" }}>
-          <p style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 40, lineHeight: 1, letterSpacing: "-0.035em", margin: 0 }}>
+          <p style={{ fontFamily: HEADING, fontWeight: 700, fontSize: 40, lineHeight: 1, letterSpacing: "-0.035em", margin: 0 }}>
             {fmtUsdc(sub.plan.amount)}
           </p>
           <p style={{ fontSize: 12.5, color: "var(--color-neutral-700)", margin: "4px 0 0" }}>
@@ -1188,11 +1188,11 @@ function SubscriptionDetail({
                 Price change · approval required
               </p>
               <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 10 }}>
-                <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 22, color: "var(--color-neutral-600)", textDecoration: "line-through" }}>
+                <span style={{ fontFamily: HEADING, fontWeight: 700, fontSize: 22, color: "var(--color-neutral-600)", textDecoration: "line-through" }}>
                   {fmtUsdc(cap)}
                 </span>
                 <span style={{ fontSize: 14, color: "var(--color-neutral-700)" }}>&rarr;</span>
-                <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 22 }}>
+                <span style={{ fontFamily: HEADING, fontWeight: 700, fontSize: 22 }}>
                   {fmtUsdc(sub.plan.amount)} {sub.plan.currency} / {per}
                 </span>
               </div>
@@ -1230,7 +1230,7 @@ function SubscriptionDetail({
 
       <div
         style={{
-          display: "grid", borderBottom: "2px solid var(--color-text)",
+          display: "grid", borderBottom: "1px solid var(--color-neutral-400)",
           gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
         }}
       >
@@ -1249,7 +1249,7 @@ function SubscriptionDetail({
           so which ones are on is a real choice with a real consequence. */}
       <div style={{ padding: "22px 30px", borderBottom: "1px solid var(--color-divider)" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
-          <h3 style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 17, margin: 0, letterSpacing: "-0.01em" }}>Charge from</h3>
+          <h3 style={{ fontFamily: HEADING, fontWeight: 700, fontSize: 17, margin: 0, letterSpacing: "-0.01em" }}>Charge from</h3>
           <span style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>
             If one chain is short, we try the next. Changes are free.
           </span>
@@ -1272,7 +1272,7 @@ function SubscriptionDetail({
                 {Mark
                   ? <Mark height={22} opacity={g ? 1 : 0.45} />
                   : <span style={{ width: 22, height: 22, flex: "none", background: "var(--color-neutral-200)" }} />}
-                <span style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 14.5, color: g ? undefined : "var(--color-neutral-700)" }}>
+                <span style={{ fontFamily: HEADING, fontWeight: 700, fontSize: 14.5, color: g ? undefined : "var(--color-neutral-700)" }}>
                   {c.name}
                 </span>
                 <span style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>
@@ -1297,7 +1297,7 @@ function SubscriptionDetail({
                     <span style={{ minWidth: 22, textAlign: "right" }}>On</span>
                     <span
                       style={{
-                        width: 40, height: 22, border: "2px solid var(--color-text)",
+                        width: 40, height: 22, border: "1px solid var(--color-neutral-400)",
                         background: "var(--color-text)", display: "flex", justifyContent: "flex-end",
                         boxSizing: "border-box", padding: 3,
                       }}
@@ -1338,7 +1338,7 @@ function SubscriptionDetail({
 
       <div style={{ padding: "20px 30px 24px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 300px" }}>
-          <p style={{ fontFamily: HEADING, fontWeight: 800, fontSize: 15, margin: "0 0 4px" }}>Cancel subscription</p>
+          <p style={{ fontFamily: HEADING, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Cancel subscription</p>
           <p style={{ fontSize: 12.5, lineHeight: 1.6, color: "var(--color-neutral-700)", margin: 0, maxWidth: "60ch" }}>
             Stops all future charges right away. You keep access until {fmtDate(sub.current_period_end)}.
           </p>

@@ -82,7 +82,7 @@ export function OnboardingPage() {
 
         <div
           className="flex flex-wrap items-center gap-3"
-          style={{ borderTop: "2px solid var(--color-divider)", paddingTop: 20 }}
+          style={{ borderTop: "1px solid var(--color-divider)", paddingTop: 20 }}
         >
           <button
             type="submit"

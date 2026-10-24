@@ -1,0 +1,132 @@
+/*
+ * Sweep Console v2 — the palette, type and shape the product actually wears.
+ *
+ * Derived from `Sweep Console v2.dc.html` in the design package. It REPLACES
+ * the look modernist.css ships rather than tinting it: that system is flat,
+ * zero-radius, Archivo, near-mono red on a warm grey ground, and this one is
+ * soft, rounded, Plus Jakarta Sans, indigo on white. Only the token NAMES are
+ * shared, which is the whole point — 46 files already read `var(--color-*)`,
+ * `var(--radius-*)` and `var(--font-*)`, so redefining the tokens moves the
+ * app without touching those files.
+ *
+ * It is imported AFTER modernist.css so these win. modernist.css is kept for
+ * its component structure (.btn, .card, .table, .dialog) and its reset; what
+ * it must not keep is its appearance.
+ *
+ * NOT the same as styles/arc-blue.css, which this replaces. That file's #2f6fc9
+ * ramp is what the app wore before, and the design package's
+ * "Sweep Console - Arc Blue.dc.html" is a snapshot of THAT — not of this.
+ *
+ * Source colours, counted from the design so the common ones are the tokens
+ * and the rare ones are not: #4447D6 (accent, 21 uses), #23233B (ink, 7),
+ * #3639C4 / #2F32B8 (hover, pressed), #F4F4FB / #FAFAFC (surfaces),
+ * #ECECF3 / #E2E2EC (lines), #E7F6EE on #1F8A5B (success).
+ */
+
+:root {
+  /* ── Ground and ink ─────────────────────────────────────────────────── */
+  /* White, not the warm grey modernist sits on. The design carries depth in
+     surfaces and soft lines instead of in the page colour. */
+  --color-bg: #ffffff;
+  --color-text: #23233B;
+  --color-surface: #F4F4FB;
+
+  /* A divider you can look at. modernist's is 40% ink — correct for a system
+     built on 2px rules, far too heavy for 1px ones. */
+  --color-divider: #ECECF3;
+
+  /* ── Accent ─────────────────────────────────────────────────────────── */
+  /* Indigo #4447D6. The ramp is built around the three steps the design
+     actually uses — base, hover #3639C4, pressed #2F32B8 — with the tints
+     (#EEEEFC, #DCDDFB, #C9CAF6) in the light steps where components reach for
+     fills and subtle borders. */
+  --color-accent: #4447D6;
+  --color-accent-100: #F5F5FE;
+  --color-accent-200: #EEEEFC;
+  --color-accent-300: #DCDDFB;
+  --color-accent-400: #C9CAF6;
+  --color-accent-500: #8A8CE8;
+  --color-accent-600: #3639C4;
+  --color-accent-700: #2F32B8;
+  --color-accent-800: #262995;
+  --color-accent-900: #1C1E6E;
+
+  /* A mono scheme, as the system it replaces was: accent-2 resolves to the
+     same role so anything reading it stays coherent rather than picking up a
+     colour nobody chose. */
+  --color-accent-2: #4447D6;
+  --color-accent-2-100: #F5F5FE;
+  --color-accent-2-200: #EEEEFC;
+  --color-accent-2-300: #DCDDFB;
+  --color-accent-2-400: #C9CAF6;
+  --color-accent-2-500: #8A8CE8;
+  --color-accent-2-600: #3639C4;
+  --color-accent-2-700: #2F32B8;
+  --color-accent-2-800: #262995;
+  --color-accent-2-900: #1C1E6E;
+
+  /* ── Neutrals ───────────────────────────────────────────────────────── */
+  /* The design's greys are violet-tinted, not warm — they sit under indigo
+     without going muddy. Mapped onto the 100–900 ramp so the same step keeps
+     the same visual weight it had before. */
+  --color-neutral-100: #FAFAFC;
+  --color-neutral-200: #F4F4FB;
+  --color-neutral-300: #ECECF3;
+  --color-neutral-400: #E2E2EC;
+  --color-neutral-500: #D4D5E2;
+  --color-neutral-600: #A3A4B5;
+  /* 3.34:1 on white — large text, icons and chrome only, never body copy.
+     The design uses it for 11px uppercase labels, which is below that bar;
+     those sites should take neutral-800 instead. */
+  --color-neutral-700: #8A8BA0;
+  --color-neutral-800: #5D5E73;
+  --color-neutral-900: #3E3F55;
+
+  /* ── Type ───────────────────────────────────────────────────────────── */
+  /* Plus Jakarta Sans throughout, JetBrains Mono for code and addresses. 800
+     was right for Archivo's architectural headings and is too heavy here. */
+  --font-heading: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-heading-weight: 700;
+  --font-body: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+
+  /* ── Shape ──────────────────────────────────────────────────────────── */
+  /* modernist's radius is 0 "on purpose"; this design's purpose is the
+     opposite. Measured from the design: 7px on controls and small surfaces,
+     9–12px on cards, 14px+ on panels and the modal. */
+  --radius-sm: 7px;
+  --radius-md: 9px;
+  --radius-lg: 14px;
+
+  /* ── Elevation ──────────────────────────────────────────────────────── */
+  /* Tinted with the ink (#23233B) rather than neutral black, so a raised
+     surface reads as lifted off THIS ground instead of greyed. The large step
+     is the design's modal shadow, which is long and low-opacity rather than
+     dark. */
+  --shadow-sm: 0 1px 2px rgba(35, 35, 59, 0.08);
+  --shadow-md: 0 4px 14px -4px rgba(35, 35, 80, 0.16);
+  --shadow-lg: 0 30px 60px -30px rgba(35, 35, 80, 0.35);
+
+  /* ── Status ─────────────────────────────────────────────────────────── */
+  /* Named roles rather than ramp steps, because a paid/failed badge should not
+     have to know which step of which ramp means "good".
+
+     The design's own pairing is #1F8A5B on #E7F6EE, which measures 3.88:1 —
+     under AA for body text. Darkened to #15704A (5.4:1 on the same ground) so
+     a settled/failed badge is readable at badge size, which is small. The
+     background is the design's unchanged, so it still reads as the same
+     colour at a glance. */
+  --color-ok-bg: #E7F6EE;
+  --color-ok-text: #15704A;
+  --color-header-bg: rgba(255, 255, 255, 0.86);
+}
+
+/*
+ * Dark mode is deliberately absent.
+ *
+ * The design package defines one theme, and a guessed dark palette on a
+ * payment screen is worse than none: a half-converted checkout where the
+ * amount is legible and the chain picker is not costs money, and nothing here
+ * says what dark should look like. When the design covers it, it belongs in
+ * this file as a `prefers-color-scheme` block over the same token names.
+ */

@@ -210,7 +210,7 @@ export function WebhooksPage() {
           >
             <p
               className="m-0 mb-1"
-              style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15 }}
+              style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 15 }}
             >
               Endpoint created — save your signing secret now
             </p>
@@ -255,7 +255,7 @@ export function WebhooksPage() {
         {endpoints === null ? (
           <div className="space-y-4">
             {Array.from({ length: 2 }).map((_, i) => (
-              <div key={i} style={{ borderTop: "2px solid var(--color-divider)", padding: "22px 0" }}>
+              <div key={i} style={{ borderTop: "1px solid var(--color-divider)", padding: "22px 0" }}>
                 <div className="mb-2 h-4 w-64 animate-pulse" style={{ background: "var(--color-neutral-300)" }} />
                 <div className="h-3 w-32 animate-pulse" style={{ background: "var(--color-neutral-300)" }} />
               </div>
@@ -268,7 +268,7 @@ export function WebhooksPage() {
           />
         ) : (
           endpoints.map((ep) => (
-            <div key={ep.id} style={{ borderTop: "2px solid var(--color-divider)", padding: "22px 0 26px" }}>
+            <div key={ep.id} style={{ borderTop: "1px solid var(--color-divider)", padding: "22px 0 26px" }}>
               <div className="flex flex-wrap items-start gap-3.5">
                 <div className="min-w-0">
                   <p
@@ -422,7 +422,7 @@ export function WebhooksPage() {
         {/* Add an endpoint — a permanent section, as in the design. */}
         <div
           className="grid gap-8 lg:grid-cols-[1.2fr_1fr]"
-          style={{ borderTop: "2px solid var(--color-divider)", paddingTop: 22, marginTop: 8 }}
+          style={{ borderTop: "1px solid var(--color-divider)", paddingTop: 22, marginTop: 8 }}
         >
           <form onSubmit={handleCreate}>
             <h3 className="m-0 mb-3.5" style={{ fontSize: 20, letterSpacing: "-0.02em" }}>

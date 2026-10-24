@@ -82,7 +82,7 @@ export function AddTierForm({ planId, onAdded }: { planId: string; onAdded: () =
   return (
     <form
       onSubmit={submit}
-      style={{ borderTop: "2px solid var(--color-divider)", marginTop: 16, paddingTop: 18 }}
+      style={{ borderTop: "1px solid var(--color-divider)", marginTop: 16, paddingTop: 18 }}
     >
       <div className="mb-3 flex items-baseline gap-3">
         <h4 className="m-0" style={{ fontSize: 17 }}>New tier</h4>

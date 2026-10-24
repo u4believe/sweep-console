@@ -155,7 +155,7 @@ export function SecuritySettings() {
       <div style={{ borderTop: "1px solid var(--color-divider)", padding: "14px 0" }}>
         <div className="flex flex-wrap items-center gap-3">
           <div>
-            <p className="m-0" style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 14 }}>
+            <p className="m-0" style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 14 }}>
               Authenticator app
             </p>
             <p className="m-0" style={{ fontSize: 12.5, color: "var(--color-neutral-700)", marginTop: 3 }}>

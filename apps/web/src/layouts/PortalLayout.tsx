@@ -80,7 +80,7 @@ export function PortalLayout() {
         style={{
           zIndex: 30,
           background: "var(--color-bg)",
-          borderBottom: "2px solid var(--color-divider)",
+          borderBottom: "1px solid var(--color-divider)",
         }}
       >
         {/* Identity row */}
@@ -95,7 +95,7 @@ export function PortalLayout() {
             <span
               style={{
                 fontFamily: "var(--font-heading)",
-                fontWeight: 800,
+                fontWeight: 700,
                 fontSize: 15,
                 letterSpacing: "-0.02em",
               }}

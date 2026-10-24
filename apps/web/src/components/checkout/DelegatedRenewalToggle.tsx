@@ -301,11 +301,11 @@ export function DelegatedRenewalToggle({
   };
 
   return (
-    <div style={{ background: "var(--color-surface)", border: "2px solid var(--color-divider)", padding: 12 }}>
+    <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-divider)", padding: 12 }}>
       {/* The master switch — the one control here that authorizes every chain
           at once. Always rendered, whatever the capability probe says. */}
       <div className="flex items-center gap-3">
-        <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 14.5 }}>
+        <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 14.5 }}>
           Authorize grant permission for all chains
         </span>
         <span className="ml-auto">

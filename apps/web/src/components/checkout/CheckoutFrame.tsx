@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export const RULE = "2px solid var(--color-divider)";
+export const RULE = "1px solid var(--color-divider)";
 export const HAIRLINE = "1px solid var(--color-divider)";
 
 export type Rail = "pick" | "pay" | "done";
@@ -44,7 +44,7 @@ export function CheckoutFrame({
         className="flex flex-wrap items-center gap-3.5"
         style={{ padding: "16px 32px", background: "var(--color-bg)", borderBottom: RULE }}
       >
-        <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 16 }}>
+        <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 16 }}>
           {merchant.name}
         </span>
         {isTestMode && (

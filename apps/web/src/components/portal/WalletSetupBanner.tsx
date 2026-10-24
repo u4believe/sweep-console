@@ -137,7 +137,7 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
       >
         <p className="m-0 flex flex-wrap items-center gap-3">
           <span style={SQUARE} />
-          <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15 }}>
+          <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 15 }}>
             Payout wallet linked
           </span>
           {address && (
@@ -212,7 +212,7 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
       {mode === "link" ? (
         <div
           style={{
-            border: "2px solid var(--color-divider)",
+            border: "1px solid var(--color-divider)",
             padding: 20,
             background: "var(--color-surface)",
           }}
@@ -225,11 +225,11 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
         </div>
       ) : (
         <>
-          <div style={{ border: "2px solid var(--color-divider)", background: "var(--color-surface)" }}>
+          <div style={{ border: "1px solid var(--color-divider)", background: "var(--color-surface)" }}>
             <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
               <div className="flex flex-wrap items-center gap-3">
                 <span style={SQUARE} />
-                <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 14.5 }}>
+                <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 14.5 }}>
                   Circle user-controlled wallet
                 </span>
                 <span className="tag tag-outline" style={{ marginLeft: "auto" }}>
@@ -324,7 +324,7 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
           </p>
           <div className="flex items-center gap-2.5">
             <ArcMark height={20} />
-            <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 14.5 }}>Arc</span>
+            <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 14.5 }}>Arc</span>
             <span className="tag tag-neutral">Fixed</span>
           </div>
         </div>

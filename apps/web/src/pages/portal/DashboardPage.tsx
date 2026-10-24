@@ -129,7 +129,7 @@ function SettledChart({ bars, unit }: { bars: Bar[]; unit: ChartRange["unit"] })
     <>
       <div
         className="flex items-end"
-        style={{ height: 150, gap, borderBottom: "2px solid var(--color-divider)", paddingTop: 14 }}
+        style={{ height: 150, gap, borderBottom: "1px solid var(--color-divider)", paddingTop: 14 }}
       >
         {bars.map((b) => (
           <div
@@ -298,7 +298,7 @@ export function DashboardPage() {
       <PageHeader kicker="Overview" title="Dashboard" />
 
       {data && !data.walletAddress && (
-        <div style={{ padding: "20px 32px", borderBottom: "2px solid var(--color-divider)" }}>
+        <div style={{ padding: "20px 32px", borderBottom: "1px solid var(--color-divider)" }}>
           <WalletSetupBanner hasCircleWallet={data.walletType === "circle"} />
         </div>
       )}
@@ -306,7 +306,7 @@ export function DashboardPage() {
       <KpiBand items={kpis} loading={data === null} />
 
       {/* Settled chart beside the payout wallet and the next renewal batch. */}
-      <div className="grid lg:grid-cols-[1.5fr_1fr]" style={{ borderBottom: "2px solid var(--color-divider)" }}>
+      <div className="grid lg:grid-cols-[1.5fr_1fr]" style={{ borderBottom: "1px solid var(--color-divider)" }}>
         <section style={{ padding: "26px 32px", borderRight: "1px solid var(--color-divider)" }}>
           <div className="mb-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-2">
             <h3 className="m-0" style={{ fontSize: 20, letterSpacing: "-0.02em" }}>
@@ -354,7 +354,7 @@ export function DashboardPage() {
               <>
                 <p
                   className="m-0"
-                  style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 26, letterSpacing: "-0.02em" }}
+                  style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 26, letterSpacing: "-0.02em" }}
                 >
                   {batch.day.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                 </p>
@@ -402,7 +402,7 @@ export function DashboardPage() {
               <tbody>
                 {recent.map((p) => (
                   <tr key={p.id}>
-                    <td style={{ fontFamily: "var(--font-heading)", fontWeight: 800 }}>
+                    <td style={{ fontFamily: "var(--font-heading)", fontWeight: 700 }}>
                       {(p.amount / 1_000_000).toFixed(2)}
                     </td>
                     <td>{p.type}</td>

@@ -129,7 +129,7 @@ export function ApiKeysPage() {
               >
                 <p
                   className="m-0 mb-1"
-                  style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15 }}
+                  style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 15 }}
                 >
                   Your new test API key — copy it now
                 </p>
@@ -162,7 +162,7 @@ export function ApiKeysPage() {
               <div className="flex flex-wrap items-start gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="m-0" style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 17 }}>
+                    <p className="m-0" style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 17 }}>
                       {keyInfo.name}
                     </p>
                     <span className={`tag ${keyInfo.testMode ? "tag-outline" : "tag-accent"}`}>

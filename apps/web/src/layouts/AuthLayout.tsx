@@ -13,11 +13,11 @@ export function AuthLayout() {
     <div className="flex min-h-screen flex-col" style={{ background: "var(--color-bg)" }}>
       <header
         className="flex items-center"
-        style={{ padding: "18px 40px", borderBottom: "2px solid var(--color-divider)" }}
+        style={{ padding: "18px 40px", borderBottom: "1px solid var(--color-divider)" }}
       >
         <Link to="/" className="flex items-center gap-2.5" style={{ color: "var(--color-text)" }}>
           <Logo height={22} />
-          <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 16, letterSpacing: "-0.02em" }}>
+          <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 16, letterSpacing: "-0.02em" }}>
             Sweep Console
           </span>
         </Link>
@@ -33,7 +33,7 @@ export function AuthLayout() {
         className="flex flex-wrap items-center gap-6"
         style={{ padding: "24px 40px", fontSize: 12, color: "var(--color-neutral-700)" }}
       >
-        <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, color: "var(--color-text)" }}>
+        <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, color: "var(--color-text)" }}>
           Sweep Console
         </span>
         <span className="ml-auto">Payment infrastructure for on-chain recurring revenue</span>

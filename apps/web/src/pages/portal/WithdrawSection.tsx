@@ -133,7 +133,7 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
             <p
               className="m-0"
               style={{
-                fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 34,
+                fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 34,
                 lineHeight: 1, letterSpacing: "-0.03em",
               }}
             >

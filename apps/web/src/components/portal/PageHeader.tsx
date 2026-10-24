@@ -19,7 +19,7 @@ export function PageHeader({ kicker, title, onBack, action }: PageHeaderProps) {
   return (
     <div
       className="flex flex-wrap items-end gap-4 px-8 pb-[18px] pt-[26px]"
-      style={{ borderBottom: "2px solid var(--color-divider)" }}
+      style={{ borderBottom: "1px solid var(--color-divider)" }}
     >
       <div className="min-w-0">
         <p

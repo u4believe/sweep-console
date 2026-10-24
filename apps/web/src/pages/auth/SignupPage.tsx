@@ -44,7 +44,7 @@ export function SignupPage() {
         title="We've sent you a verification link."
         body="Open it to set your name and password and finish creating your account. Didn't arrive? Check your spam folder."
       >
-        <div style={{ borderTop: "2px solid var(--color-divider)", paddingTop: 20 }}>
+        <div style={{ borderTop: "1px solid var(--color-divider)", paddingTop: 20 }}>
           <Link to="/login" className="btn btn-secondary" style={{ padding: "11px 18px" }}>
             Back to login
           </Link>

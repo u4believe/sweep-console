@@ -1,15 +1,26 @@
 /*
- * The Modernist design system is the source of truth for the app's look.
- * These two imports are vendored from the Claude Design project — edit them
- * there and re-import, not here. See styles/modernist.css for provenance.
+ * The app's look is modernist.css for STRUCTURE and sweep-v2.css for
+ * APPEARANCE.
+ *
+ * modernist.css is vendored from the Claude Design project — edit it there and
+ * re-import, not here. It contributes the reset and the component classes
+ * (.btn, .card, .table, .dialog) that 215 call sites already use. What it no
+ * longer contributes is the look: its flat, zero-radius, Archivo, red-on-warm-
+ * grey identity is overridden wholesale by sweep-v2.css, which redefines the
+ * same token names from the v2 design. Order matters — v2 must come second.
+ *
+ * sweep-v2.css replaced styles/arc-blue.css. That file's #2f6fc9 ramp is what
+ * the app wore before; the design package's "Sweep Console - Arc Blue.dc.html"
+ * is a snapshot of that older state, not of the new design.
  *
  * They sit above the Tailwind directives so postcss-import can inline them
  * (CSS requires @import to lead the file). Tailwind's preflight therefore
  * lands *after* the design system and would otherwise flatten its typography,
  * which is why the base layer below re-asserts it.
  */
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap");
 @import "./styles/modernist.css";
-@import "./styles/arc-blue.css";
+@import "./styles/sweep-v2.css";
 
 @tailwind base;
 @tailwind components;

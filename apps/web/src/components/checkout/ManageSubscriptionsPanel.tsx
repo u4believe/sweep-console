@@ -99,7 +99,7 @@ export function ManageSubscriptionsPanel({
     <div className="dialog-backdrop" style={{ zIndex: 60 }} role="presentation">
       <div
         className="dialog swp-in"
-        style={{ border: "2px solid var(--color-text)", width: "min(520px, 100%)", maxHeight: "86vh" }}
+        style={{ border: "1px solid var(--color-neutral-400)", width: "min(520px, 100%)", maxHeight: "86vh" }}
         role="dialog"
         aria-modal="true"
         aria-labelledby="existing-sub-title"
@@ -130,7 +130,7 @@ export function ManageSubscriptionsPanel({
                 <div>
                   <p
                     className="m-0"
-                    style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 14.5 }}
+                    style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 14.5 }}
                   >
                     {s.plan.name}
                     {s.status !== "active" && (

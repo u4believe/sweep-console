@@ -104,7 +104,7 @@ export function PlanShowcase({
               <p
                 className="m-0"
                 style={{
-                  fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 54,
+                  fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 54,
                   lineHeight: 1, letterSpacing: "-0.04em",
                 }}
               >
@@ -126,7 +126,7 @@ export function PlanShowcase({
               >
                 {features.map((f, i) => (
                   <span key={i} className="flex gap-2.5" style={{ fontSize: 13, lineHeight: 1.45 }}>
-                    <span style={{ color: "var(--color-accent)", fontFamily: "var(--font-heading)", fontWeight: 800 }}>
+                    <span style={{ color: "var(--color-accent)", fontFamily: "var(--font-heading)", fontWeight: 700 }}>
                       —
                     </span>
                     {f}

@@ -103,7 +103,7 @@ const PRICING = [
   },
 ];
 
-const RULE = "2px solid var(--color-divider)";
+const RULE = "1px solid var(--color-divider)";
 const HAIRLINE = "1px solid var(--color-divider)";
 
 function Kicker({ children, accent = false }: { children: React.ReactNode; accent?: boolean }) {
@@ -135,7 +135,7 @@ function Header() {
     >
       <Link to="/" className="mr-auto flex items-center gap-2.5" style={{ color: "var(--color-text)" }}>
         <Logo height={24} />
-        <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 17, letterSpacing: "-0.02em" }}>
+        <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 17, letterSpacing: "-0.02em" }}>
           Sweep Console
         </span>
       </Link>
@@ -261,7 +261,7 @@ function Hero() {
               <p
                 className="m-0"
                 style={{
-                  fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 26,
+                  fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 26,
                   lineHeight: 1.08, letterSpacing: "-0.02em", margin: "8px 0 6px",
                 }}
               >
@@ -307,7 +307,7 @@ function ChainRail() {
       <span className="ml-auto"><Kicker>Settle on</Kicker></span>
       <span
         className="flex items-center gap-2.5"
-        style={{ fontSize: 13.5, fontFamily: "var(--font-heading)", fontWeight: 800 }}
+        style={{ fontSize: 13.5, fontFamily: "var(--font-heading)", fontWeight: 700 }}
       >
         <ArcMark height={20} accent />
         Arc · USDC
@@ -379,7 +379,7 @@ function HowItWorks() {
             <span
               className="block"
               style={{
-                fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 56,
+                fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 56,
                 lineHeight: 1, color: "var(--color-accent)", marginBottom: 16,
               }}
             >
@@ -423,7 +423,7 @@ function PricingSection() {
             <p
               className="m-0"
               style={{
-                fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 52,
+                fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 52,
                 lineHeight: 1, letterSpacing: "-0.035em",
               }}
             >
@@ -441,7 +441,7 @@ function PricingSection() {
             >
               {p.feats.map((ft) => (
                 <span key={ft} className="flex gap-2.5" style={{ fontSize: 13, lineHeight: 1.4 }}>
-                  <span style={{ color: "var(--color-accent)", fontFamily: "var(--font-heading)", fontWeight: 800 }}>
+                  <span style={{ color: "var(--color-accent)", fontFamily: "var(--font-heading)", fontWeight: 700 }}>
                     —
                   </span>
                   {ft}
@@ -579,7 +579,7 @@ export function LandingPage() {
         className="flex flex-wrap items-center gap-6"
         style={{ padding: "28px 40px", fontSize: 12, color: "var(--color-neutral-700)" }}
       >
-        <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, color: "var(--color-text)" }}>
+        <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, color: "var(--color-text)" }}>
           Sweep Console
         </span>
         <a href={DOCS_URL} style={{ color: "var(--color-neutral-700)" }}>Documentation</a>

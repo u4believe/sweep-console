@@ -155,7 +155,7 @@ export function TierEditor({
     <div style={{ padding: "18px 0 20px", borderBottom: "1px solid var(--color-divider)" }}>
       {/* Locked billing terms, stated plainly on the first line. */}
       <div className="flex flex-wrap items-baseline gap-3">
-        <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 17 }}>
+        <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 17 }}>
           {(tier.amount / 1_000_000).toFixed(2)} USDC
         </span>
         <span style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>

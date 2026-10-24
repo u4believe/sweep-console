@@ -85,7 +85,7 @@ export function CreatePlanForm() {
 
   return (
     <form onSubmit={submit}>
-      <div style={{ borderTop: "2px solid var(--color-divider)", paddingTop: 20 }}>
+      <div style={{ borderTop: "1px solid var(--color-divider)", paddingTop: 20 }}>
         <p
           className="m-0 uppercase"
           style={{ fontSize: 10, letterSpacing: "0.14em", color: "var(--color-neutral-600)", marginBottom: 12 }}
@@ -211,7 +211,7 @@ export function CreatePlanForm() {
 
       <div
         className="flex flex-wrap items-center gap-3"
-        style={{ borderTop: "2px solid var(--color-divider)", marginTop: 24, paddingTop: 20 }}
+        style={{ borderTop: "1px solid var(--color-divider)", marginTop: 24, paddingTop: 20 }}
       >
         <button
           type="submit"

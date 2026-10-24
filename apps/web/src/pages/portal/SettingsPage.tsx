@@ -158,7 +158,7 @@ export function SettingsPage() {
 
       <div
         className="flex"
-        style={{ borderBottom: "2px solid var(--color-divider)", padding: "0 32px", overflowX: "auto" }}
+        style={{ borderBottom: "1px solid var(--color-divider)", padding: "0 32px", overflowX: "auto" }}
       >
         {TABS.map((t) => {
           const active = t.id === tab;
@@ -426,7 +426,7 @@ function WalletTab({ profile }: { profile: MerchantProfile }) {
         <Kicker>Settlement chain</Kicker>
         <div
           className="flex flex-wrap items-center gap-3.5"
-          style={{ border: "2px solid var(--color-divider)", background: "var(--color-surface)", padding: "16px 18px" }}
+          style={{ border: "1px solid var(--color-divider)", background: "var(--color-surface)", padding: "16px 18px" }}
         >
           <svg viewBox="0 0 31 32" height="24" aria-label="Arc" style={{ display: "block", flex: "none", height: 24, width: "auto" }}>
             <path
@@ -434,7 +434,7 @@ function WalletTab({ profile }: { profile: MerchantProfile }) {
               fill="var(--color-text)"
             />
           </svg>
-          <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 16 }}>Arc</span>
+          <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 16 }}>Arc</span>
           <span className="tag tag-neutral">Fixed</span>
         </div>
         <p className="m-0" style={{ fontSize: 12, color: "var(--color-neutral-700)", marginTop: 10, maxWidth: "64ch", lineHeight: 1.6 }}>

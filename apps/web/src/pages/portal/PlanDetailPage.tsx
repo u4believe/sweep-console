@@ -209,7 +209,7 @@ export function PlanDetailPage() {
         >
           <h3 className="m-0 mb-3.5" style={{ fontSize: 20, letterSpacing: "-0.02em" }}>Tiers</h3>
 
-          <div style={{ borderTop: "2px solid var(--color-divider)" }}>
+          <div style={{ borderTop: "1px solid var(--color-divider)" }}>
             {/* The plan's own terms are the default option at checkout. There is
                 no PlanTier row behind them, so TierEditor patches the plan itself
                 (planDefault) and offers no Remove — but the merchant gets the same
@@ -270,7 +270,7 @@ export function PlanDetailPage() {
             className="m-0"
             style={{
               fontSize: 20, letterSpacing: "-0.02em", margin: "32px 0 14px",
-              borderTop: "2px solid var(--color-divider)", paddingTop: 26,
+              borderTop: "1px solid var(--color-divider)", paddingTop: 26,
             }}
           >
             Subscribers on this plan

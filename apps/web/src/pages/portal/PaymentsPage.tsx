@@ -123,7 +123,7 @@ export function PaymentsPage() {
                   <tbody>
                     {payments.map((payment) => (
                       <tr key={payment.id}>
-                        <td style={{ fontFamily: "var(--font-heading)", fontWeight: 800 }}>
+                        <td style={{ fontFamily: "var(--font-heading)", fontWeight: 700 }}>
                           {(payment.amount / 1_000_000).toFixed(2)}{" "}
                           <span style={{ fontSize: 11, fontWeight: 400, color: "var(--color-neutral-600)" }}>
                             {payment.currency}

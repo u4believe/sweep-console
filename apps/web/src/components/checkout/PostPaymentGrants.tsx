@@ -118,7 +118,7 @@ export function PostPaymentGrants({
         Renewal permissions
       </p>
 
-      <div style={{ background: "var(--color-surface)", border: "2px solid var(--color-divider)", padding: 16 }}>
+      <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-divider)", padding: 16 }}>
         <p className="m-0" style={{ fontSize: 12.5, color: "var(--color-neutral-800)", lineHeight: 1.6 }}>
           {remaining.length === 0
             ? "Every supported chain is authorized. Renewals will charge from whichever one holds enough USDC."

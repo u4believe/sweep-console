@@ -114,7 +114,7 @@ export function PlansPage() {
                 {plans.map((plan) => (
                   <tr key={plan.id}>
                     <td style={{ cursor: "pointer" }} onClick={() => navigate(`/plans/${plan.id}`)}>
-                      <p className="m-0" style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15 }}>
+                      <p className="m-0" style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 15 }}>
                         {plan.name}
                       </p>
                       <Mono size={11}>
@@ -157,14 +157,14 @@ export function PlansPage() {
                           ))}
                       </div>
                     </td>
-                    <td style={{ fontFamily: "var(--font-heading)", fontWeight: 800 }}>
+                    <td style={{ fontFamily: "var(--font-heading)", fontWeight: 700 }}>
                       {(plan.amount / 1_000_000).toFixed(2)}
                     </td>
                     <td style={{ color: "var(--color-neutral-700)" }}>{INTERVAL_LABELS[plan.interval]}</td>
                     <td style={{ color: "var(--color-neutral-700)" }}>
                       {plan.trial_days > 0 ? `${plan.trial_days} days` : "None"}
                     </td>
-                    <td style={{ fontFamily: "var(--font-heading)", fontWeight: 800 }}>{plan.subscribers}</td>
+                    <td style={{ fontFamily: "var(--font-heading)", fontWeight: 700 }}>{plan.subscribers}</td>
                     <td>
                       {links[plan.id] ? (
                         <Mono size={11.5}>

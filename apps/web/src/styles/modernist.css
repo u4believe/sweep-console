@@ -6,7 +6,7 @@
  *   _ds/modernist-58bed631-b50a-4105-9b71-e47ee42a436d/styles.css
  *
  * Do not hand-edit — re-import from the project instead. The Arc Blue accent
- * override lives in ./arc-blue.css, applied after this file.
+ * override lives in ./sweep-v2.css, applied after this file.
  *
  * The upstream file begins with an @import for Archivo from Google Fonts; it is
  * omitted here because index.html already preconnects and loads that family,
@@ -265,7 +265,7 @@ textarea.input { min-height: 90px; resize: vertical; }
 .nav {
   display: flex; align-items: center; gap: var(--space-4);
   padding: var(--space-3) var(--space-4);
-  border-bottom: 2px solid var(--color-divider);
+  border-bottom: 1px solid var(--color-divider);
 }
 .nav-brand {
   font-family: var(--font-heading); font-weight: var(--font-heading-weight);
@@ -279,7 +279,7 @@ textarea.input { min-height: 90px; resize: vertical; }
 .table th {
   text-align: left; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
   color: color-mix(in srgb, var(--color-text) 60%, transparent);
-  padding: var(--space-2); border-bottom: 2px solid var(--color-divider);
+  padding: var(--space-2); border-bottom: 1px solid var(--color-divider);
 }
 .table td {
   padding: var(--space-2);
