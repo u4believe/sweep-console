@@ -205,7 +205,7 @@ export async function settleViaUserOp(input: SettleUserOpInput): Promise<SettleU
   // Nothing is taken from the USDC balance when gas comes out of ETH, so on a
   // self-funded chain there is no floor to maintain and the platform keeps its
   // whole fee. The thing to watch there is the ETH, not the USDC.
-  const floor = chainPaysOwnGas(input.chainId) ? 0n : settlementGasFloor();
+  const floor = chainPaysOwnGas(input.chainId) ? 0n : settlementGasFloor(input.chainId);
   const toppedUp = preexisting >= floor ? 0n : floor - preexisting;
 
   const platformShare = input.grossAmount - input.amount;
@@ -232,7 +232,7 @@ export async function settleViaUserOp(input: SettleUserOpInput): Promise<SettleU
    */
   const paymasterAddress = circlePaymasterV07(input.chainId);
   const usePaymaster = chainUsesPaymaster(input.chainId) && paymasterAddress !== null;
-  const permitAmount = settlementPermitCeiling();
+  const permitAmount = settlementPermitCeiling(input.chainId);
 
   const paymaster = {
     async getPaymasterData() {

@@ -209,7 +209,7 @@ async function main(): Promise<void> {
    */
   const reserve = arg("reserve")
     ? BigInt(Math.round(Number(arg("reserve")) * 1e6))
-    : settlementGasFloor();
+    : settlementGasFloor(chainId);
   const toMerchant = held - reserve;
   if (toMerchant <= 0n) {
     console.log(

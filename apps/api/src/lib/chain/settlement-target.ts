@@ -290,14 +290,59 @@ export function chainPaysOwnGas(chainId: number): boolean {
  * cheaper settlement — it means the operation reverts and the payment does not
  * happen.
  */
-export function settlementGasFloor(): bigint {
-  const raw = process.env.SETTLEMENT_GAS_FLOOR_USDC;
-  if (!raw) return 100_000n; // 0.10 USDC
+/**
+ * Per-chain defaults, in micro-USDC.
+ *
+ * The floor is a REVOLVING FLOAT, not a charge. Each settlement tops the
+ * account back up to it out of the platform's fee, so over time the platform
+ * pays actual gas and nothing more — a floor set too high only delays when
+ * fees start reaching the treasury, it does not spend them.
+ *
+ * Set too LOW it fails differently and worse: the paymaster takes its USDC
+ * from the same balance the burn comes out of, so a reserve under the real
+ * gas cost means the UserOperation cannot pay and the settlement reverts with
+ * the subscriber's money already pulled.
+ *
+ * So each chain gets headroom over what it has actually been measured at:
+ *
+ *   base       0.006581 measured on mainnet 2026-10-24 (a deployed account;
+ *              the first settlement cost 0.055689 because it also deployed
+ *              one) -> 0.015, a little over 2x
+ *   arbitrum   0.016562 measured on testnet, the most expensive of the three
+ *              and never yet run on mainnet -> 0.040, about 2.4x
+ *
+ * Optimism is absent deliberately: it has no Circle Paymaster v0.7, pays gas
+ * in ETH, and settlement-userop.ts sets its floor to zero regardless.
+ */
+const GAS_FLOOR_DEFAULTS: Record<string, bigint> = {
+  base: 15_000n,
+  arbitrum: 40_000n,
+};
+
+/// Fallback for a paymaster chain with no measurement of its own.
+const GAS_FLOOR_FALLBACK = 40_000n;
+
+/**
+ * USDC held back to keep the settlement account able to pay for the next
+ * operation on this chain.
+ *
+ * SETTLEMENT_GAS_FLOOR_USDC_<CHAINID> overrides one chain;
+ * SETTLEMENT_GAS_FLOOR_USDC overrides all of them. Without a chainId it
+ * answers for the whole deployment, which is only right where there is one
+ * chain in play — callers that know their chain should say so.
+ */
+export function settlementGasFloor(chainId?: number): bigint {
+  const perChain = chainId === undefined ? undefined : process.env[`SETTLEMENT_GAS_FLOOR_USDC_${chainId}`];
+  const raw = perChain ?? process.env.SETTLEMENT_GAS_FLOOR_USDC;
+  const fallback =
+    (chainId !== undefined ? GAS_FLOOR_DEFAULTS[chainKeyForId(chainId) ?? ""] : undefined) ??
+    GAS_FLOOR_FALLBACK;
+  if (!raw) return fallback;
   try {
     const parsed = BigInt(Math.round(Number(raw) * 1e6));
-    return parsed > 0n ? parsed : 100_000n;
+    return parsed > 0n ? parsed : fallback;
   } catch {
-    return 100_000n;
+    return fallback;
   }
 }
 
@@ -308,8 +353,10 @@ export function settlementGasFloor(): bigint {
  * exceed the worst plausible cost or validation fails, and stays well below a
  * real balance so a compromised paymaster could not drain the account.
  */
-export function settlementPermitCeiling(): bigint {
-  return settlementGasFloor() * 2n;
+export function settlementPermitCeiling(chainId?: number): bigint {
+  // Per-chain for the same reason the floor is: a ceiling derived from Base's
+  // floor would sit under Arbitrum's real cost and fail validation there.
+  return settlementGasFloor(chainId) * 2n;
 }
 
 /**
