@@ -37,6 +37,7 @@ import {
 } from "../chain/contract";
 import { redeemPeriodicTransfer, relayerBridgeToArc, rpcUrlForChain } from "../chain/delegation";
 import { settlementTargetFor } from "../chain/settlement-target";
+import { walletFor } from "../merchant-wallet";
 import { settleViaUserOp } from "../chain/settlement-userop";
 import { assertCctpContract, fetchAttestation, getTokenMessenger, receiveOnArc } from "../gateway/cctp";
 import { getSettlementAddress } from "../chain/signers";
@@ -215,8 +216,22 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
     // to the treasury after the burn — see the same sequence in billing/bridge.ts.
     const fee = (amount * platformFeeBps()) / 10_000n;
     const merchantShare = amount - fee;
-    const payout = session.merchant.walletAddress as Hex;
-    if (!payout) throw new Error("merchant has no payout wallet");
+    /**
+     * The payout wallet for THIS SESSION'S mode, not the test column.
+     *
+     * A merchant has one wallet per environment. Read unscoped — as
+     * `session.merchant.walletAddress` — a LIVE checkout pays a merchant who
+     * onboarded in test into their TEST wallet: it succeeds, and the money
+     * lands somewhere nobody controls. direct-charge.ts has carried a comment
+     * describing exactly this since the rail was built; the hosted path simply
+     * never got the same treatment.
+     */
+    const payout = walletFor(session.merchant, session.isTestMode).address as Hex;
+    if (!payout) {
+      throw new Error(
+        `merchant has no payout wallet for ${session.isTestMode ? "test" : "live"} mode`
+      );
+    }
 
     // 1. Redeem the delegation — pull EXACTLY `amount` to settlement.
     //

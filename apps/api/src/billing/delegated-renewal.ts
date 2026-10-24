@@ -39,6 +39,7 @@ import { fireWebhook } from "../lib/webhooks/delivery";
 import { sendPaymentReceipt } from "../lib/email/receipt";
 import { ids } from "../lib/ids";
 import { getSettlementAddress } from "../lib/chain/signers";
+import { walletFor } from "../lib/merchant-wallet";
 
 function platformFeeBps(): bigint {
   return BigInt(process.env.PLATFORM_FEE_BPS ?? "0");
@@ -334,7 +335,14 @@ async function prepareRenewal(
     const amount = sub.amount ?? sub.plan.amount;
     const fee = (amount * platformFeeBps()) / 10_000n;
     const merchantShare = amount - fee;
-    const creator = sub.merchant.walletAddress as Address;
+    // The payout wallet for THIS SUBSCRIPTION'S mode — see the note in
+    // cctp-activate.ts. A live renewal read unscoped pays into the test wallet.
+    const creator = walletFor(sub.merchant, sub.isTestMode).address as Address;
+    if (!creator) {
+      throw new Error(
+        `merchant has no payout wallet for ${sub.isTestMode ? "test" : "live"} mode`
+      );
+    }
 
     // Only chains whose grant actually covers this price are candidates.
     // Selecting by balance first and checking the cap afterwards skipped a
