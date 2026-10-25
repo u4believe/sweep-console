@@ -202,9 +202,10 @@ function H2({ children, align = "center" }: { children: ReactNode; align?: "cent
   );
 }
 
-function Card({ children, ground }: { children: ReactNode; ground?: boolean }) {
+function Card({ children, ground, reveal }: { children: ReactNode; ground?: boolean; reveal?: boolean }) {
   return (
     <article
+      data-reveal={reveal ? "" : undefined}
       style={{
         background: ground ? "var(--color-neutral-100)" : "var(--color-bg)",
         border: "1px solid var(--color-divider)",
@@ -288,26 +289,57 @@ function Header() {
 function Hero() {
   const { user, loading } = useAuth();
   return (
-    <section id="top" style={{ background: "var(--color-bg)", padding: "92px 0 78px" }}>
+    <section id="top" style={{ background: "var(--color-bg)", padding: "clamp(28px,5vw,56px) 0 clamp(36px,6vw,72px)" }}>
       <div
         className="mx-auto grid w-full max-w-6xl items-center px-5"
-        style={{ gap: 56, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,380px),1fr))" }}
+        style={{
+          gap: "clamp(36px,5vw,72px)",
+          gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,440px),1fr))",
+        }}
       >
         <div>
-          <h1 style={{ fontSize: "clamp(46px,6.6vw,86px)", lineHeight: 0.98, letterSpacing: "-0.045em", margin: 0, fontWeight: 800 }}>
+          {/*
+            The design's h1, to the value. Six things here were guesses before:
+            weight 700 not 800, line-height 1.08 not 0.98, tracking -0.035em
+            not -0.045em, and the coin sized in `em` so it scales with the
+            heading rather than sitting at a fixed 54px that is right at one
+            breakpoint only.
+
+            The full stop is OUTSIDE the nowrap span and inherits the ink. It
+            belongs to the sentence, so it must not join the accent — and it
+            must not be pulled back with a negative margin either, which left
+            a gap at some sizes and overlapped at others.
+          */}
+          <h1
+            style={{
+              margin: 0,
+              fontWeight: 700,
+              fontSize: "clamp(46px,6.6vw,86px)",
+              lineHeight: 1.08,
+              letterSpacing: "-0.035em",
+            }}
+          >
             Recurring revenue in{" "}
-            {/* USDC carries the accent and the mark sits inline before it —
-                the design's own treatment. The full stop stays ink: it
-                belongs to the sentence, not to the word. */}
-            <span className="inline-flex items-baseline" style={{ gap: 14, whiteSpace: "nowrap" }}>
-              <span className="usdc-flip inline-flex self-center" aria-hidden="true">
-                <UsdcMark size={54} />
+            <span style={{ whiteSpace: "nowrap" }}>
+              <span
+                className="usdc-flip"
+                aria-hidden="true"
+                style={{
+                  display: "inline-block",
+                  width: "0.73em",
+                  height: "0.73em",
+                  marginRight: "0.14em",
+                  perspective: 600,
+                  verticalAlign: "baseline",
+                }}
+              >
+                <UsdcMark />
               </span>
               <span style={{ color: "var(--color-accent)" }}>USDC</span>
-              <span style={{ marginLeft: -12 }}>.</span>
             </span>
+            .
           </h1>
-          <p className="mt-5" style={{ fontSize: "clamp(16px,1.4vw,18px)", lineHeight: 1.6, color: "var(--color-neutral-800)", maxWidth: 540 }}>
+          <p style={{ margin: "26px 0 0", fontSize: "clamp(16px,1.4vw,18px)", lineHeight: 1.6, color: "var(--color-neutral-800)", maxWidth: 540 }}>
             Subscribers pay from Base, Arbitrum or Optimism with one signature. Every charge
             settles to you on Arc — and renewals run themselves.
           </p>
@@ -389,6 +421,56 @@ function usePrefersReducedMotion(): boolean {
   return reduced;
 }
 
+/**
+ * The scroll reveal: content arrives from 14px below as it enters view.
+ *
+ * Twenty elements in the design carry `data-reveal`, and the observer has one
+ * detail worth copying exactly — anything ALREADY above the fold is skipped
+ * rather than hidden and revealed. Without that, a visitor's first paint is a
+ * blank hero that fades in, and on a slow connection it can read as a page
+ * that failed.
+ *
+ * Driven by attribute rather than by wrapping each element in a component: a
+ * wrapper around a grid child becomes the grid child, which would change
+ * every layout it touched. The styles are set imperatively because the
+ * observer owns them and unobserves once done.
+ */
+function useScrollReveal(disabled: boolean) {
+  useEffect(() => {
+    if (disabled) return;
+    const nodes = Array.from(document.querySelectorAll<HTMLElement>("[data-reveal]"));
+    if (nodes.length === 0) return;
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          const el = e.target as HTMLElement;
+          el.style.opacity = "1";
+          el.style.transform = "none";
+          io.unobserve(el);
+        }
+      },
+      { threshold: 0.12 }
+    );
+
+    nodes.forEach((el, i) => {
+      // Already visible: leave it alone.
+      if (el.getBoundingClientRect().top < window.innerHeight) return;
+      el.style.opacity = "0";
+      el.style.transform = "translateY(14px)";
+      el.style.transition =
+        "opacity 600ms cubic-bezier(.23,1,.32,1), transform 600ms cubic-bezier(.23,1,.32,1)";
+      // Three per row in most of these grids, so the stagger reads across a
+      // row and resets rather than cascading down the whole page.
+      el.style.transitionDelay = `${(i % 3) * 60}ms`;
+      io.observe(el);
+    });
+
+    return () => io.disconnect();
+  }, [disabled]);
+}
+
 /** One full turn about the ring's centre, used by the carriage and the inner dust. */
 function Spin({ dur }: { dur: string }) {
   return (
@@ -403,8 +485,35 @@ function Spin({ dur }: { dur: string }) {
   );
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 function RailViz() {
   const still = usePrefersReducedMotion();
+
+  /**
+   * The cycle advances once per lap.
+   *
+   * The number is the point of the whole picture — the loop has run 10
+   * times, then 11, without anyone signing again — and a frozen "Cycle 38"
+   * said the opposite of what the movement says. The design ticks on an
+   * 8000ms interval, which is exactly the lap, so the count increments as
+   * the carriage comes back round to 01 Charge.
+   *
+   * Frozen under reduced motion: a number changing beside a parked carriage
+   * is stranger than one that does not.
+   */
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (still) return;
+    const id = setInterval(() => setTick((t) => t + 1), LAP * 1000);
+    return () => clearInterval(id);
+  }, [still]);
+
+  // Starts at 10 and at October 2026, as the design does, so the first thing
+  // a visitor sees is a subscription already well into its life.
+  const cycle = String(10 + tick).padStart(2, "0");
+  const month = MONTHS[(9 + tick) % 12];
+  const year = 2026 + Math.floor((9 + tick) / 12);
   const pulse = (a: number) => ({
     dur: `${LAP}s`,
     begin: `${((a / 360) * LAP).toFixed(2)}s`,
@@ -518,10 +627,10 @@ function RailViz() {
         </p>
         <p className="m-0" style={{ fontSize: "clamp(30px,3.4vw,42px)", fontWeight: 800,
                                     letterSpacing: "-0.035em", fontVariantNumeric: "tabular-nums" }}>
-          Cycle 38
+          Cycle {cycle}
         </p>
         <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-800)", marginTop: 6 }}>
-          Renewed Feb 1, 2029
+          Renewed {month} 1, {year}
         </p>
       </div>
     </div>
@@ -645,7 +754,7 @@ function HowItWorks() {
       <H2>Three steps. Zero gas for your subscribers.</H2>
       <div className="mt-10 grid" style={{ gap: 18, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,260px),1fr))" }}>
         {STEPS.map((s) => (
-          <Card key={s.n}>
+          <Card key={s.n} reveal>
             <span
               style={{
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -751,11 +860,15 @@ function Demo() {
 function Features() {
   return (
     <Section id="features">
-      <Kicker>Features</Kicker>
-      <H2>Everything a subscription business needs, on-chain.</H2>
+      {/* Left, not centred. The design centres `how`, `console`, the
+          statement and the close; features sits left above a grid of six,
+          where a centred heading over left-aligned cards reads as a mistake.
+          I had this and `console` the wrong way round. */}
+      <Kicker align="left">Features</Kicker>
+      <H2 align="left">Everything a subscription business needs, on-chain.</H2>
       <div className="mt-10 grid" style={{ gap: 18, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,290px),1fr))" }}>
         {FEATURES.map((f) => (
-          <Card key={f.n}>
+          <Card key={f.n} reveal>
             <span
               style={{
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -777,9 +890,18 @@ function Features() {
 function ConsolePreview() {
   return (
     <Section id="console">
-      <Kicker align="left">The console</Kicker>
-      <H2 align="left">Run it all from one place.</H2>
-      <p className="mt-4" style={{ fontSize: "clamp(15px,1.3vw,16.5px)", lineHeight: 1.6, color: "var(--color-neutral-900)", maxWidth: 620 }}>
+      <Kicker>The console</Kicker>
+      <H2>Run it all from one place.</H2>
+      {/* Centred with its heading — the wrapper is centred in the design, so
+          a left-aligned lede under a centred h2 would be the odd one out. */}
+      <p
+        className="mt-4"
+        style={{
+          fontSize: "clamp(15px,1.3vw,16.5px)", lineHeight: 1.6,
+          color: "var(--color-neutral-900)", maxWidth: 620,
+          margin: "16px auto 0", textAlign: "center",
+        }}
+      >
         Plans and tiers, subscribers, payments, withdrawals, webhooks and API keys — test mode
         included.
       </p>
@@ -1057,6 +1179,7 @@ function Footer() {
 }
 
 export function LandingPage() {
+  useScrollReveal(usePrefersReducedMotion());
   return (
     <div style={{ background: "var(--color-bg)", color: "var(--color-text)" }}>
       <Header />

@@ -448,7 +448,9 @@ textarea.input { min-height: 90px; resize: vertical; }
   50%, 62% { transform: rotateY(180deg); }
   100% { transform: rotateY(360deg); }
 }
-.usdc-flip { animation: usdc-flip 4.5s var(--ease-out-quint) infinite; transform-style: preserve-3d; }
+/* 5s on a symmetric ease, which is the design's — the out-quint made it
+   snap to each face and sit, where this turns evenly. */
+.usdc-flip { animation: usdc-flip 5s cubic-bezier(0.45, 0, 0.55, 1) infinite; transform-style: preserve-3d; }
 
 /*
  * Reduced motion: the entrance and the decoration stop, the two indicators

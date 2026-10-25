@@ -101,7 +101,17 @@ export function SweepMark({ size = 26, onDark = false }: { size?: number; onDark
   );
 }
 
-export function UsdcMark({ size = 24 }: { size?: number }) {
+/**
+ * The USDC token.
+ *
+ * `size` omitted fills its parent, which is how the hero uses it: the design
+ * sizes the coin in `em` on a wrapper so it tracks the heading, and a fixed
+ * px here would be correct at exactly one breakpoint.
+ */
+export function UsdcMark({ size }: { size?: number }) {
+  if (size === undefined) {
+    return <img src={USDC_TOKEN} alt="" style={{ display: "block", width: "100%", height: "100%" }} />;
+  }
   return (
     <img
       src={USDC_TOKEN}

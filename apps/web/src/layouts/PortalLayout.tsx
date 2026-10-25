@@ -27,8 +27,18 @@ const NAV_RAIL = [
   { href: "/rail/charges", label: "Charges" },
 ];
 
-/// Shown instead, while the account cannot use the rail: the page that asks.
-const NAV_RAIL_LOCKED = [{ href: "/rail", label: "Payment rail" }];
+/**
+ * Rail scope on an account that does not have it yet: the page that asks,
+ * and the Dashboard, which belongs to both halves.
+ *
+ * Without Dashboard this nav had no shared destination at all, so switching
+ * to a locked rail left the person on a single item with nothing to go back
+ * to except the switch itself.
+ */
+const NAV_RAIL_LOCKED = [
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/rail", label: "Payment rail" },
+];
 
 const NAV_TAIL = [
   { href: "/webhooks", label: "Webhooks" },
@@ -176,22 +186,36 @@ export function PortalLayout() {
     } catch {
       /* the console still works; it just forgets between visits */
     }
+    // /rail is the request screen, which is where an account without access
+    // belongs; one that has it goes straight to the charges it came to read.
     navigate(next === "rail" ? (railEnabled ? "/rail/charges" : "/rail") : "/dashboard");
   };
 
   /**
-   * An account with no rail access is not offered the scope at all.
+   * The scope is offered whether or not the rail is switched on.
    *
-   * It would switch to a single page asking to be let in, which is not a
-   * half of the product — it is a request form, and it stays in the nav
-   * where it already was.
+   * It used to be hidden unless railEnabled, on the reasoning that an
+   * account without it would switch to a request form rather than a half of
+   * the product. That was wrong twice over: the rail IS half the product,
+   * and on mainnet railEnabled is the granted column alone — so the switch
+   * vanished on Live for every account that had not already been let in,
+   * which is exactly the audience that needs to find it.
+   *
+   * Switching to a rail the account cannot use lands on /rail, which is the
+   * screen that asks. That is a destination, and a developer can see what
+   * they would be asking for before they ask.
+   *
+   * Hidden only while /portal/me is still in flight: a switch that appears
+   * a beat after the page would move the nav under a cursor already on its
+   * way to it.
    */
-  const canSwitch = railEnabled === true;
+  const canSwitch = railEnabled !== undefined;
   const effectiveScope: Scope = canSwitch ? scope : "hosted";
+  /// In rail scope with no access, the only rail destination is the request.
+  const railNav = railEnabled ? NAV_RAIL : NAV_RAIL_LOCKED;
 
   const nav = [
-    ...(effectiveScope === "rail" ? NAV_RAIL : NAV_HOSTED),
-    ...(canSwitch || railEnabled === undefined ? [] : NAV_RAIL_LOCKED),
+    ...(effectiveScope === "rail" ? railNav : NAV_HOSTED),
     ...NAV_TAIL,
     ...(showAdmin ? ADMIN_NAV : []),
   ];
@@ -446,7 +470,9 @@ export function PortalLayout() {
               {SCOPE_COPY[effectiveScope].label}
             </span>
             <span style={{ fontSize: 13.5, color: "var(--color-neutral-800)" }}>
-              {SCOPE_COPY[effectiveScope].note}
+              {effectiveScope === "rail" && !railEnabled
+                ? "Not enabled on this account yet — the page below is where you ask for it."
+                : SCOPE_COPY[effectiveScope].note}
             </span>
             <button
               type="button"
