@@ -131,17 +131,36 @@ function SettledChart({ bars, unit }: { bars: Bar[]; unit: ChartRange["unit"] })
         className="flex items-end"
         style={{ height: 150, gap, borderBottom: "1px solid var(--color-divider)", paddingTop: 14 }}
       >
-        {bars.map((b) => (
-          <div
-            key={b.start.toISOString()}
-            title={`${unit === "hour" ? FULL_HOUR.format(b.start) : SHORT_DATE.format(b.start)} · ${(b.total / 1_000_000).toFixed(2)} USDC`}
-            style={{
-              flex: 1,
-              height: b.total > 0 ? `${Math.max((b.total / max) * 100, 4)}%` : 2,
-              background: b.total > 0 ? "var(--color-accent)" : "var(--color-neutral-300)",
-            }}
-          />
-        ))}
+        {bars.map((b, i) => {
+          /*
+           * The last bar is the period in progress, and it is the only one
+           * drawn in the accent. The rest are a light wash.
+           *
+           * Every bar at full accent made the series one block of colour with
+           * no reading in it; the design puts the weight on today, so the
+           * shape of the fortnight is legible behind it. Both colours come
+           * from the accent ramp, so this follows the console's scope — ink
+           * on the rail, indigo on hosted — without knowing which it is in.
+           */
+          const current = i === bars.length - 1;
+          return (
+            <div
+              key={b.start.toISOString()}
+              title={`${unit === "hour" ? FULL_HOUR.format(b.start) : SHORT_DATE.format(b.start)} · ${(b.total / 1_000_000).toFixed(2)} USDC`}
+              style={{
+                flex: 1,
+                height: b.total > 0 ? `${Math.max((b.total / max) * 100, 4)}%` : 2,
+                borderRadius: "3px 3px 0 0",
+                background:
+                  b.total > 0
+                    ? current
+                      ? "var(--color-accent)"
+                      : "var(--color-accent-300)"
+                    : "var(--color-neutral-300)",
+              }}
+            />
+          );
+        })}
       </div>
       <div
         className="mt-[7px] flex justify-between"

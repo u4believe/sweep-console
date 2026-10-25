@@ -137,11 +137,12 @@ const PRICING = [
 
 /* ── small parts ──────────────────────────────────────────────────────── */
 
-function Kicker({ children }: { children: ReactNode }) {
+function Kicker({ children, align = "center" }: { children: ReactNode; align?: "center" | "left" }) {
   return (
     <p
       className="m-0"
       style={{
+        textAlign: align,
         fontSize: 11.5,
         fontWeight: 600,
         letterSpacing: "0.1em",
@@ -175,9 +176,23 @@ function Section({ id, ground, children }: { id?: string; ground?: boolean; chil
   );
 }
 
-function H2({ children }: { children: ReactNode }) {
+/**
+ * Section headings are CENTRED, which the previous version of this file got
+ * wrong by inheriting Modernist's "keep everything flush left" rule. The
+ * design centres how-it-works, features and the closing call, and keeps the
+ * demo and developer sections left-aligned beside their card.
+ */
+function H2({ children, align = "center" }: { children: ReactNode; align?: "center" | "left" }) {
   return (
-    <h2 style={{ fontSize: "clamp(28px,4vw,38px)", letterSpacing: "-0.025em", margin: "12px 0 0" }}>
+    <h2
+      style={{
+        fontSize: "clamp(28px,4.2vw,40px)",
+        letterSpacing: "-0.03em",
+        lineHeight: 1.1,
+        margin: "12px 0 0",
+        textAlign: align,
+      }}
+    >
       {children}
     </h2>
   );
@@ -277,14 +292,15 @@ function Hero() {
         <div>
           <h1 style={{ fontSize: "clamp(38px,5.4vw,56px)", lineHeight: 1.05, letterSpacing: "-0.035em", margin: 0 }}>
             Recurring revenue in{" "}
-            {/* The mark turns over beside the word rather than sitting as a
-                static logo — the design's one piece of ornament, and the only
-                place usdc-flip is used. */}
-            <span className="inline-flex items-center" style={{ gap: 10, whiteSpace: "nowrap" }}>
-              <span className="usdc-flip inline-flex" aria-hidden="true">
-                <UsdcMark size={42} />
+            {/* USDC carries the accent and the mark sits inline before it —
+                the design's own treatment. The full stop stays ink: it
+                belongs to the sentence, not to the word. */}
+            <span className="inline-flex items-baseline" style={{ gap: 14, whiteSpace: "nowrap" }}>
+              <span className="usdc-flip inline-flex self-center" aria-hidden="true">
+                <UsdcMark size={54} />
               </span>
-              USDC.
+              <span style={{ color: "var(--color-accent)" }}>USDC</span>
+              <span style={{ marginLeft: -12 }}>.</span>
             </span>
           </h1>
           <p className="mt-5" style={{ fontSize: 17, lineHeight: 1.6, color: "var(--color-neutral-800)", maxWidth: 520 }}>
@@ -303,69 +319,133 @@ function Hero() {
           </div>
         </div>
 
-        <RailViz />
+        <CycleViz />
       </div>
     </section>
   );
 }
 
 /**
- * The payment, drawn: three source chains converging on Arc.
+ * The cycle, drawn: one signature, then four things that repeat without one.
  *
- * It is the one picture on the page and it carries the product's least
- * obvious idea — that the chain the subscriber pays from and the chain the
- * creator is paid on are not the same one.
+ * This is the design's hero visual and it carries the product's actual
+ * claim — not "we support three chains" but "you sign once and it keeps
+ * going". An earlier version of this file drew three chain rows with an
+ * arrow down to Arc, which says something true and much less interesting.
+ *
+ * The ring is a dotted circle with four stations. 04 is filled because it is
+ * the one that has not happened yet: the eye lands on the period about to
+ * run, which is the point.
  */
-function RailViz() {
+const STATIONS = [
+  { n: "01", label: "Charge", note: "on schedule", at: "right" },
+  { n: "02", label: "Settle", note: "in seconds", at: "bottom" },
+  { n: "03", label: "Receipt", note: "sent automatically", at: "left" },
+  { n: "04", label: "Next period", note: "no new signature", at: "top" },
+] as const;
+
+function CycleViz() {
+  const R = 150;          // ring radius
+  const C = 190;          // centre, in the 380-square viewBox
+  const pos: Record<string, { x: number; y: number }> = {
+    top: { x: C, y: C - R },
+    right: { x: C + R, y: C },
+    bottom: { x: C, y: C + R },
+    left: { x: C - R, y: C },
+  };
+
   return (
     <div
       style={{
-        background: "var(--color-neutral-100)",
-        border: "1px solid var(--color-divider)",
+        background: "var(--color-neutral-200)",
         borderRadius: "var(--radius-lg)",
-        padding: 26,
-        boxShadow: "var(--shadow-md)",
+        padding: "clamp(18px,3vw,30px)",
+        position: "relative",
+        aspectRatio: "1 / 0.92",
+        display: "grid",
+        placeItems: "center",
       }}
     >
-      <p
-        className="m-0"
-        style={{
-          fontSize: 11.5, fontWeight: 600, letterSpacing: "0.1em",
-          textTransform: "uppercase", color: "var(--color-neutral-700)",
-        }}
-      >
-        One signature
-      </p>
-      <div className="mt-4" style={{ display: "grid", gap: 10 }}>
-        {CHAINS.map(({ key, name, note }) => (
-          <div
-            key={key}
-            className="flex items-center"
-            style={{
-              gap: 12, padding: "12px 14px", background: "var(--color-bg)",
-              border: "1px solid var(--color-divider)", borderRadius: "var(--radius-md)",
-            }}
-          >
-            <ChainMark chain={key} size={22} />
-            <span style={{ fontSize: 14, fontWeight: 600 }}>{name}</span>
-            <span className="ml-auto" style={{ fontSize: 12, color: "var(--color-neutral-800)" }}>{note}</span>
-          </div>
-        ))}
+      <svg viewBox="0 0 380 380" style={{ width: "100%", height: "auto", maxWidth: 440 }} role="img"
+           aria-label="One signature, then charge, settle, receipt and the next period repeating without another.">
+        {/* The dotted ring. A dasharray of 1 on a round cap is a dot, and the
+            gap sets their spacing — cheaper and crisper than 120 circles. */}
+        <circle
+          cx={C} cy={C} r={R}
+          fill="none"
+          stroke="var(--color-neutral-500)"
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeDasharray="1 7"
+          opacity={0.9}
+        />
+        {/* The arc already travelled, from 04 round to 01. */}
+        <path
+          d={`M ${C} ${C - R} A ${R} ${R} 0 0 1 ${C + R * 0.42} ${C - R * 0.9}`}
+          fill="none"
+          stroke="var(--color-accent)"
+          strokeWidth={2.5}
+          strokeLinecap="round"
+        />
+        {STATIONS.map((st) => {
+          const p = pos[st.at]!;
+          const filled = st.n === "04";
+          return (
+            <circle
+              key={st.n}
+              cx={p.x} cy={p.y} r={filled ? 11 : 9}
+              fill={filled ? "var(--color-accent)" : "var(--color-bg)"}
+              stroke={filled ? "var(--color-accent)" : "var(--color-neutral-500)"}
+              strokeWidth={2}
+            />
+          );
+        })}
+        {/* The trailing dot: the charge in flight, just past 04. */}
+        <circle cx={C + R * 0.42} cy={C - R * 0.9} r={6} fill="var(--color-accent)" />
+      </svg>
+
+      {/* The centre and the labels sit over the ring rather than inside the
+          SVG, so they take the page's own type rather than SVG text metrics. */}
+      <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", pointerEvents: "none" }}>
+        <div style={{ textAlign: "center" }}>
+          <p className="m-0" style={{
+            fontSize: 11, fontWeight: 600, letterSpacing: "0.16em",
+            textTransform: "uppercase", color: "var(--color-neutral-700)",
+          }}>
+            Signed once
+          </p>
+          <p className="m-0" style={{ fontSize: "clamp(28px,4vw,38px)", fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1.1 }}>
+            Cycle 38
+          </p>
+          <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-800)" }}>
+            Renewed Feb 1, 2029
+          </p>
+        </div>
       </div>
-      <p className="mt-4 mb-0 text-center" style={{ fontSize: 20, color: "var(--color-neutral-600)", lineHeight: 1 }} aria-hidden="true">
-        ↓
-      </p>
-      <div
-        className="mt-3 flex items-center"
-        style={{
-          gap: 12, padding: "14px 16px", background: "var(--color-accent-200)",
-          border: "1px solid var(--color-accent-300)", borderRadius: "var(--radius-md)",
-        }}
-      >
-        <ChainMark chain="arc" size={24} />
-        <span style={{ fontSize: 14, fontWeight: 700 }}>Settled on Arc</span>
-        <span className="ml-auto" style={{ fontSize: 12, color: "var(--color-accent)" }}>Your payout wallet</span>
-      </div>
+
+      {STATIONS.map((st) => (
+        <span
+          key={st.n}
+          style={{
+            position: "absolute",
+            pointerEvents: "none",
+            ...(st.at === "top" ? { top: "7%", left: "50%", transform: "translateX(-50%)", textAlign: "center" as const } : {}),
+            ...(st.at === "bottom" ? { bottom: "7%", left: "50%", transform: "translateX(-50%)", textAlign: "center" as const } : {}),
+            ...(st.at === "right" ? { right: "4%", top: "50%", transform: "translateY(-50%)", textAlign: "left" as const } : {}),
+            ...(st.at === "left" ? { left: "4%", top: "50%", transform: "translateY(-50%)", textAlign: "right" as const } : {}),
+          }}
+        >
+          <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap" }}>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, fontWeight: 400, color: "var(--color-accent)", marginRight: 5 }}>
+              {st.n}
+            </span>
+            {st.label}
+          </span>
+          <span style={{ display: "block", fontSize: 11.5, color: "var(--color-neutral-800)", whiteSpace: "nowrap" }}>
+            {st.note}
+          </span>
+        </span>
+      ))}
     </div>
   );
 }
@@ -433,6 +513,53 @@ function Marks() {
   );
 }
 
+/**
+ * The statement: what this is, in one sentence, with the load-bearing
+ * phrases in accent.
+ *
+ * It sits on a dotted grid that fades at the edges — the design's only
+ * texture, and the reason the rest of the page can be plain. Decorative, so
+ * it is a background on an aria-hidden layer rather than content.
+ */
+function Statement() {
+  return (
+    <section style={{ background: "var(--color-bg)", padding: "clamp(40px,7vw,86px) 0", position: "relative" }}>
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundImage: "radial-gradient(var(--color-neutral-500) 1px, transparent 1px)",
+          backgroundSize: "16px 16px",
+          // Fades to nothing at the edges so the grid reads as texture under
+          // the words rather than a panel with a hard border.
+          maskImage: "radial-gradient(ellipse 60% 70% at 50% 50%, #000 35%, transparent 75%)",
+          WebkitMaskImage: "radial-gradient(ellipse 60% 70% at 50% 50%, #000 35%, transparent 75%)",
+          opacity: 0.55,
+        }}
+      />
+      <p
+        className="mx-auto"
+        style={{
+          position: "relative",
+          maxWidth: 860,
+          margin: "0 auto",
+          padding: "0 clamp(18px,4vw,40px)",
+          textAlign: "center",
+          fontSize: "clamp(22px,3.4vw,34px)",
+          fontWeight: 500,
+          lineHeight: 1.32,
+          letterSpacing: "-0.02em",
+        }}
+      >
+        Sweep Console brings <span style={{ color: "var(--color-accent)" }}>stablecoin payments</span> to
+        every subscription business, collecting from{" "}
+        <span style={{ color: "var(--color-accent)" }}>three major chains</span> and settling in one place.
+      </p>
+    </section>
+  );
+}
+
 function HowItWorks() {
   return (
     <Section id="how" ground>
@@ -441,7 +568,15 @@ function HowItWorks() {
       <div className="mt-10 grid" style={{ gap: 18, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,260px),1fr))" }}>
         {STEPS.map((s) => (
           <Card key={s.n}>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--color-accent)" }}>{s.n}</span>
+            <span
+              style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--color-accent)",
+                background: "var(--color-accent-200)", borderRadius: 6, padding: "4px 7px",
+              }}
+            >
+              {s.n}
+            </span>
             <h3 style={{ fontSize: 18, margin: "10px 0 0", letterSpacing: "-0.015em" }}>{s.title}</h3>
             <p className="mt-2 mb-0" style={{ fontSize: 14, lineHeight: 1.6, color: "var(--color-neutral-800)" }}>{s.body}</p>
           </Card>
@@ -455,8 +590,8 @@ function Demo() {
   const [picked, setPicked] = useState("base");
   return (
     <Section id="demo">
-      <Kicker>Hosted checkout</Kicker>
-      <H2>Pick a chain. That&rsquo;s the payment.</H2>
+      <Kicker align="left">Hosted checkout</Kicker>
+      <H2 align="left">Pick a chain. That&rsquo;s the payment.</H2>
       <div
         className="mt-10 grid"
         style={{ gap: 40, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,320px),1fr))", alignItems: "center" }}
@@ -543,7 +678,15 @@ function Features() {
       <div className="mt-10 grid" style={{ gap: 18, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,290px),1fr))" }}>
         {FEATURES.map((f) => (
           <Card key={f.n}>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--color-accent)" }}>{f.n}</span>
+            <span
+              style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--color-accent)",
+                background: "var(--color-accent-200)", borderRadius: 6, padding: "4px 7px",
+              }}
+            >
+              {f.n}
+            </span>
             <h3 style={{ fontSize: 17, margin: "10px 0 0", letterSpacing: "-0.015em" }}>{f.title}</h3>
             <p className="mt-2 mb-0" style={{ fontSize: 14, lineHeight: 1.6, color: "var(--color-neutral-800)" }}>{f.body}</p>
           </Card>
@@ -556,8 +699,8 @@ function Features() {
 function ConsolePreview() {
   return (
     <Section id="console">
-      <Kicker>The console</Kicker>
-      <H2>Run it all from one place.</H2>
+      <Kicker align="left">The console</Kicker>
+      <H2 align="left">Run it all from one place.</H2>
       <p className="mt-4" style={{ fontSize: 16, color: "var(--color-neutral-800)", maxWidth: 620 }}>
         Plans and tiers, subscribers, payments, withdrawals, webhooks and API keys — test mode
         included.
@@ -651,8 +794,8 @@ function ConsolePreview() {
 function Developers() {
   return (
     <Section id="developers" ground>
-      <Kicker>For developers</Kicker>
-      <H2>A checkout in one request.</H2>
+      <Kicker align="left">For developers</Kicker>
+      <H2 align="left">A checkout in one request.</H2>
       <p className="mt-4" style={{ fontSize: 16, color: "var(--color-neutral-800)", maxWidth: 640 }}>
         Create a session, redirect, and listen for webhooks. Or skip code entirely with a shareable
         payment link.
@@ -770,40 +913,41 @@ function Pricing() {
 }
 
 /**
- * The closing call, on a field of accent.
+ * The closing call: white, centred, under the mark.
  *
- * The one place the colour runs as a ground rather than an highlight — the
- * design's single poster moment, and the reason the accent is used sparingly
- * everywhere above it.
+ * I had this as a solid field of accent, reasoning that a design using its
+ * colour sparingly earns one poster moment. That is true of the system this
+ * replaced and not of this one — the design ends on white, and the accent
+ * appears only in the word USDC and the button. A full-bleed indigo band
+ * here would be the loudest thing on a page that deliberately never raises
+ * its voice.
  */
 function StartCta() {
   return (
-    <section id="start" style={{ background: "var(--color-accent)", padding: "84px 0", color: "#fff" }}>
-      <div className="mx-auto w-full max-w-6xl px-5 text-center">
-        <h2 style={{ fontSize: "clamp(28px,4.4vw,42px)", letterSpacing: "-0.03em", margin: 0, color: "#fff" }}>
-          Start getting paid in USDC today.
+    <section id="start" style={{ background: "var(--color-bg)", padding: "clamp(56px,8vw,96px) 0" }}>
+      <div className="mx-auto w-full max-w-6xl px-5" style={{ textAlign: "center" }}>
+        <span className="inline-flex" style={{ marginBottom: 22 }}>
+          <SweepMark size={46} />
+        </span>
+        <h2 style={{ fontSize: "clamp(30px,5vw,52px)", letterSpacing: "-0.035em", lineHeight: 1.08, margin: 0 }}>
+          Start getting paid in <span style={{ color: "var(--color-accent)" }}>USDC</span> today.
         </h2>
-        <p style={{ fontSize: 16.5, color: "rgba(255,255,255,0.88)", margin: "16px auto 0", maxWidth: 560 }}>
+        <p
+          style={{
+            fontSize: 15.5,
+            color: "var(--color-neutral-800)",
+            margin: "14px auto 0",
+            maxWidth: 520,
+            lineHeight: 1.6,
+          }}
+        >
           Set up a plan in minutes. Try everything in test mode — no real USDC is charged.
         </p>
         <div className="mt-8 flex flex-wrap justify-center" style={{ gap: 12 }}>
-          <Link
-            to="/signup"
-            style={{
-              padding: "13px 24px", borderRadius: "var(--radius-sm)", fontWeight: 600,
-              fontSize: 14.5, background: "#fff", color: "var(--color-accent)", textDecoration: "none",
-            }}
-          >
+          <Link to="/signup" className="btn btn-primary" style={{ padding: "13px 22px", fontSize: 14.5 }}>
             Create an account
           </Link>
-          <a
-            href={DOCS_URL}
-            style={{
-              padding: "13px 24px", borderRadius: "var(--radius-sm)", fontWeight: 600, fontSize: 14.5,
-              background: "transparent", color: "#fff",
-              border: "1px solid rgba(255,255,255,0.5)", textDecoration: "none",
-            }}
-          >
+          <a href={DOCS_URL} className="btn btn-secondary" style={{ padding: "13px 22px", fontSize: 14.5 }}>
             Read the docs
           </a>
         </div>
@@ -814,22 +958,20 @@ function StartCta() {
 
 function Footer() {
   return (
-    <footer style={{ background: "var(--color-bg)", borderTop: "1px solid var(--color-divider)", padding: "32px 0" }}>
+    <footer style={{ background: "var(--color-bg)", borderTop: "1px solid var(--color-divider)", padding: "26px 0" }}>
       <div
         className="mx-auto flex w-full max-w-6xl flex-wrap items-center px-5"
-        style={{ gap: 16, fontSize: 13, color: "var(--color-neutral-700)" }}
+        style={{ gap: "10px 26px", fontSize: 13.5, color: "var(--color-neutral-800)" }}
       >
-        <span className="flex items-center" style={{ gap: 8, color: "var(--color-text)", fontWeight: 600 }}>
-          <SweepMark size={17} />
+        <span className="flex items-center" style={{ gap: 9, color: "var(--color-text)", fontWeight: 700 }}>
+          <SweepMark size={20} />
           Sweep Console
         </span>
-        <span className="flex flex-wrap" style={{ gap: 18, marginLeft: "auto" }}>
-          <Link to="/integration" style={{ color: "var(--color-neutral-700)" }}>Integration</Link>
-          <a href={DOCS_URL} style={{ color: "var(--color-neutral-700)" }}>Documentation</a>
-          <Link to="/manage" style={{ color: "var(--color-neutral-700)" }}>Manage subscription</Link>
-        </span>
-        <span style={{ width: "100%", fontSize: 12 }}>
-          Payment infrastructure for on-chain recurring revenue · © {new Date().getFullYear()}
+        <a href={DOCS_URL} style={{ color: "var(--color-neutral-800)" }}>Docs</a>
+        <Link to="/integration" style={{ color: "var(--color-neutral-800)" }}>Rail checkout</Link>
+        <Link to="/login" style={{ color: "var(--color-neutral-800)" }}>Log in</Link>
+        <span style={{ marginLeft: "auto", color: "var(--color-neutral-700)" }}>
+          © {new Date().getFullYear()} Sweep Console
         </span>
       </div>
     </footer>
@@ -843,6 +985,7 @@ export function LandingPage() {
       <main className="swp-in">
         <Hero />
         <Marks />
+        <Statement />
         <HowItWorks />
         <Demo />
         <Features />

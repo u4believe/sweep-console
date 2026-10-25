@@ -442,3 +442,82 @@ textarea.input { min-height: 90px; resize: vertical; }
   .swp-navitem, .btn, .input, .table tbody tr { transition: none; }
   .btn:active:not(:disabled) { transform: none; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Rail scope.
+
+   The scope control does not only swap the sidebar — it re-themes the
+   console. Hosted is indigo; the rail is ink. The design carries this as
+   `rail ? '#16161F' : '#4447D6'` on the mode pill, and it runs through
+   everything: the active nav item, the scope tag, the primary button, the
+   chart's current bar.
+
+   Done by redefining the accent on a scope attribute rather than branching
+   at each component, so anything already reading var(--color-accent) follows
+   without being told. The ramp keeps its SHAPE — light steps for fills,
+   dark for pressed — so contrast behaviour is unchanged; only the hue goes.
+   ══════════════════════════════════════════════════════════════════════ */
+
+[data-scope="rail"] {
+  --color-accent: #23233B;
+  --color-accent-100: #FAFAFC;
+  --color-accent-200: #ECECF3;
+  --color-accent-300: #E2E2EC;
+  --color-accent-400: #D4D5E2;
+  --color-accent-500: #8A8BA0;
+  --color-accent-600: #16161F;
+  --color-accent-700: #0E0E14;
+  --color-accent-800: #0A0A0E;
+  --color-accent-900: #050507;
+}
+
+/* The mode pill's lift is tinted to whichever accent is in play. */
+[data-scope="rail"] .seg-opt:has(input:checked) {
+  box-shadow: 0 4px 10px -4px rgba(0, 0, 0, 0.5);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Console banners
+   ══════════════════════════════════════════════════════════════════════ */
+
+/**
+ * The mode strip, across the top of every console page.
+ *
+ * Amber in test, green in live — a state, not a warning, which is why it is
+ * a thin tinted strip with a dot rather than a bordered alert. It says which
+ * half of the product's money is real, and that is worth one line on every
+ * page rather than a badge someone has to go looking for.
+ */
+.swp-modebar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 24px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.swp-modebar::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+.swp-modebar[data-mode="test"] { background: #FFF8E6; color: #7A5A00; }
+.swp-modebar[data-mode="live"] { background: var(--color-ok-bg); color: #166A45; }
+
+/**
+ * The scope strip under it: edge to edge with a bottom rule, not an inset
+ * card. It is a statement about the page, so it sits against the page's
+ * edges the way the mode strip above it does.
+ */
+.swp-scopebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 24px;
+  background: var(--color-neutral-100);
+  border-bottom: 1px solid var(--color-divider);
+}

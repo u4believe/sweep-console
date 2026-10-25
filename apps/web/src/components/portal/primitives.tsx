@@ -112,8 +112,11 @@ export function KpiBand({ items, loading = false, size = 30 }: { items: Kpi[]; l
           key={k?.label ?? i}
           style={{
             padding: "16px 18px",
-            background: "var(--color-bg)",
-            border: "1px solid var(--color-divider)",
+            // Tinted, not white. The design fills these from the surface so
+            // they read as a band of figures against the page; white cards on
+            // a white page need a border to exist at all, and four bordered
+            // boxes in a row is a grid where the design has a rhythm.
+            background: "var(--color-neutral-200)",
             borderRadius: "var(--radius-lg)",
           }}
         >

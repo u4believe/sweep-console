@@ -312,7 +312,14 @@ export function PortalLayout() {
   );
 
   return (
-    <div className="flex min-h-screen flex-col lg:flex-row" style={{ background: "var(--color-bg)" }}>
+    <div
+      className="flex min-h-screen flex-col lg:flex-row"
+      // The accent follows the scope — see [data-scope="rail"] in sweep.css.
+      // Set here rather than branched at each component so everything already
+      // reading var(--color-accent) changes with it.
+      data-scope={effectiveScope}
+      style={{ background: "var(--color-bg)" }}
+    >
       {/* ── Wide: the rail ─────────────────────────────────────────────── */}
       <aside
         className="hidden lg:flex"
@@ -409,18 +416,26 @@ export function PortalLayout() {
           switch to, and a banner announcing "Hosted subscriptions" to someone
           who has only ever had that is noise.
         */}
+        {/*
+          Which money this is. On every console page, because the one thing a
+          person must never be wrong about is whether the amounts in front of
+          them are real.
+        */}
+        {mode && (
+          <div className="swp-modebar" data-mode={mode.testMode ? "test" : "live"}>
+            {mode.testMode
+              ? "Test mode — no real USDC is moving."
+              : "Live mode — charges move real USDC."}
+          </div>
+        )}
+
+        {/*
+          The scope strip. Only for an account that has both: one that does
+          not has nothing to switch to, and announcing "Hosted subscriptions"
+          to someone who has only ever had that is noise.
+        */}
         {canSwitch && (
-          <div
-            className="flex flex-wrap items-center"
-            style={{
-              gap: 12,
-              margin: "20px 24px 0",
-              padding: "13px 16px",
-              borderRadius: "var(--radius-lg)",
-              background: effectiveScope === "rail" ? "var(--color-neutral-200)" : "var(--color-accent-100)",
-              border: "1px solid var(--color-divider)",
-            }}
-          >
+          <div className="swp-scopebar">
             <span
               className="tag"
               style={{
@@ -430,13 +445,13 @@ export function PortalLayout() {
             >
               {SCOPE_COPY[effectiveScope].label}
             </span>
-            <span style={{ fontSize: 13, color: "var(--color-neutral-800)" }}>
+            <span style={{ fontSize: 13.5, color: "var(--color-neutral-800)" }}>
               {SCOPE_COPY[effectiveScope].note}
             </span>
             <button
               type="button"
               className="btn btn-ghost"
-              style={{ marginLeft: "auto", fontSize: 13 }}
+              style={{ marginLeft: "auto", fontSize: 13.5, color: "var(--color-accent)" }}
               onClick={() => chooseScope(SCOPE_COPY[effectiveScope].other)}
             >
               {SCOPE_COPY[effectiveScope].switchTo} →
