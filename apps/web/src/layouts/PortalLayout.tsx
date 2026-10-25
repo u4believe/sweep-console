@@ -322,17 +322,44 @@ export function PortalLayout() {
   });
 
   const brand = (
-    <button
-      type="button"
-      onClick={() => navigate("/")}
-      className="flex cursor-pointer items-center gap-2.5 text-left"
-      style={{ background: "transparent", border: 0, padding: 0, color: "var(--color-text)" }}
-    >
-      <SweepMark size={22} />
-      <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15, letterSpacing: "-0.02em" }}>
-        Sweep Console
-      </span>
-    </button>
+    <span className="flex items-center" style={{ gap: 9 }}>
+      <button
+        type="button"
+        onClick={() => navigate("/")}
+        className="flex cursor-pointer items-center gap-2.5 text-left"
+        style={{ background: "transparent", border: 0, padding: 0, color: "var(--color-text)" }}
+      >
+        <SweepMark size={22} />
+        <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15, letterSpacing: "-0.02em" }}>
+          Sweep Console
+        </span>
+      </button>
+      {/*
+        Test mode says so beside the wordmark; live mode says nothing.
+        A banner across every page was the wrong weight — it is a property of
+        the whole console, like the name it sits next to, not a notice that
+        needs re-reading on each screen. And a LIVE badge is noise: live is
+        the state money is normally in, so marking it teaches the eye to skip
+        the one badge that matters.
+      */}
+      {mode?.testMode && (
+        <span
+          title="Test mode — no real USDC moves here"
+          style={{
+            fontSize: 10.5,
+            fontWeight: 700,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            padding: "2px 7px",
+            borderRadius: 5,
+            background: "var(--color-accent-200)",
+            color: "var(--color-accent)",
+          }}
+        >
+          Test
+        </span>
+      )}
+    </span>
   );
 
   return (
@@ -440,19 +467,6 @@ export function PortalLayout() {
           switch to, and a banner announcing "Hosted subscriptions" to someone
           who has only ever had that is noise.
         */}
-        {/*
-          Which money this is. On every console page, because the one thing a
-          person must never be wrong about is whether the amounts in front of
-          them are real.
-        */}
-        {mode && (
-          <div className="swp-modebar" data-mode={mode.testMode ? "test" : "live"}>
-            {mode.testMode
-              ? "Test mode — no real USDC is moving."
-              : "Live mode — charges move real USDC."}
-          </div>
-        )}
-
         {/*
           The scope strip. Only for an account that has both: one that does
           not has nothing to switch to, and announcing "Hosted subscriptions"

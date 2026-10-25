@@ -507,36 +507,14 @@ textarea.input { min-height: 90px; resize: vertical; }
    ══════════════════════════════════════════════════════════════════════ */
 
 /**
- * The mode strip, across the top of every console page.
+ * The scope strip: edge to edge with a bottom rule, not an inset card. It is
+ * a statement about the page, so it sits against the page's edges.
  *
- * Amber in test, green in live — a state, not a warning, which is why it is
- * a thin tinted strip with a dot rather than a bordered alert. It says which
- * half of the product's money is real, and that is worth one line on every
- * page rather than a badge someone has to go looking for.
- */
-.swp-modebar {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 9px 24px;
-  font-size: 13px;
-  font-weight: 500;
-}
-.swp-modebar::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  flex: none;
-}
-.swp-modebar[data-mode="test"] { background: #FFF8E6; color: #7A5A00; }
-.swp-modebar[data-mode="live"] { background: var(--color-ok-bg); color: #166A45; }
-
-/**
- * The scope strip under it: edge to edge with a bottom rule, not an inset
- * card. It is a statement about the page, so it sits against the page's
- * edges the way the mode strip above it does.
+ * It used to sit under a mode strip — amber in test, green in live, on every
+ * page. That is gone: the mode is a property of the whole console, said once
+ * beside the wordmark, and live says nothing at all. Two coloured bands
+ * stacked above every screen was the opposite of the clean console the design
+ * draws.
  */
 .swp-scopebar {
   display: flex;

@@ -173,7 +173,10 @@ function Section({ id, ground, children }: { id?: string; ground?: boolean; chil
         padding: "88px 0",
       }}
     >
-      <div className="mx-auto w-full max-w-6xl px-5">{children}</div>
+      {/* 1240, the design's width. max-w-6xl is 1152 and was making every
+          band narrower than it should be — which on a wide screen reads as
+          the whole page being squeezed toward the middle. */}
+      <div className="mx-auto w-full px-5" style={{ maxWidth: 1240 }}>{children}</div>
     </section>
   );
 }
@@ -234,7 +237,7 @@ function Header() {
         borderBottom: "1px solid var(--color-divider)",
       }}
     >
-      <div className="mx-auto flex w-full max-w-6xl items-center px-5" style={{ gap: 14, height: 62 }}>
+      <div className="mx-auto flex w-full items-center px-5" style={{ maxWidth: 1240, gap: 14, height: 62 }}>
         <Link to="/" className="mr-auto flex items-center gap-2.5" style={{ color: "var(--color-text)" }}>
           <SweepMark size={22} />
           <span
@@ -288,10 +291,11 @@ function Header() {
 function Hero() {
   const { user, loading } = useAuth();
   return (
-    <section id="top" style={{ background: "var(--color-bg)", padding: "clamp(28px,5vw,56px) 0 clamp(36px,6vw,72px)" }}>
+    <section id="top" style={{ background: "var(--color-bg)", padding: "clamp(24px,3.5vw,44px) 0 clamp(18px,2.5vw,32px)" }}>
       <div
-        className="mx-auto grid w-full max-w-6xl items-center px-5"
+        className="mx-auto grid w-full items-center px-5"
         style={{
+          maxWidth: 1240,
           gap: "clamp(36px,5vw,72px)",
           gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,440px),1fr))",
         }}
@@ -541,7 +545,10 @@ function RailViz() {
     <div
       style={{
         position: "relative",
-        height: "clamp(440px,46vw,540px)",
+        // Shorter and wider than the design's clamp(440px,46vw,540px): at
+        // that height the "Pay from" and "Built with" strips fell below the
+        // fold on a laptop, and they are the page's proof.
+        height: "clamp(330px,33vw,430px)",
         borderRadius: 20,
         background: "var(--color-neutral-200)",
         overflow: "hidden",
@@ -667,7 +674,7 @@ function Marks() {
   return (
     <section
       className="mx-auto flex w-full flex-col"
-      style={{ maxWidth: 1100, gap: 22, padding: "clamp(16px,3vw,32px) clamp(18px,4vw,40px) clamp(28px,5vw,56px)" }}
+      style={{ maxWidth: 1240, gap: 16, padding: "clamp(10px,2vw,22px) clamp(18px,4vw,40px) clamp(24px,4vw,44px)" }}
     >
       <div
         className="flex flex-wrap items-center justify-center"
@@ -1141,7 +1148,7 @@ function Pricing() {
 function StartCta() {
   return (
     <section id="start" style={{ background: "var(--color-bg)", padding: "clamp(56px,8vw,96px) 0" }}>
-      <div className="mx-auto w-full max-w-6xl px-5" style={{ textAlign: "center" }}>
+      <div className="mx-auto w-full px-5" style={{ maxWidth: 1240, textAlign: "center" }}>
         <span className="inline-flex" style={{ marginBottom: 22 }}>
           <SweepMark size={46} />
         </span>
@@ -1176,8 +1183,8 @@ function Footer() {
   return (
     <footer style={{ background: "var(--color-bg)", borderTop: "1px solid var(--color-divider)", padding: "26px 0" }}>
       <div
-        className="mx-auto flex w-full max-w-6xl flex-wrap items-center px-5"
-        style={{ gap: "10px 26px", fontSize: 13.5, color: "var(--color-neutral-800)" }}
+        className="mx-auto flex w-full flex-wrap items-center px-5"
+        style={{ maxWidth: 1240, gap: "10px 26px", fontSize: 13.5, color: "var(--color-neutral-800)" }}
       >
         <span className="flex items-center" style={{ gap: 9, color: "var(--color-text)", fontWeight: 700 }}>
           <SweepMark size={20} />
