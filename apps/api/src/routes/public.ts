@@ -428,10 +428,22 @@ publicRouter.get("/config", (_req, res) => {
   });
 });
 
+/**
+ * A payment link belongs to ONE mode, and so must the lookup.
+ *
+ * Unscoped, this found a link from the other deployment, minted a checkout
+ * session stamped with THAT link's mode, and then the checkout page — which
+ * reads sessions through payerScope() — could not find the session it had
+ * just been handed. The payer saw "Checkout session not found" immediately
+ * after clicking a link that had worked a moment earlier on the other site.
+ *
+ * findFirst rather than findUnique: linkId alone is the unique key, so adding
+ * the mode makes it a non-unique filter.
+ */
 publicRouter.get("/pay/:link_id", async (req, res) => {
   try {
-    const link = await withRetry(() => prisma.paymentLink.findUnique({
-      where: { linkId: req.params.link_id as string },
+    const link = await withRetry(() => prisma.paymentLink.findFirst({
+      where: { linkId: req.params.link_id as string, ...payerScope() },
       include: { plan: true, merchant: { select: { name: true } } },
     }));
     if (!link || !link.active || link.plan.archived) {
@@ -466,8 +478,9 @@ publicRouter.post("/pay/:link_id/session", async (req, res) => {
   if (!parsed.success) return err(res, "Invalid payload", 422);
 
   try {
-    const link = await withRetry(() => prisma.paymentLink.findUnique({
-      where: { linkId: req.params.link_id as string },
+    // Scoped, for the reason on GET /pay/:link_id above.
+    const link = await withRetry(() => prisma.paymentLink.findFirst({
+      where: { linkId: req.params.link_id as string, ...payerScope() },
       include: { plan: true },
     }));
     if (!link || !link.active || link.plan.archived) {
@@ -484,6 +497,9 @@ publicRouter.post("/pay/:link_id/session", async (req, res) => {
       successUrl: link.successUrl ?? `${appUrl}/checkout/{SESSION_ID}`,
       cancelUrl: link.cancelUrl ?? appUrl,
       metadata: { payment_link_id: link.linkId },
+      // The link is now guaranteed to be this deployment's, so its mode and
+      // payerScope()'s agree by construction — the session it mints is one
+      // this site can read back.
       isTestMode: link.isTestMode,
     });
 

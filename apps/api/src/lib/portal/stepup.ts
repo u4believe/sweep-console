@@ -179,12 +179,35 @@ function encryptSecret(plain: string): string {
   return `${iv.toString("base64")}.${cipher.getAuthTag().toString("base64")}.${enc.toString("base64")}`;
 }
 
+/**
+ * Read a stored secret, or say why it cannot be read.
+ *
+ * TOTP_ENCRYPTION_KEY is per-DEPLOYMENT and Merchant.totpSecret is in the
+ * SHARED database, so sandbox and live must carry the same key. When they do
+ * not, the AES-GCM tag fails here and the throw surfaces as a 500 — whose
+ * message the client deliberately never renders, so the merchant is told
+ * "That code didn't work" and sets about re-reading six digits that were
+ * right all along.
+ *
+ * A StepUpError instead: 500 to 409, and a sentence naming the actual
+ * problem. It reaches the operator because a 4xx message IS rendered, and it
+ * names the variable so the fix is one line rather than an investigation.
+ */
 function decryptSecret(stored: string): string {
   const [iv, tag, body] = stored.split(".");
   if (!iv || !tag || !body) throw new Error("Stored authenticator secret is malformed");
-  const decipher = createDecipheriv("aes-256-gcm", encryptionKey(), Buffer.from(iv, "base64"));
-  decipher.setAuthTag(Buffer.from(tag, "base64"));
-  return Buffer.concat([decipher.update(Buffer.from(body, "base64")), decipher.final()]).toString("utf8");
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", encryptionKey(), Buffer.from(iv, "base64"));
+    decipher.setAuthTag(Buffer.from(tag, "base64"));
+    return Buffer.concat([decipher.update(Buffer.from(body, "base64")), decipher.final()]).toString("utf8");
+  } catch {
+    throw new StepUpError(
+      "This deployment cannot read your authenticator secret. It was enrolled with a " +
+        "different TOTP_ENCRYPTION_KEY — the sandbox and live services share one database, " +
+        "so they must share that key. Your code is not the problem.",
+      409
+    );
+  }
 }
 
 // ─── Enrolment ────────────────────────────────────────────────────────────────
