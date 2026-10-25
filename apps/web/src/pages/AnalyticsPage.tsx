@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Logo } from "@/components/ui/Logo";
+import { SweepMark } from "@/components/ui/marks";
 import { UMAMI_SHARE_URL } from "@/lib/analytics";
 
 // Public, read-only analytics — embeds the Umami "share" dashboard on our own
@@ -9,7 +9,7 @@ export function AnalyticsPage() {
     <div className="flex min-h-screen flex-col bg-white">
       <header className="sticky top-0 z-50 flex items-center justify-between border-b border-gray-100 bg-white/80 px-6 py-4 backdrop-blur-md">
         <Link to="/" className="flex items-center gap-2.5">
-          <Logo height={28} />
+          <SweepMark size={28} />
           <span className="text-lg font-bold tracking-tight text-gray-900">Sweep Console</span>
           <span className="ml-1 rounded-md bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700">Analytics</span>
         </Link>

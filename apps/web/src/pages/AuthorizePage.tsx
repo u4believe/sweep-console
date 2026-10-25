@@ -17,7 +17,7 @@ import { formatUnits } from "viem";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import { Spinner, ActivityBar } from "@/components/ui/Spinner";
 import { MetaMaskMark } from "@/components/ui/MetaMaskMark";
-import { CHAIN_MARKS } from "@/components/landing/ChainMarks";
+import { ChainMark } from "@/components/ui/marks";
 import { friendlyError } from "@/lib/errors";
 import {
   getAuthorization,
@@ -650,8 +650,7 @@ export function AuthorizePage() {
           )}
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-gray-100 pt-3">
             {view.targets.map((t) => {
-              const Mark = CHAIN_MARKS[t.chain_key];
-              const on = signedChains.includes(t.chain_id);
+                            const on = signedChains.includes(t.chain_id);
               const chosen = (picked ?? []).includes(t.chain_id);
               // The one whose wallet prompt is open right now. Without this a
               // chain being signed looks exactly like one not started, which is
@@ -668,9 +667,11 @@ export function AuthorizePage() {
               const selectable = canPick && !on;
               const body = (
                 <>
-                  {Mark && (
+                  {/* No `Mark &&` guard: ChainMark renders nothing for a
+                      chain it does not know, so the check moved into it. */}
+                  {(
                     <span className={busy ? "animate-pulse" : undefined}>
-                      <Mark height={20} opacity={on || chosen ? 1 : busy ? 0.75 : 0.3} />
+                      <ChainMark chain={t.chain_key} size={20} opacity={on || chosen ? 1 : busy ? 0.75 : 0.3} />
                     </span>
                   )}
                   <span

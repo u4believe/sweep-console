@@ -3,8 +3,8 @@ import { useState, type JSX, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useAccount, useConnectorClient } from "wagmi";
 import { formatUnits } from "viem";
-import { Logo } from "@/components/ui/Logo";
-import { CHAIN_MARKS } from "@/components/landing/ChainMarks";
+import { SweepMark } from "@/components/ui/marks";
+import { ChainMark, isChainKey } from "@/components/ui/marks";
 import { Spinner, ActivityBar } from "@/components/ui/Spinner";
 import { Turnstile, TURNSTILE_ENABLED } from "@/components/Turnstile";
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
@@ -548,7 +548,7 @@ export function ManageSubscriptionsPage() {
           }}
         >
           <Link to="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "inherit" }}>
-            <Logo height={22} />
+            <SweepMark size={22} />
             <span style={{ fontFamily: HEADING, fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em" }}>
               Sweep Console
             </span>
@@ -1036,8 +1036,7 @@ function MandateDetail({
           <div style={{ borderTop: "1px solid var(--color-divider)", marginTop: 10 }}>
             {rows.map((c) => {
               const g = granted.get(c.chain_id);
-              const Mark = CHAIN_MARKS[c.chain_key];
-              const rowBusy = busyId === `${mandate.mandate_id}:${c.chain_id}`;
+                            const rowBusy = busyId === `${mandate.mandate_id}:${c.chain_id}`;
               return (
                 <div
                   key={c.chain_id}
@@ -1046,9 +1045,9 @@ function MandateDetail({
                     borderBottom: "1px solid var(--color-divider)", flexWrap: "wrap",
                   }}
                 >
-                  {Mark
-                    ? <Mark height={22} opacity={g ? 1 : 0.45} />
-                    : <span style={{ width: 22, height: 22, flex: "none", background: "var(--color-neutral-200)" }} />}
+                  {isChainKey(c.chain_key)
+                    ? <ChainMark chain={c.chain_key} size={22} opacity={g ? 1 : 0.45} />
+                    : <span style={{ width: 22, height: 22, flex: "none", borderRadius: "50%", background: "var(--color-neutral-200)" }} />}
                   <span style={{ fontFamily: HEADING, fontWeight: 700, fontSize: 14.5, color: g ? undefined : "var(--color-neutral-700)" }}>
                     {c.name}
                   </span>
@@ -1258,8 +1257,7 @@ function SubscriptionDetail({
         <div style={{ borderTop: "1px solid var(--color-divider)" }}>
           {rows.map((c) => {
             const g = granted.get(c.chain_id);
-            const Mark = CHAIN_MARKS[c.chain_key];
-            const rowBusy = busyId === `${sub.id}:${c.chain_id}`;
+                        const rowBusy = busyId === `${sub.id}:${c.chain_id}`;
             const isLast = !!g && sub.grants.length === 1;
             return (
               <div
@@ -1269,9 +1267,9 @@ function SubscriptionDetail({
                   padding: "13px 0", borderBottom: "1px solid var(--color-divider)", flexWrap: "wrap",
                 }}
               >
-                {Mark
-                  ? <Mark height={22} opacity={g ? 1 : 0.45} />
-                  : <span style={{ width: 22, height: 22, flex: "none", background: "var(--color-neutral-200)" }} />}
+                {isChainKey(c.chain_key)
+                  ? <ChainMark chain={c.chain_key} size={22} opacity={g ? 1 : 0.45} />
+                  : <span style={{ width: 22, height: 22, flex: "none", borderRadius: "50%", background: "var(--color-neutral-200)" }} />}
                 <span style={{ fontFamily: HEADING, fontWeight: 700, fontSize: 14.5, color: g ? undefined : "var(--color-neutral-700)" }}>
                   {c.name}
                 </span>

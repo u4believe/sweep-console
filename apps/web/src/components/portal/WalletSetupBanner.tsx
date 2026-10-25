@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { isStaleBuildError, STALE_BUILD_MESSAGE, recoverFromStaleBuild } from "@/lib/chunk";
 import { ExternalWalletVerify } from "./ExternalWalletVerify";
-import { ArcMark, BaseMark, ArbitrumMark, OptimismMark } from "@/components/landing/ChainMarks";
+import { ChainMark } from "@/components/ui/marks";
 import { friendlyError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
@@ -325,7 +325,7 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
             Settles on
           </p>
           <div className="flex items-center gap-2.5">
-            <ArcMark height={20} />
+            <ChainMark chain="arc" size={20} />
             <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 14.5 }}>Arc</span>
             <span className="tag tag-neutral">Fixed</span>
           </div>
@@ -344,9 +344,9 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
               permit to a contract, not the ERC-7715 wallet permission this
               platform redeems. */}
           <div className="flex flex-wrap items-center gap-3">
-            <span className="flex items-center gap-1.5"><BaseMark height={14} /><span style={{ fontSize: 12.5 }}>Base</span></span>
-            <span className="flex items-center gap-1.5"><ArbitrumMark height={14} /><span style={{ fontSize: 12.5 }}>Arbitrum</span></span>
-            <span className="flex items-center gap-1.5"><OptimismMark height={14} /><span style={{ fontSize: 12.5 }}>Optimism</span></span>
+            <span className="flex items-center gap-1.5"><ChainMark chain="base" size={16} /><span style={{ fontSize: 12.5 }}>Base</span></span>
+            <span className="flex items-center gap-1.5"><ChainMark chain="arbitrum" size={16} /><span style={{ fontSize: 12.5 }}>Arbitrum</span></span>
+            <span className="flex items-center gap-1.5"><ChainMark chain="optimism" size={16} /><span style={{ fontSize: 12.5 }}>Optimism</span></span>
           </div>
         </div>
       </div>

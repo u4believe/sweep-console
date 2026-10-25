@@ -23,16 +23,9 @@ import type { FC, ReactNode } from "react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/auth";
-import { Logo } from "@/components/ui/Logo";
 import { DOCS_URL } from "@/lib/docs";
 import { feePercent } from "@/lib/fee";
-import {
-  ArcMark,
-  BaseMark,
-  ArbitrumMark,
-  OptimismMark,
-  type MarkProps,
-} from "@/components/landing/ChainMarks";
+import { ChainMark, SweepMark, UsdcMark, METAMASK_LOGO, CIRCLE_LOGO, type ChainKey } from "@/components/ui/marks";
 
 const STEPS = [
   {
@@ -85,10 +78,10 @@ const FEATURES = [
   },
 ];
 
-const CHAINS: Array<{ key: string; name: string; Mark: FC<MarkProps>; note: string }> = [
-  { key: "base", name: "Base", Mark: BaseMark, note: "Lowest fees" },
-  { key: "arbitrum", name: "Arbitrum", Mark: ArbitrumMark, note: "Deep USDC liquidity" },
-  { key: "optimism", name: "Optimism", Mark: OptimismMark, note: "Fast finality" },
+const CHAINS: Array<{ key: ChainKey; name: string; note: string }> = [
+  { key: "base", name: "Base", note: "Lowest fees" },
+  { key: "arbitrum", name: "Arbitrum", note: "Deep USDC liquidity" },
+  { key: "optimism", name: "Optimism", note: "Fast finality" },
 ];
 
 /** The names apps/api actually sends. Checked, not copied from the mockup. */
@@ -215,14 +208,15 @@ function Header() {
       style={{
         zIndex: 40,
         background: "var(--color-header-bg)",
-        backdropFilter: "saturate(180%) blur(12px)",
-        WebkitBackdropFilter: "saturate(180%) blur(12px)",
+        // 14px with no saturate — the design's value. The saturate was mine.
+        backdropFilter: "blur(14px)",
+        WebkitBackdropFilter: "blur(14px)",
         borderBottom: "1px solid var(--color-divider)",
       }}
     >
       <div className="mx-auto flex w-full max-w-6xl items-center px-5" style={{ gap: 14, height: 62 }}>
         <Link to="/" className="mr-auto flex items-center gap-2.5" style={{ color: "var(--color-text)" }}>
-          <Logo height={22} />
+          <SweepMark size={22} />
           <span
             style={{
               fontFamily: "var(--font-heading)",
@@ -288,7 +282,7 @@ function Hero() {
                 place usdc-flip is used. */}
             <span className="inline-flex items-center" style={{ gap: 10, whiteSpace: "nowrap" }}>
               <span className="usdc-flip inline-flex" aria-hidden="true">
-                <ArcMark height={42} />
+                <UsdcMark size={42} />
               </span>
               USDC.
             </span>
@@ -343,7 +337,7 @@ function RailViz() {
         One signature
       </p>
       <div className="mt-4" style={{ display: "grid", gap: 10 }}>
-        {CHAINS.map(({ key, name, Mark, note }) => (
+        {CHAINS.map(({ key, name, note }) => (
           <div
             key={key}
             className="flex items-center"
@@ -352,9 +346,9 @@ function RailViz() {
               border: "1px solid var(--color-divider)", borderRadius: "var(--radius-md)",
             }}
           >
-            <Mark height={20} />
+            <ChainMark chain={key} size={22} />
             <span style={{ fontSize: 14, fontWeight: 600 }}>{name}</span>
-            <span className="ml-auto" style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>{note}</span>
+            <span className="ml-auto" style={{ fontSize: 12, color: "var(--color-neutral-800)" }}>{note}</span>
           </div>
         ))}
       </div>
@@ -368,7 +362,7 @@ function RailViz() {
           border: "1px solid var(--color-accent-300)", borderRadius: "var(--radius-md)",
         }}
       >
-        <ArcMark height={22} />
+        <ChainMark chain="arc" size={24} />
         <span style={{ fontSize: 14, fontWeight: 700 }}>Settled on Arc</span>
         <span className="ml-auto" style={{ fontSize: 12, color: "var(--color-accent)" }}>Your payout wallet</span>
       </div>
@@ -377,6 +371,67 @@ function RailViz() {
 }
 
 /* ── sections ─────────────────────────────────────────────────────────── */
+
+/**
+ * The two strips under the hero, both in the design and both missing until
+ * now: which chains a subscriber can pay from, and what the rail is built on.
+ *
+ * They use the package's own artwork rather than drawn approximations — on a
+ * row whose whole job is recognition, a near-miss of Base's mark is worse
+ * than no mark.
+ */
+function Marks() {
+  return (
+    <section
+      className="mx-auto flex w-full flex-col"
+      style={{ maxWidth: 1100, gap: 22, padding: "clamp(16px,3vw,32px) clamp(18px,4vw,40px) clamp(28px,5vw,56px)" }}
+    >
+      <div
+        className="flex flex-wrap items-center justify-center"
+        style={{ gap: "16px clamp(24px,4vw,48px)", fontWeight: 700, fontSize: "clamp(15px,1.5vw,18px)", letterSpacing: "-0.01em" }}
+      >
+        <span
+          style={{
+            fontSize: 12, fontWeight: 700, letterSpacing: "0.12em",
+            textTransform: "uppercase", color: "var(--color-neutral-700)",
+          }}
+        >
+          Pay from
+        </span>
+        {CHAINS.map(({ key, name }) => (
+          <span key={key} className="flex items-center" style={{ gap: 9 }}>
+            <ChainMark chain={key} size={24} />
+            {name}
+          </span>
+        ))}
+        <span className="flex items-center" style={{ gap: 9 }}>
+          <ChainMark chain="arc" size={24} />
+          Arc
+        </span>
+        <span className="flex items-center" style={{ gap: 9 }}>
+          <UsdcMark size={24} />
+          USDC
+        </span>
+      </div>
+
+      <div
+        className="flex flex-wrap items-center justify-center"
+        style={{ gap: "14px clamp(22px,4vw,40px)" }}
+      >
+        <span
+          style={{
+            fontSize: 12, fontWeight: 700, letterSpacing: "0.12em",
+            textTransform: "uppercase", color: "var(--color-neutral-700)",
+          }}
+        >
+          Built with
+        </span>
+        <img src={METAMASK_LOGO} alt="MetaMask" style={{ height: 26, width: "auto" }} />
+        <img src={CIRCLE_LOGO} alt="Circle" style={{ height: 28, width: "auto" }} />
+      </div>
+    </section>
+  );
+}
 
 function HowItWorks() {
   return (
@@ -428,7 +483,7 @@ function Demo() {
             Pay from
           </p>
           <div style={{ display: "grid", gap: 8 }}>
-            {CHAINS.map(({ key, name, Mark }) => {
+            {CHAINS.map(({ key, name }) => {
               const on = picked === key;
               return (
                 <button
@@ -445,7 +500,7 @@ function Demo() {
                     transition: "background var(--dur) ease, border-color var(--dur) ease",
                   }}
                 >
-                  <Mark height={19} />
+                  <ChainMark chain={key} size={22} />
                   <span style={{ fontSize: 14, fontWeight: 600 }}>{name}</span>
                   {on && <span className="ml-auto" style={{ fontSize: 12, color: "var(--color-accent)" }}>Selected</span>}
                 </button>
@@ -765,7 +820,7 @@ function Footer() {
         style={{ gap: 16, fontSize: 13, color: "var(--color-neutral-700)" }}
       >
         <span className="flex items-center" style={{ gap: 8, color: "var(--color-text)", fontWeight: 600 }}>
-          <Logo height={17} />
+          <SweepMark size={17} />
           Sweep Console
         </span>
         <span className="flex flex-wrap" style={{ gap: 18, marginLeft: "auto" }}>
@@ -787,6 +842,7 @@ export function LandingPage() {
       <Header />
       <main className="swp-in">
         <Hero />
+        <Marks />
         <HowItWorks />
         <Demo />
         <Features />

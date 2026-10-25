@@ -1,5 +1,5 @@
 import { Link, Outlet } from "react-router-dom";
-import { Logo } from "@/components/ui/Logo";
+import { SweepMark } from "@/components/ui/marks";
 
 /**
  * The shell for returning-user pages — login, forgot password, reset password.
@@ -16,7 +16,7 @@ export function AuthLayout() {
         style={{ padding: "18px 40px", borderBottom: "1px solid var(--color-divider)" }}
       >
         <Link to="/" className="flex items-center gap-2.5" style={{ color: "var(--color-text)" }}>
-          <Logo height={22} />
+          <SweepMark size={22} />
           <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 16, letterSpacing: "-0.02em" }}>
             Sweep Console
           </span>

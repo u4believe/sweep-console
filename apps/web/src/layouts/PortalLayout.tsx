@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/auth";
-import { Logo } from "@/components/ui/Logo";
+import { SweepMark } from "@/components/ui/marks";
 import { StepUpDialog } from "@/components/portal/StepUpDialog";
 
 // The two dashboards. Facts about this product rather than configuration —
@@ -19,17 +19,9 @@ const NAV_HOSTED = [
   { href: "/payments", label: "Payments" },
 ];
 
-/**
- * The rail, once the account has it.
- *
- * The design draws these as a SEPARATE console — a rail merchant sees
- * Dashboard · Mandates · Charges and no Plans at all. That is a demo toggle
- * in the mockup (`flow === 'rail'`) showing two kinds of customer, and this
- * product does not work that way: rail access is a grant on top of a hosted
- * account, and a merchant can run both. So these are added to the hosted
- * items rather than replacing them.
- */
+/** The rail's own destinations, once the account has it. */
 const NAV_RAIL = [
+  { href: "/dashboard", label: "Dashboard" },
   { href: "/rail/mandates", label: "Mandates" },
   { href: "/rail/charges", label: "Charges" },
 ];
@@ -42,6 +34,45 @@ const NAV_TAIL = [
   { href: "/api-keys", label: "API Keys" },
   { href: "/settings", label: "Settings" },
 ];
+
+/**
+ * Which half of the product the console is pointed at.
+ *
+ * The design carries this as a real control — a scope banner naming the
+ * current flow with a link to the other, and a sidebar that changes with it.
+ * I previously read it as a mockup toggle demonstrating two customer types
+ * and left it out; it is a feature, and this is it.
+ *
+ * It is a VIEW, not an entitlement. Rail access is granted on top of a hosted
+ * account and a merchant can run both, so switching scope changes what the
+ * sidebar offers and nothing else — every route stays reachable, and landing
+ * on one belonging to the other scope switches to it rather than showing a
+ * page the nav denies.
+ */
+type Scope = "hosted" | "rail";
+const SCOPE_KEY = "sweep.console.scope";
+
+const SCOPE_COPY: Record<Scope, { label: string; note: string; other: Scope; switchTo: string }> = {
+  hosted: {
+    label: "Hosted subscriptions",
+    note: "Plans, subscribers and renewals on the checkout we host.",
+    other: "rail",
+    switchTo: "Switch to the payment rail",
+  },
+  rail: {
+    label: "Payment rail",
+    note: "Mandates, charges and keys for checkouts you build yourself.",
+    other: "hosted",
+    switchTo: "Switch to hosted subscriptions",
+  },
+};
+
+/// Which scope a path belongs to, or null when it belongs to both.
+function scopeOf(pathname: string): Scope | null {
+  if (pathname.startsWith("/rail")) return "rail";
+  if (["/plans", "/subscriptions", "/payments"].some((p) => pathname.startsWith(p))) return "hosted";
+  return null;
+}
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -111,12 +142,59 @@ export function PortalLayout() {
    * that only ever errors is worse than no tab.
    */
   const showAdmin = isAdmin && mode?.testMode === false;
-  const railNav = railEnabled === undefined ? [] : railEnabled ? NAV_RAIL : NAV_RAIL_LOCKED;
-  const nav = [...NAV_HOSTED, ...railNav, ...NAV_TAIL, ...(showAdmin ? ADMIN_NAV : [])];
 
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
   const navigate = useNavigate();
+
+  /**
+   * The remembered scope, corrected by where the person actually is.
+   *
+   * The route wins over the stored preference: someone following a link to
+   * /payments while the console last sat in rail scope should see the hosted
+   * sidebar, not a page their own nav disowns. Only paths that belong to
+   * exactly one scope move it — /dashboard, /settings and the rest belong to
+   * both and leave it alone.
+   */
+  const [scope, setScope] = useState<Scope>(() => {
+    try {
+      return localStorage.getItem(SCOPE_KEY) === "rail" ? "rail" : "hosted";
+    } catch {
+      return "hosted"; // private mode, blocked storage — the default is fine
+    }
+  });
+
+  useEffect(() => {
+    const belongs = scopeOf(pathname);
+    if (belongs && belongs !== scope) setScope(belongs);
+  }, [pathname, scope]);
+
+  const chooseScope = (next: Scope) => {
+    setScope(next);
+    try {
+      localStorage.setItem(SCOPE_KEY, next);
+    } catch {
+      /* the console still works; it just forgets between visits */
+    }
+    navigate(next === "rail" ? (railEnabled ? "/rail/charges" : "/rail") : "/dashboard");
+  };
+
+  /**
+   * An account with no rail access is not offered the scope at all.
+   *
+   * It would switch to a single page asking to be let in, which is not a
+   * half of the product — it is a request form, and it stays in the nav
+   * where it already was.
+   */
+  const canSwitch = railEnabled === true;
+  const effectiveScope: Scope = canSwitch ? scope : "hosted";
+
+  const nav = [
+    ...(effectiveScope === "rail" ? NAV_RAIL : NAV_HOSTED),
+    ...(canSwitch || railEnabled === undefined ? [] : NAV_RAIL_LOCKED),
+    ...NAV_TAIL,
+    ...(showAdmin ? ADMIN_NAV : []),
+  ];
 
   /**
    * An item is lit on its own path and anything beneath it, so "Plans" stays
@@ -226,7 +304,7 @@ export function PortalLayout() {
       className="flex cursor-pointer items-center gap-2.5 text-left"
       style={{ background: "transparent", border: 0, padding: 0, color: "var(--color-text)" }}
     >
-      <Logo height={22} />
+      <SweepMark size={22} />
       <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15, letterSpacing: "-0.02em" }}>
         Sweep Console
       </span>
@@ -321,10 +399,56 @@ export function PortalLayout() {
         </div>
       </header>
 
-      {/* Keyed on the route so each screen plays the system's entrance. */}
-      <main key={pathname} className="min-w-0 flex-1 swp-in" style={{ background: "var(--color-bg)" }}>
-        <Outlet />
-      </main>
+      <div className="min-w-0 flex-1" style={{ background: "var(--color-bg)" }}>
+        {/*
+          The scope banner: which half of the product this is, and the way to
+          the other. The design puts it at the head of the content rather than
+          in the rail, so it reads as a statement about what is below it.
+
+          Only for an account that has both. One that does not has nothing to
+          switch to, and a banner announcing "Hosted subscriptions" to someone
+          who has only ever had that is noise.
+        */}
+        {canSwitch && (
+          <div
+            className="flex flex-wrap items-center"
+            style={{
+              gap: 12,
+              margin: "20px 24px 0",
+              padding: "13px 16px",
+              borderRadius: "var(--radius-lg)",
+              background: effectiveScope === "rail" ? "var(--color-neutral-200)" : "var(--color-accent-100)",
+              border: "1px solid var(--color-divider)",
+            }}
+          >
+            <span
+              className="tag"
+              style={{
+                background: effectiveScope === "rail" ? "var(--color-text)" : "var(--color-accent-200)",
+                color: effectiveScope === "rail" ? "var(--color-bg)" : "var(--color-accent)",
+              }}
+            >
+              {SCOPE_COPY[effectiveScope].label}
+            </span>
+            <span style={{ fontSize: 13, color: "var(--color-neutral-800)" }}>
+              {SCOPE_COPY[effectiveScope].note}
+            </span>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ marginLeft: "auto", fontSize: 13 }}
+              onClick={() => chooseScope(SCOPE_COPY[effectiveScope].other)}
+            >
+              {SCOPE_COPY[effectiveScope].switchTo} →
+            </button>
+          </div>
+        )}
+
+        {/* Keyed on the route so each screen plays the system's entrance. */}
+        <main key={pathname} className="min-w-0 swp-in">
+          <Outlet />
+        </main>
+      </div>
 
       {/* Mounted once for the whole portal. Any guarded request, on any screen,
           opens this — see lib/stepup.ts. Outside <main> so the route key above

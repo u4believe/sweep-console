@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { Logo } from "@/components/ui/Logo";
+import { SweepMark } from "@/components/ui/marks";
 
 /**
  * The onboarding shell: an accent-filled aside carrying the whole journey, and
@@ -92,7 +92,7 @@ export function OnboardingLayout({
           className="flex items-center gap-2.5"
           style={{ marginBottom: 56, color: "var(--color-bg)" }}
         >
-          <Logo height={24} fill="var(--color-bg)" />
+          <SweepMark size={24} onDark />
           <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 16 }}>
             Sweep Console
           </span>

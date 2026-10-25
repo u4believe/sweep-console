@@ -1,3 +1,4 @@
+import { ChainMark } from "@/components/ui/marks";
 import type { FC } from "react";
 
 // Brand-colored chain logo badges used on the crypto checkout. Inline SVG so
@@ -74,11 +75,13 @@ export function OptimismLogo({ className = "h-8 w-8" }: { className?: string }) 
 
 export type ChainKey = "base" | "arbitrum" | "optimism";
 
-const LOGOS: Record<ChainKey, FC<{ className?: string }>> = {
-  base: BaseLogo,
-  arbitrum: ArbitrumLogo,
-  optimism: OptimismLogo,
-};
+/**
+ * The hand-drawn marks above are kept as exports — other screens still import
+ * ArcLogo and the rest — but the picker a PAYER uses draws the design
+ * package's own SVGs instead. A subscriber recognises Base's mark, and an
+ * approximation of it on the screen where they commit money is worse than
+ * none.
+ */
 
 const LABELS: Record<ChainKey, string> = {
   base: "Base",
@@ -97,20 +100,27 @@ export function ChainBadge({
   onClick?: () => void;
   disabled?: boolean;
 }) {
-  const Logo = LOGOS[chain];
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`flex flex-1 flex-col items-center gap-2 rounded-xl border px-3 py-3 transition disabled:cursor-not-allowed disabled:opacity-50 ${
-        selected
-          ? "border-brand-500 bg-brand-50 ring-2 ring-brand-500/30"
-          : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50"
-      }`}
+      aria-pressed={selected}
+      className="flex flex-1 flex-col items-center disabled:cursor-not-allowed disabled:opacity-50"
+      style={{
+        gap: 8,
+        padding: "13px 12px",
+        font: "inherit",
+        borderRadius: "var(--radius-md)",
+        border: `1px solid ${selected ? "var(--color-accent)" : "var(--color-neutral-400)"}`,
+        background: selected ? "var(--color-accent-200)" : "var(--color-bg)",
+        transition: "background var(--dur) ease, border-color var(--dur) ease",
+      }}
     >
-      <Logo className="h-7 w-7" />
-      <span className="text-xs font-medium text-gray-700">{LABELS[chain]}</span>
+      <ChainMark chain={chain} size={28} />
+      <span style={{ fontSize: 12.5, fontWeight: 600, color: selected ? "var(--color-accent)" : "var(--color-neutral-900)" }}>
+        {LABELS[chain]}
+      </span>
     </button>
   );
 }

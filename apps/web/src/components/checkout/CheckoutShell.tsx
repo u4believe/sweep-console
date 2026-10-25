@@ -10,7 +10,7 @@ import { GatewaySweepPanel } from "./GatewaySweepPanel";
 import { DelegatedRenewalToggle, TIER2_ENABLED } from "./DelegatedRenewalToggle";
 import { ManageSubscriptionsPanel } from "./ManageSubscriptionsPanel";
 import { PostPaymentGrants } from "./PostPaymentGrants";
-import { BaseMark, ArbitrumMark, OptimismMark } from "@/components/landing/ChainMarks";
+import { ChainMark } from "@/components/ui/marks";
 import { Spinner, ActivityBar } from "@/components/ui/Spinner";
 import { CheckoutFrame, HAIRLINE } from "./CheckoutFrame";
 import { PlanShowcase } from "./PlanShowcase";
@@ -412,9 +412,9 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
    * up with a row that shows no sign of the wallet prompt it just triggered.
    */
   const PAY_CHAINS = [
-    { key: "base", name: "USDC on Base", note: "Settled on Arc", Logo: BaseMark },
-    { key: "arbitrum", name: "USDC on Arbitrum", note: "Settled on Arc", Logo: ArbitrumMark },
-    { key: "optimism", name: "USDC on Optimism", note: "Settled on Arc", Logo: OptimismMark },
+    { key: "base", name: "USDC on Base", note: "Settled on Arc" },
+    { key: "arbitrum", name: "USDC on Arbitrum", note: "Settled on Arc" },
+    { key: "optimism", name: "USDC on Optimism", note: "Settled on Arc" },
   ] as const;
 
   const [payChain, setPayChain] = useState<string>("base");
@@ -977,7 +977,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                 {verified && walletPresent && !walletBlocked && (
                   <StepRow n="03" label="Pay from">
                     <div className="flex flex-col" role="radiogroup" aria-label="Pay from">
-                      {PAY_CHAINS.map(({ key, name, note, Logo }) => {
+                      {PAY_CHAINS.map(({ key, name, note }) => {
                         const on = payChain === key;
                         // Two different waits, one appearance: the wallet has the
                         // prompt (grantingChain), or the platform is settling
@@ -1004,7 +1004,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                               fontFamily: "var(--font-body)",
                             }}
                           >
-                            <Logo height={22} />
+                            <ChainMark chain={key} size={22} />
                             <span className="min-w-0 flex-1">
                               <span
                                 className="block"
