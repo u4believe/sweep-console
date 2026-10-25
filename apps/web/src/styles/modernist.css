@@ -6,7 +6,9 @@
  *   _ds/modernist-58bed631-b50a-4105-9b71-e47ee42a436d/styles.css
  *
  * Do not hand-edit — re-import from the project instead. The Arc Blue accent
- * override lives in ./sweep-v2.css, applied after this file.
+ * override lives in ./sweep-v2.css, applied after this file, and it
+ * replaces this system's appearance wholesale — only the structure and
+ * the component classes below are still in use.
  *
  * The upstream file begins with an @import for Archivo from Google Fonts; it is
  * omitted here because index.html already preconnects and loads that family,

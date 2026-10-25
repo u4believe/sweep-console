@@ -1,5 +1,5 @@
 import { formatUnits } from "viem";
-import { RULE, HAIRLINE } from "./CheckoutFrame";
+import { HAIRLINE } from "./CheckoutFrame";
 
 // Matches CheckoutShell's labels exactly — a preview that priced differently
 // from the real thing would be worse than no preview.
@@ -50,37 +50,36 @@ export function PlanShowcase({
   // deliberate choice looked identical and there was no way to clear one.
   const recommendedId = recommendedTierId === "default" ? null : recommendedTierId ?? undefined;
 
-  // Columns follow the tier count instead of always being three. Three was only
-  // right at exactly three: two tiers left an empty column and a stretched gap,
-  // and four or more wrapped into a ragged row. Four splits 2x2, six 3x3 — an odd
-  // count above three has no even split, so it takes three and leaves a short
-  // last row. Below md everything is one column, as before.
-  const count = tierOptions.length;
-  const columns = count <= 3 ? count : count % 3 === 0 ? 3 : count % 2 === 0 ? 2 : 3;
-  // Written as whole literals so Tailwind's scanner emits these classes.
-  const columnClass = columns === 3 ? "md:grid-cols-3" : columns === 2 ? "md:grid-cols-2" : "";
 
   return (
-    <div style={{ padding: "44px 32px 64px" }}>
+    <div style={{ padding: "clamp(28px,5vw,52px) clamp(16px,3vw,32px) 44px" }}>
       <p
         className="m-0 uppercase"
-        style={{ fontSize: 10, letterSpacing: "0.16em", color: "var(--color-accent)", marginBottom: 8 }}
+        style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.14em", color: "var(--color-accent)", marginBottom: 10 }}
       >
         {merchantName}
       </p>
       <h1
         className="m-0"
-        style={{ fontSize: "clamp(32px, 5vw, 52px)", letterSpacing: "-0.035em", lineHeight: 1, marginBottom: 6 }}
+        style={{ fontSize: "clamp(34px, 5vw, 52px)", letterSpacing: "-0.04em", lineHeight: 1.02, marginBottom: 10 }}
       >
         Choose your plan
       </h1>
-      <p className="m-0" style={{ fontSize: 15, color: "var(--color-neutral-800)", marginBottom: 32 }}>
+      <p className="m-0" style={{ fontSize: 15.5, lineHeight: 1.6, color: "var(--color-neutral-800)", marginBottom: 32 }}>
         {description || "Pay in USDC from any supported chain. Cancel anytime from your own wallet."}
       </p>
 
+      {/*
+        Separate cards with a gap, not cells of one ruled grid.
+
+        `columnClass` is gone with it: auto-fit sizes the track from the
+        content, so two tiers make two columns and five wrap, without the
+        component having to be told how many there are — and without the
+        Tailwind-scanner dance of writing the class names as whole literals.
+      */}
       <div
-        className={`grid ${columnClass}`}
-        style={{ borderTop: RULE, borderBottom: RULE, background: "var(--color-bg)" }}
+        className="grid"
+        style={{ gap: 14, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,260px),1fr))" }}
       >
         {tierOptions.map((t) => {
           const free = t.amount === 0;
@@ -91,9 +90,15 @@ export function PlanShowcase({
               key={t.id ?? "default"}
               className="flex flex-col gap-3"
               style={{
-                padding: 28,
-                borderLeft: HAIRLINE,
-                background: recommended ? "var(--color-surface)" : "transparent",
+                padding: 22,
+                background: "var(--color-bg)",
+                borderRadius: "var(--radius-lg)",
+                // The recommended tier is lifted and ringed in accent rather
+                // than tinted: on a tinted ground a tinted cell is the one
+                // that recedes.
+                boxShadow: recommended
+                  ? "0 0 0 1px var(--color-accent), 0 24px 48px -32px rgba(35,35,80,0.45)"
+                  : "0 0 0 1px var(--color-neutral-400)",
               }}
             >
               <div className="flex items-center gap-2.5" style={{ minHeight: 22 }}>

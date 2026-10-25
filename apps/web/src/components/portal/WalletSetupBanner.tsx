@@ -7,7 +7,7 @@ import { friendlyError } from "@/lib/errors";
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
 /**
- * Onboarding step 03 — the payout wallet — rendered in the Modernist system.
+ * Onboarding step 03 — the payout wallet.
  *
  * Two paths, both non-custodial. "I have a wallet" links an address the
  * merchant already controls, proven with a gas-free signature. "Create a payout
@@ -130,8 +130,9 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
     return (
       <div
         style={{
-          border: "2px solid var(--color-accent)",
-          background: "var(--color-surface)",
+          border: "1px solid var(--color-accent-300)",
+          borderRadius: "var(--radius-lg)",
+          background: "var(--color-accent-100)",
           padding: "20px",
         }}
       >
@@ -213,6 +214,7 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
         <div
           style={{
             border: "1px solid var(--color-divider)",
+            borderRadius: "var(--radius-lg)",
             padding: 20,
             background: "var(--color-surface)",
           }}
@@ -225,7 +227,7 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
         </div>
       ) : (
         <>
-          <div style={{ border: "1px solid var(--color-divider)", background: "var(--color-surface)" }}>
+          <div style={{ border: "1px solid var(--color-divider)", borderRadius: "var(--radius-lg)", overflow: "hidden", background: "var(--color-neutral-100)" }}>
             <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
               <div className="flex flex-wrap items-center gap-3">
                 <span style={SQUARE} />

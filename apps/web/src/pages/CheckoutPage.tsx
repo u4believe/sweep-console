@@ -34,18 +34,32 @@ interface SessionData {
   onchain: OnChainParams;
 }
 
-/** A bare status screen in the Modernist system — ruled, not carded. */
+/**
+ * A status screen — a card on the ground, matching the checkout it stands in
+ * for. It was a headline under a rule, which is the shape the rest of this
+ * flow no longer has.
+ */
 function CheckoutStatus({ title, body }: { title: string; body: string }) {
   return (
     <div
       className="flex min-h-screen items-center justify-center"
-      style={{ background: "var(--color-surface)", padding: "0 32px" }}
+      style={{ background: "var(--color-neutral-200)", padding: "24px clamp(16px,3vw,32px)" }}
     >
-      <div style={{ maxWidth: 560, width: "100%", borderTop: "1px solid var(--color-divider)", paddingTop: 28 }}>
-        <h1 className="m-0" style={{ fontSize: "clamp(28px, 4vw, 44px)", letterSpacing: "-0.03em", marginBottom: 10 }}>
+      <div
+        className="swp-in"
+        style={{
+          maxWidth: 480,
+          width: "100%",
+          background: "var(--color-bg)",
+          borderRadius: "var(--radius-lg)",
+          padding: "30px 28px",
+          boxShadow: "0 0 0 1px var(--color-neutral-400), var(--shadow-lg)",
+        }}
+      >
+        <h1 className="m-0" style={{ fontSize: "clamp(22px, 3vw, 28px)", letterSpacing: "-0.03em", marginBottom: 10 }}>
           {title}
         </h1>
-        <p className="m-0" style={{ fontSize: 15, color: "var(--color-neutral-800)" }}>{body}</p>
+        <p className="m-0" style={{ fontSize: 15, lineHeight: 1.6, color: "var(--color-neutral-800)" }}>{body}</p>
       </div>
     </div>
   );

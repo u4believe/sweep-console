@@ -13,9 +13,10 @@
  * its component structure (.btn, .card, .table, .dialog) and its reset; what
  * it must not keep is its appearance.
  *
- * NOT the same as styles/arc-blue.css, which this replaces. That file's #2f6fc9
- * ramp is what the app wore before, and the design package's
- * "Sweep Console - Arc Blue.dc.html" is a snapshot of THAT — not of this.
+ * It replaced styles/arc-blue.css, now deleted. That file's #2f6fc9 ramp is
+ * what the app wore before, and the design package's
+ * "Sweep Console - Arc Blue.dc.html" is a snapshot of THAT — not of this,
+ * which is worth knowing when reading the package.
  *
  * Source colours, counted from the design so the common ones are the tokens
  * and the rare ones are not: #4447D6 (accent, 21 uses), #23233B (ink, 7),

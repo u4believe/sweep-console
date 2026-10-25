@@ -12,7 +12,7 @@ import { ManageSubscriptionsPanel } from "./ManageSubscriptionsPanel";
 import { PostPaymentGrants } from "./PostPaymentGrants";
 import { BaseMark, ArbitrumMark, OptimismMark } from "@/components/landing/ChainMarks";
 import { Spinner, ActivityBar } from "@/components/ui/Spinner";
-import { CheckoutFrame, RULE, HAIRLINE } from "./CheckoutFrame";
+import { CheckoutFrame, HAIRLINE } from "./CheckoutFrame";
 import { PlanShowcase } from "./PlanShowcase";
 import { Turnstile, TURNSTILE_ENABLED } from "@/components/Turnstile";
 import {
@@ -135,19 +135,36 @@ function friendlyWalletError(e: unknown): string {
   return msg;
 }
 
-function StepRow({ n, label, children, strong = false }: {
-  n: string; label: string; children: React.ReactNode; strong?: boolean;
+/**
+ * A numbered step inside the payment card.
+ *
+ * It used to take `strong` to pick the heavier of two rules. RULE and
+ * HAIRLINE are both `1px solid var(--color-divider)` and have been for some
+ * time, so that choice has drawn the same line either way — the prop is
+ * removed rather than left as a no-op that reads like it does something.
+ */
+function StepRow({ n, label, children }: {
+  n: string; label: string; children: React.ReactNode;
 }) {
   return (
     <div
-      className="grid gap-3.5"
-      style={{ gridTemplateColumns: "26px 1fr", padding: "13px 0", borderBottom: strong ? RULE : HAIRLINE }}
+      className="grid gap-3"
+      style={{
+        gridTemplateColumns: "22px 1fr",
+        padding: "13px 0",
+        borderBottom: HAIRLINE,
+      }}
     >
-      <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12, color: "var(--color-accent)" }}>
+      <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--color-neutral-700)", paddingTop: 2 }}>
         {n}
       </span>
       <div>
-        <p className="m-0 uppercase" style={{ fontSize: 11, letterSpacing: "0.14em", marginBottom: 7 }}>{label}</p>
+        <p
+          className="m-0 uppercase"
+          style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", color: "var(--color-neutral-800)", marginBottom: 7 }}
+        >
+          {label}
+        </p>
         {children}
       </div>
     </div>
@@ -524,8 +541,9 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
 
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // Views. The Modernist system organises with rules and alignment, so each
-  // view is a ruled grid rather than a stack of cards.
+  // Views. Each is a card on the tinted ground — the design's shape. They
+  // were ruled grids, which is how the Modernist system organised and is why
+  // retinting this file left it looking like the previous design.
   // ═══════════════════════════════════════════════════════════════════════════
 
   /** Step 3 — confirmed. */
@@ -554,22 +572,35 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
 
     return (
       <CheckoutFrame merchant={merchant} isTestMode={isTestMode} cancelUrl={cancelUrl} rail="done">
-        <div style={{ padding: "52px 32px 72px", maxWidth: 760 }}>
+        {/* The same 540px card the payment step uses — the receipt arrives
+            where the payment happened, rather than on a wide page that reads
+            as somewhere else. */}
+        <div style={{ padding: "clamp(28px,5vw,52px) clamp(16px,3vw,32px) 44px" }}>
+        <div
+          className="mx-auto w-full"
+          style={{
+            maxWidth: 540,
+            background: "var(--color-bg)",
+            borderRadius: "var(--radius-lg)",
+            padding: "30px 22px 24px",
+            boxShadow: "0 0 0 1px var(--color-neutral-400), var(--shadow-lg)",
+          }}
+        >
           <p
             className="m-0 uppercase"
-            style={{ fontSize: 10, letterSpacing: "0.16em", color: "var(--color-accent)", marginBottom: 10 }}
+            style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", color: "var(--color-accent)", marginBottom: 8 }}
           >
             Confirmed on Arc
           </p>
           <h1
             className="m-0"
-            style={{ fontSize: "clamp(34px, 5vw, 60px)", letterSpacing: "-0.04em", lineHeight: 0.98, marginBottom: 14 }}
+            style={{ fontSize: 32, letterSpacing: "-0.03em", lineHeight: 1.05, marginBottom: 10 }}
           >
             You&apos;re subscribed to {selectedTierName}.
           </h1>
           <p
             className="m-0"
-            style={{ fontSize: 16, color: "var(--color-neutral-800)", marginBottom: 32, maxWidth: "52ch" }}
+            style={{ fontSize: 14, color: "var(--color-neutral-800)", marginBottom: 20 }}
           >
             {hasTrial
               ? `Your ${effectiveTrialDays}-day free trial has started. `
@@ -577,7 +608,9 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
             Renewals run automatically — nothing else to sign.
           </p>
 
-          <div style={{ borderTop: RULE, borderBottom: RULE, background: "var(--color-bg)" }}>
+          {/* No rules around the group: the card's own edge closes it, and a
+              line just inside a border reads as a mistake. */}
+          <div style={{ borderTop: HAIRLINE }}>
             {rows.map((r) => (
               <div
                 key={r.k}
@@ -634,6 +667,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
             </a>
           </div>
         </div>
+        </div>
       </CheckoutFrame>
     );
   }
@@ -661,75 +695,88 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
 
   return (
     <CheckoutFrame merchant={merchant} isTestMode={isTestMode} cancelUrl={cancelUrl} rail="pay">
-      <div className="grid lg:grid-cols-[0.85fr_1.15fr]" style={{ minHeight: "100%" }}>
-        {/* ─── Left: the chosen plan ─────────────────────────────────────── */}
-        <aside
-          style={{ padding: "36px 32px", background: "var(--color-surface)", borderRight: RULE }}
-        >
-          <p
-            className="m-0 uppercase"
-            style={{ fontSize: 10, letterSpacing: "0.16em", color: "var(--color-neutral-600)", marginBottom: 18 }}
-          >
-            Your plan
-          </p>
-          <p className="m-0 uppercase" style={{ fontSize: 11, letterSpacing: "0.14em", marginBottom: 6 }}>
-            {selectedTierName}
-          </p>
-          <p
-            className="m-0"
-            style={{
-              fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: "clamp(40px, 6vw, 60px)",
-              lineHeight: 1, letterSpacing: "-0.04em", marginBottom: 4,
-            }}
-          >
-            {hasTrial ? "Free" : formattedAmount}
-          </p>
-          <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-700)", marginBottom: 22 }}>
-            {hasTrial
-              ? `for ${effectiveTrialDays} days, then ${formattedAmount} ${plan.currency} ${INTERVAL_LABELS[effectiveInterval] ?? ""}`
-              : `${plan.currency} ${INTERVAL_LABELS[effectiveInterval] ?? ""}`}
-          </p>
+      {/*
+        One centred card, not two columns.
 
-          {previewFeatures.length > 0 && (
-            <div className="flex flex-col gap-2" style={{ borderTop: RULE, paddingTop: 16 }}>
-              {previewFeatures.slice(0, 6).map((f, i) => (
-                <span key={i} className="flex gap-2.5" style={{ fontSize: 13, lineHeight: 1.45 }}>
-                  <span style={{ color: "var(--color-accent)", fontFamily: "var(--font-heading)", fontWeight: 700 }}>
-                    —
-                  </span>
-                  {f}
-                </span>
-              ))}
-            </div>
-          )}
+        The design puts the whole payment step in a single 540px card on the
+        tinted ground, with the plan reduced to a name-and-price row across
+        its top. The two-column grid this replaces was the Modernist shape: a
+        full-bleed split with a rule down the middle and the price set at
+        60px in the left gutter.
 
-          {tiers.length > 0 && !isPending && (
-            <button
-              type="button"
-              className="btn btn-ghost"
-              style={{ marginTop: 22, padding: 0, fontSize: 12.5 }}
-              onClick={() => setView("plans")}
-            >
-              ← Change plan
-            </button>
-          )}
-
-          <div style={{ borderTop: HAIRLINE, marginTop: 26, paddingTop: 14 }}>
-            <p className="m-0" style={{ fontSize: 11.5, color: "var(--color-neutral-700)", lineHeight: 1.6 }}>
-              Cancel anytime by revoking the authorization from your wallet. Each charge goes
-              straight to the creator, so a refund is theirs to send.
-            </p>
-          </div>
-        </aside>
-
-        {/* ─── Right: payment details ────────────────────────────────────── */}
-        <main
-          className="flex flex-col"
-          style={{ padding: "24px 32px 20px", background: "var(--color-bg)" }}
-        >
-          <h1 className="m-0" style={{ fontSize: "clamp(20px, 2.2vw, 24px)", letterSpacing: "-0.03em", marginBottom: 14 }}>
+        The features list is gone from this step, as the design has it. The
+        payer chose a tier one click ago and read them there; repeating them
+        beside the amount competes with the amount. "Change plan" stays —
+        CheckoutFrame's own note calls it "the one supported way back", since
+        the step rail is an indicator and not navigation.
+      */}
+      <div
+        className="mx-auto w-full"
+        style={{ maxWidth: 1040, padding: "clamp(28px,5vw,52px) clamp(16px,3vw,32px) 44px" }}
+      >
+        <div style={{ maxWidth: 540, margin: "0 auto 18px" }}>
+          <h1 style={{ margin: 0, fontSize: "clamp(28px,4vw,38px)", letterSpacing: "-0.035em" }}>
             Payment details
           </h1>
+          <p className="m-0 mt-1.5" style={{ fontSize: 14.5, color: "var(--color-neutral-800)" }}>
+            One signature. No gas. Settled on Arc.
+          </p>
+        </div>
+
+        <div
+          className="mx-auto w-full"
+          style={{
+            maxWidth: 540,
+            background: "var(--color-bg)",
+            borderRadius: "var(--radius-lg)",
+            boxShadow: "0 0 0 1px var(--color-neutral-400), var(--shadow-lg)",
+            overflow: "hidden",
+          }}
+        >
+          {/* The plan, as a row: what they are buying and what it costs, on
+              one line, so the steps below are what the eye lands on. */}
+          <div
+            className="flex flex-wrap items-baseline justify-between"
+            style={{ gap: 12, padding: "18px 20px 14px", borderBottom: HAIRLINE }}
+          >
+            <div>
+              <p
+                className="m-0 uppercase"
+                style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", color: "var(--color-neutral-800)" }}
+              >
+                Your plan
+              </p>
+              <p className="m-0 mt-1" style={{ fontWeight: 700, fontSize: 18 }}>{selectedTierName}</p>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <p className="m-0" style={{ fontWeight: 700, fontSize: 28, letterSpacing: "-0.03em" }}>
+                {hasTrial ? "Free" : formattedAmount}{" "}
+                <span style={{ fontSize: 13, fontWeight: 500, letterSpacing: 0, color: "var(--color-neutral-800)" }}>
+                  {plan.currency} {INTERVAL_LABELS[effectiveInterval] ?? ""}
+                </span>
+              </p>
+              {hasTrial && (
+                <p className="m-0 mt-0.5" style={{ fontSize: 12, color: "var(--color-neutral-800)" }}>
+                  for {effectiveTrialDays} days, then {formattedAmount}
+                </p>
+              )}
+              {tiers.length > 0 && !isPending && (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ marginTop: 2, padding: 0, fontSize: 12.5 }}
+                  onClick={() => setView("plans")}
+                >
+                  ← Change plan
+                </button>
+              )}
+            </div>
+          </div>
+
+        {/* Inside the card now, so no ground of its own and no heading —
+            the title moved above the card, where the design has it, and two
+            of them was one too many. */}
+        <main className="flex flex-col" style={{ padding: "4px 20px 20px" }}>
 
           {showSweep && payAddress ? (
             /* Cross-chain path: sweep USDC from Base / Arbitrum / Optimism */
@@ -755,7 +802,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
             />
           ) : (
             <>
-              <div style={{ borderTop: RULE }}>
+              <div>
                 {/* 01 — email, verified first, before any wallet connection */}
                 <StepRow n="01" label="Email">
                   {!verified ? (
@@ -1033,7 +1080,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                     this is a decision the subscriber makes alongside the payment
                     details, so it must be on screen with them, not revealed later. */}
                 {TIER2_ENABLED && verified && walletPresent && !walletBlocked && payAddress && (
-                  <StepRow n="04" label="Automatic renewal" strong>
+                  <StepRow n="04" label="Automatic renewal">
                     <DelegatedRenewalToggle
                       merchantName={merchant.name}
                       sessionId={sessionId}
@@ -1109,6 +1156,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
               step the rows themselves make obvious. A payment screen ends at the
               amount. */}
         </main>
+        </div>
       </div>
     </CheckoutFrame>
   );
