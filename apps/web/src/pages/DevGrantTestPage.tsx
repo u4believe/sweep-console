@@ -336,7 +336,7 @@ export function DevGrantTestPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-5 p-6">
       <div>
-        <h1 className="text-lg font-bold">Grant-test harness <span className="text-xs font-normal text-gray-400">(dev)</span></h1>
+        <h1 className="text-lg font-bold">Grant-test harness <span className="text-xs font-normal text-gray-600">(dev)</span></h1>
         <p className="text-sm text-gray-500">
           Validate the C1 primitive: a 7715 periodic permission redeems as a single capped transfer
           to the relayer. Needs a 7715-capable wallet (MetaMask Flask).
@@ -351,7 +351,7 @@ export function DevGrantTestPage() {
         <div><label className={label}>Period amount (USDC micro)</label><input className={field} value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
         <div><label className={label}>Period (seconds)</label><input className={field} value={period} onChange={(e) => setPeriod(e.target.value)} /></div>
       </div>
-      <p className="text-xs text-gray-400">Connected chain id: {chainId}</p>
+      <p className="text-xs text-gray-600">Connected chain id: {chainId}</p>
 
       <div className="mb-6 rounded border border-gray-200 p-4">
         <p className="m-0 text-sm font-semibold text-gray-900">Wallet capability probe</p>
@@ -390,7 +390,7 @@ export function DevGrantTestPage() {
               </li>
             ))}
           </ul>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="mt-1 text-xs text-gray-600">
             The first enforcer is the ERC20PeriodTransfer (period-capped transfer) — the redeem below
             executes a single transfer within that cap.
           </p>
@@ -412,7 +412,7 @@ export function DevGrantTestPage() {
         <div>
           <p className="text-sm font-medium">Simulation result</p>
           <pre className="mt-1 max-h-60 overflow-auto rounded bg-gray-900 p-3 text-xs text-gray-100">{redeemResult}</pre>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="mt-1 text-xs text-gray-600">
             <code>{`{ "ok": true }`}</code> → the mandate redeems as a capped transfer (the relayer then
             bridges via CCTP to Arc). An error → read it (e.g. insufficient subscriber USDC balance).
           </p>

@@ -76,23 +76,28 @@
      dots, where contrast is not the question) and 600–900 are shifted down
      one notch so every step an app uses for TEXT clears AA:
 
-       600  #6B6C8F  5.04:1 on white, 4.60:1 on the #F4F4FB surface
-       700  #5D5E73  6.34:1 — the design's own "muted"
-       800  #4A4B61  8.50:1
-       900  #3E3F55 10.26:1
+       600  #5D5E73   6.34:1 on white, 5.79:1 on the #F4F4FB card tint
+       700  #4A4B61   8.50:1 / 7.76:1   — 82 uses in the console
+       800  #3E3F55  10.26:1 / 9.37:1
+       900  #2C2C47  13.48:1 / 12.31:1
 
-     #6B6C8F is not invented: it is in the design's own palette, used for the
-     comment colour in its code samples. Darkening the ramp rather than
-     editing 187 call sites also means the next one is readable by default. */
+     Shifted TWICE. The first pass took them to 5.04 and 6.34, which clears
+     AA and still read faint on screen — most console text is 11-13px on the
+     #F4F4FB card tint, where the effective contrast is lower than the white
+     figure and where a ratio that passes is not the same as one that reads.
+     The numbers above are measured on both grounds for that reason.
+
+     Darkening the ramp rather than editing 187 call sites also means the
+     next one is readable by default. */
   --color-neutral-100: #FAFAFC;
   --color-neutral-200: #F4F4FB;
   --color-neutral-300: #ECECF3;
   --color-neutral-400: #E2E2EC;
   --color-neutral-500: #D4D5E2;
-  --color-neutral-600: #6B6C8F;
-  --color-neutral-700: #5D5E73;
-  --color-neutral-800: #4A4B61;
-  --color-neutral-900: #3E3F55;
+  --color-neutral-600: #5D5E73;
+  --color-neutral-700: #4A4B61;
+  --color-neutral-800: #3E3F55;
+  --color-neutral-900: #2C2C47;
 
   /* — status —
      The design pairs #1F8A5B on #E7F6EE, which is 3.88:1 and under AA for

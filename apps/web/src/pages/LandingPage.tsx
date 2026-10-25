@@ -252,12 +252,11 @@ function Header() {
         <nav className="hidden items-center md:flex" style={{ gap: 22, fontSize: 13.5 }}>
           <a href="#how" style={{ color: "var(--color-neutral-800)" }}>How it works</a>
           <a href="#features" style={{ color: "var(--color-neutral-800)" }}>Features</a>
-          {/* Before Documentation on purpose: the hosted-or-rail choice comes
-              first, and someone reading the docs without having made it is
-              reading the wrong half. */}
-          <Link to="/integration" style={{ color: "var(--color-neutral-800)" }}>Integration</Link>
           <a href="#pricing" style={{ color: "var(--color-neutral-800)" }}>Pricing</a>
-          <a href={DOCS_URL} style={{ color: "var(--color-neutral-800)" }}>Docs</a>
+          {/* Spelled out. "Docs" is what a nav says when it is short of room,
+              and this one is not — and the page it opens calls itself
+              Documentation. */}
+          <a href={DOCS_URL} style={{ color: "var(--color-neutral-800)" }}>Documentation</a>
         </nav>
 
         {/* Nothing until the session resolves: /auth/me settles quickly, and a
@@ -349,9 +348,11 @@ function Hero() {
                 Create your first plan
               </Link>
             )}
-            <Link to="/integration" className="btn btn-secondary" style={{ padding: "13px 22px", fontSize: 14.5 }}>
+            {/* The demo below, which IS the checkout — the comparison page
+                this used to open said what the demo shows. */}
+            <a href="#demo" className="btn btn-secondary" style={{ padding: "13px 22px", fontSize: 14.5 }}>
               Try the checkout
-            </Link>
+            </a>
           </div>
         </div>
 
@@ -1040,9 +1041,9 @@ function Developers() {
               <span className="ml-auto" style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>{e.desc}</span>
             </div>
           ))}
-          <Link to="/integration" style={{ fontSize: 14, fontWeight: 600, color: "var(--color-accent)", marginTop: 4 }}>
-            Hosted or rail? Compare them →
-          </Link>
+          <a href={DOCS_URL} style={{ fontSize: 14, fontWeight: 600, color: "var(--color-accent)", marginTop: 4 }}>
+            Read the documentation →
+          </a>
         </div>
       </div>
     </Section>
@@ -1182,8 +1183,7 @@ function Footer() {
           <SweepMark size={20} />
           Sweep Console
         </span>
-        <a href={DOCS_URL} style={{ color: "var(--color-neutral-800)" }}>Docs</a>
-        <Link to="/integration" style={{ color: "var(--color-neutral-800)" }}>Rail checkout</Link>
+        <a href={DOCS_URL} style={{ color: "var(--color-neutral-800)" }}>Documentation</a>
         <Link to="/login" style={{ color: "var(--color-neutral-800)" }}>Log in</Link>
         <span style={{ marginLeft: "auto", color: "var(--color-neutral-700)" }}>
           © {new Date().getFullYear()} Sweep Console

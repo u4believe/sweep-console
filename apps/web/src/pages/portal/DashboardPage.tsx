@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useScope } from "@/context/scope";
 import { useNavigate } from "react-router-dom";
 import { WalletSetupBanner } from "@/components/portal/WalletSetupBanner";
 import { PageHeader } from "@/components/portal/PageHeader";
@@ -14,6 +15,12 @@ import {
 import { WithdrawSection } from "./WithdrawSection";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+
+/** The slice of /portal/rail this screen reads. */
+interface RailSummary {
+  totals: { collected: number; pendingCount: number; failedCount: number; activeMandates: number };
+  charges: Array<{ amount: number; status: string; createdAt: string }>;
+}
 
 interface DashboardData {
   activeSubs: number;
@@ -76,7 +83,15 @@ interface Bar {
   total: number;
 }
 
-function buildChart(payments: Payment[], range: ChartRange): Bar[] {
+/**
+ * Takes the two fields it actually reads rather than a whole Payment, so the
+ * rail's Charges can feed the same chart without being cast into a shape
+ * they are not.
+ */
+function buildChart(
+  payments: Array<{ amount: number; createdAt: string; status: string }>,
+  range: ChartRange
+): Bar[] {
   const step = range.unit === "hour" ? HOUR_MS : DAY_MS;
 
   // Align to the start of the current hour/day, so buckets land on clean
@@ -255,6 +270,22 @@ export function DashboardPage() {
   const [recent, setRecent] = useState<Payment[]>([]);
   const [rangeKey, setRangeKey] = useState<RangeKey>("14d");
   const [subs, setSubs] = useState<Subscription[]>([]);
+  const scope = useScope();
+  /**
+   * Only fetched in rail scope — a hosted merchant should not pay for a
+   * query whose numbers never reach the screen, and /portal/rail answers
+   * 409-shaped data for an account without access.
+   */
+  const [rail, setRail] = useState<RailSummary | null>(null);
+  useEffect(() => {
+    if (scope !== "rail") return;
+    let alive = true;
+    fetch(`${API_URL}/portal/rail`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((json: { data?: RailSummary }) => { if (alive && json.data) setRail(json.data); })
+      .catch(() => { /* the band shows its loading state */ });
+    return () => { alive = false; };
+  }, [scope]);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -286,7 +317,19 @@ export function DashboardPage() {
   // Every range is derived from the one 30-day fetch, so switching is instant
   // and never shows a loading state — and each is real data for its own window,
   // not a rescale of the 14-day series.
-  const bars = useMemo(() => buildChart(chartPayments, range), [chartPayments, range]);
+  /**
+   * The series is this scope's money: settled Payments on hosted, settled
+   * rail Charges on the rail. Same shape — amount plus a timestamp — so one
+   * chart serves both rather than two that drift apart.
+   */
+  const series = useMemo(
+    () =>
+      scope === "rail"
+        ? (rail?.charges ?? [])
+        : chartPayments,
+    [scope, rail, chartPayments]
+  );
+  const bars = useMemo(() => buildChart(series, range), [series, range]);
   const settled = useMemo(() => bars.reduce((n, b) => n + b.total, 0), [bars]);
   const batch = useMemo(() => nextRenewalBatch(subs), [subs]);
 
@@ -294,14 +337,32 @@ export function DashboardPage() {
   // aggregate and a rail charge writes a Charge, so the word total stopped being
   // true when the rail shipped. Rail figures live on their own screen — they were
   // briefly a second band here and made the dashboard busy.
-  const kpis: Kpi[] = data
-    ? [
-        { label: "Active subscriptions", value: String(data.activeSubs) },
-        { label: "Subscription revenue", value: (data.totalRevenue / 1_000_000).toFixed(2), unit: "USDC" },
-        { label: "Active plans", value: String(data.plans) },
-        { label: "Failed payments", value: String(data.failedPayments), accent: data.failedPayments > 0 },
-      ]
-    : [];
+  /**
+   * The dashboard answers for ONE half of the product.
+   *
+   * Hosted counts Plans, Subscriptions and Payments; the rail counts
+   * Mandates and Charges, which are different tables entirely. Showing the
+   * hosted figures to someone in rail scope was not merely irrelevant — a
+   * rail developer reading "Active subscriptions: 0" would reasonably
+   * conclude their integration was not working.
+   */
+  const kpis: Kpi[] = scope === "rail"
+    ? rail
+      ? [
+          { label: "Collected", value: (rail.totals.collected / 1_000_000).toFixed(2), unit: "USDC" },
+          { label: "Active mandates", value: String(rail.totals.activeMandates) },
+          { label: "Charges", value: String(rail.charges.length) },
+          { label: "Failed charges", value: String(rail.totals.failedCount), accent: rail.totals.failedCount > 0 },
+        ]
+      : []
+    : data
+      ? [
+          { label: "Active subscriptions", value: String(data.activeSubs) },
+          { label: "Subscription revenue", value: (data.totalRevenue / 1_000_000).toFixed(2), unit: "USDC" },
+          { label: "Active plans", value: String(data.plans) },
+          { label: "Failed payments", value: String(data.failedPayments), accent: data.failedPayments > 0 },
+        ]
+      : [];
 
   if (error) {
     return (
@@ -322,14 +383,14 @@ export function DashboardPage() {
         </div>
       )}
 
-      <KpiBand items={kpis} loading={data === null} />
+      <KpiBand items={kpis} loading={scope === "rail" ? rail === null : data === null} />
 
       {/* Settled chart beside the payout wallet and the next renewal batch. */}
       <div className="grid lg:grid-cols-[1.5fr_1fr]" style={{ borderBottom: "1px solid var(--color-divider)" }}>
         <section style={{ padding: "26px 32px", borderRight: "1px solid var(--color-divider)" }}>
           <div className="mb-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-2">
             <h3 className="m-0" style={{ fontSize: 20, letterSpacing: "-0.02em" }}>
-              Settled USDC · {range.heading}
+              {scope === "rail" ? "Rail charges" : "Settled USDC"} · {range.heading}
             </h3>
             <span style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>
               {(settled / 1_000_000).toFixed(2)} total
@@ -368,23 +429,55 @@ export function DashboardPage() {
           </div>
 
           <div style={{ borderTop: "1px solid var(--color-divider)", marginTop: 18, paddingTop: 14 }}>
-            <Kicker>Next renewal batch</Kicker>
-            {batch ? (
+            {/*
+              Each half's own forward look. Hosted asks "when does the next
+              batch run"; the rail asks "how much can I still draw today",
+              which is the number a developer sizing a charge needs. A
+              renewal batch means nothing on the rail — nothing renews there,
+              the developer's backend decides when money moves.
+            */}
+            {scope === "rail" ? (
               <>
-                <p
-                  className="m-0"
-                  style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 26, letterSpacing: "-0.02em" }}
-                >
-                  {batch.day.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                </p>
-                <p className="m-0 mt-1.5" style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>
-                  {batch.count} subscription{batch.count === 1 ? "" : "s"} · gas covered by Sweep
-                </p>
+                <Kicker>Pending charges</Kicker>
+                {rail ? (
+                  <>
+                    <p
+                      className="m-0"
+                      style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 26, letterSpacing: "-0.02em" }}
+                    >
+                      {rail.totals.pendingCount}
+                    </p>
+                    <p className="m-0 mt-1.5" style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>
+                      {rail.totals.pendingCount === 1 ? "charge is" : "charges are"} still settling · gas covered by Sweep
+                    </p>
+                  </>
+                ) : (
+                  <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
+                    Loading…
+                  </p>
+                )}
               </>
             ) : (
-              <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
-                No renewals scheduled.
-              </p>
+              <>
+                <Kicker>Next renewal batch</Kicker>
+                {batch ? (
+                  <>
+                    <p
+                      className="m-0"
+                      style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 26, letterSpacing: "-0.02em" }}
+                    >
+                      {batch.day.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    </p>
+                    <p className="m-0 mt-1.5" style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>
+                      {batch.count} subscription{batch.count === 1 ? "" : "s"} · gas covered by Sweep
+                    </p>
+                  </>
+                ) : (
+                  <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
+                    No renewals scheduled.
+                  </p>
+                )}
+              </>
             )}
           </div>
         </section>

@@ -226,7 +226,7 @@ export function GatewaySweepPanel({
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-900">Pay from other chains</h3>
         {(phase === "review" || phase === "insufficient" || phase === "error") && (
-          <button onClick={onClose} className="text-xs text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-xs text-gray-600 hover:text-gray-600">
             Close
           </button>
         )}
@@ -259,7 +259,7 @@ export function GatewaySweepPanel({
             We&apos;re processing your payment for this checkout on the enabled chain — no
             re-authorizing needed.
           </p>
-          <p className="text-xs text-gray-400">One gasless signature (the Arc approval).</p>
+          <p className="text-xs text-gray-600">One gasless signature (the Arc approval).</p>
           {autoStart ? (
             <div className="flex items-center gap-2 text-sm text-gray-600">
               <Spinner size={16} />
@@ -283,7 +283,7 @@ export function GatewaySweepPanel({
             <li>• Authorize renewals on: {targets.map((t) => t.name).join(", ")}</li>
             <li>• Then your subscription activates on Arc — you're charged the exact amount only</li>
           </ul>
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-600">
             {targets.length + 1} gasless signatures: one per chain you authorize, and the Arc approval.
           </p>
           {autoStart ? (
@@ -312,7 +312,7 @@ export function GatewaySweepPanel({
             <Spinner size={16} />
             <span>Processing your payment…</span>
           </div>
-          <p className="text-xs text-gray-400">This can take up to a minute — please keep this page open.</p>
+          <p className="text-xs text-gray-600">This can take up to a minute — please keep this page open.</p>
         </div>
       )}
 

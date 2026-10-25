@@ -281,7 +281,7 @@ export function AuthorizePage() {
         navigate the panel to the marketing site with no way back, stranding
         them inside a box on someone else's page.
       */}
-      <p className="mt-6 text-center text-[11px] uppercase tracking-[0.14em] text-gray-400">
+      <p className="mt-6 text-center text-[11px] uppercase tracking-[0.14em] text-gray-600">
         {embedded ? (
           <span>Secured by Sweep Console</span>
         ) : (
@@ -696,7 +696,7 @@ export function AuthorizePage() {
                     className={
                       on || busy || chosen
                         ? "text-sm font-medium text-gray-900"
-                        : "text-sm text-gray-400"
+                        : "text-sm text-gray-600"
                     }
                   >
                     {name}
@@ -800,7 +800,7 @@ export function AuthorizePage() {
                   </p>
                 </div>
               ) : walletStatus !== "connected" ? null : (
-                <p className="mt-3 text-center text-xs text-gray-400">
+                <p className="mt-3 text-center text-xs text-gray-600">
                   Signing as {shortAddress(address)}
                   {view.targets.length > 1 && ` · ${view.targets.length} signatures, one per network`}
                 </p>
