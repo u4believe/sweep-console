@@ -20,7 +20,7 @@
  */
 
 import type { FC, ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/auth";
 import { DOCS_URL } from "@/lib/docs";
@@ -471,10 +471,24 @@ function useScrollReveal(disabled: boolean) {
   }, [disabled]);
 }
 
-/** One full turn about the ring's centre, used by the carriage and the inner dust. */
-function Spin({ dur }: { dur: string }) {
+/**
+ * One full turn about the ring's centre, used by the carriage and the dust.
+ *
+ * `onRepeat` is how the cycle counter stays in step with the carriage. SMIL
+ * fires `repeatEvent` at the end of each repetition — which for the carriage
+ * is the moment it comes back round to where it started, 01 Charge.
+ */
+function Spin({ dur, onRepeat }: { dur: string; onRepeat?: () => void }) {
+  const ref = useRef<SVGAnimateTransformElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !onRepeat) return;
+    el.addEventListener("repeatEvent", onRepeat);
+    return () => el.removeEventListener("repeatEvent", onRepeat);
+  }, [onRepeat]);
   return (
     <animateTransform
+      ref={ref}
       attributeName="transform"
       type="rotate"
       from={`0 ${RAIL_CX} ${RAIL_CY}`}
@@ -491,23 +505,24 @@ function RailViz() {
   const still = usePrefersReducedMotion();
 
   /**
-   * The cycle advances once per lap.
+   * The cycle advances once per lap, ON THE ANIMATION'S OWN CLOCK.
    *
-   * The number is the point of the whole picture — the loop has run 10
-   * times, then 11, without anyone signing again — and a frozen "Cycle 38"
-   * said the opposite of what the movement says. The design ticks on an
-   * 8000ms interval, which is exactly the lap, so the count increments as
-   * the carriage comes back round to 01 Charge.
+   * The design uses setInterval(8000), matching the lap duration, and so did
+   * this. That is not the same clock: SMIL starts timing when the SVG is
+   * parsed, the interval when React's effect runs, and the gap between them
+   * is however long hydration took. It is invisible on a fast load and
+   * obvious on a slow one — the count ticking somewhere past 01 Charge
+   * rather than on it, by a different amount on each deployment.
+   *
+   * `repeatEvent` fires when the carriage's rotation completes a turn, which
+   * is exactly when it returns to where it began. No drift, because there is
+   * only one clock.
    *
    * Frozen under reduced motion: a number changing beside a parked carriage
    * is stranger than one that does not.
    */
   const [tick, setTick] = useState(0);
-  useEffect(() => {
-    if (still) return;
-    const id = setInterval(() => setTick((t) => t + 1), LAP * 1000);
-    return () => clearInterval(id);
-  }, [still]);
+  const onLap = useCallback(() => setTick((t) => t + 1), []);
 
   // Starts at 10 and at October 2026, as the design does, so the first thing
   // a visitor sees is a subscription already well into its life.
@@ -572,7 +587,7 @@ function RailViz() {
 
           {/* The carriage and its tail, one group turning once a lap. */}
           <g>
-            {!still && <Spin dur={`${LAP}s`} />}
+            {!still && <Spin dur={`${LAP}s`} onRepeat={onLap} />}
             <circle cx={RAIL_CX} cy={RAIL_CY} r={RAIL_R} fill="none" stroke="var(--color-accent)" strokeWidth={10}
                     strokeLinecap="round" strokeDasharray={`170 ${RAIL_C - 170}`} strokeDashoffset={170} opacity={0.1} />
             <circle cx={RAIL_CX} cy={RAIL_CY} r={RAIL_R} fill="none" stroke="var(--color-accent)" strokeWidth={6}
