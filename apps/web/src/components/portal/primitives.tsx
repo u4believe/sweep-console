@@ -1,16 +1,32 @@
 import type { ReactNode } from "react";
 
 /**
- * Shared building blocks for the portal, expressed in the Modernist system.
+ * Shared building blocks for the portal, in the v2 system.
  *
- * The system organises with alignment and rules rather than cards and shadows,
- * so these primitives are mostly about drawing the right dividers in the right
- * places. Take every value from the design tokens — never a raw hex or font.
+ * These are the leverage point for the console's look: every portal screen
+ * builds from them, so what they draw is what Dashboard, Plans, Subscriptions,
+ * Payments, Rail, Webhooks, API Keys and Settings all look like.
+ *
+ * They used to express the Modernist system, which organises with alignment
+ * and rules — full-bleed bands separated by dividers, nothing rounded,
+ * nothing floating. v2 organises with SURFACES: a rounded card on a tinted
+ * ground, separated by space rather than a line. Swapping the tokens under
+ * the old shapes moved the colours and kept the skeleton, which is why the
+ * console still looked like the previous design in new paint.
+ *
+ * Take every value from the tokens — never a raw hex or font.
  */
 
 /* ── layout ──────────────────────────────────────────────────────────────── */
 
-/** A ruled content section. `bordered` draws the closing 2px rule. */
+/**
+ * A content section, now a card rather than a ruled band.
+ *
+ * `bordered` is kept and still means "separate this from what follows", but
+ * it draws the card's own edge instead of a divider underneath — so the dozens
+ * of call sites passing `bordered={false}` still mean what they meant: a
+ * region that runs into the next one.
+ */
 export function Section({
   title,
   action,
@@ -27,13 +43,16 @@ export function Section({
   return (
     <section
       style={{
-        padding: padded ? "24px 32px" : undefined,
-        borderBottom: bordered ? "1px solid var(--color-divider)" : undefined,
+        margin: bordered ? "0 24px 18px" : undefined,
+        padding: padded ? (bordered ? 22 : "20px 26px") : undefined,
+        background: bordered ? "var(--color-bg)" : undefined,
+        border: bordered ? "1px solid var(--color-divider)" : undefined,
+        borderRadius: bordered ? "var(--radius-lg)" : undefined,
       }}
     >
       {title && (
         <div className="mb-3.5 flex items-baseline gap-3">
-          <h3 className="m-0" style={{ fontSize: 20, letterSpacing: "-0.02em" }}>
+          <h3 className="m-0" style={{ fontSize: 18, letterSpacing: "-0.02em" }}>
             {title}
           </h3>
           {action && <div className="ml-auto">{action}</div>}
@@ -49,7 +68,14 @@ export function Kicker({ children }: { children: ReactNode }) {
   return (
     <p
       className="m-0 mb-2 uppercase"
-      style={{ fontSize: 10, letterSpacing: "0.14em", color: "var(--color-neutral-600)" }}
+      style={{
+        fontSize: 11,
+        fontWeight: 600,
+        letterSpacing: "0.1em",
+        // neutral-600 is 3.3:1 and this is 11px. One step darker, which the
+        // token file flags for exactly this case.
+        color: "var(--color-neutral-800)",
+      }}
     >
       {children}
     </p>
@@ -65,22 +91,30 @@ export interface Kpi {
 }
 
 /**
- * The band of equal-width statistic cells that opens several portal screens.
- * Cells are divided by hairlines; the band closes with a 2px rule.
+ * The statistics that open several portal screens — separate cards now, not
+ * one band cut by hairlines.
+ *
+ * The figure drops from 44px to 30px. At 44 it was the Modernist poster
+ * number, correct on a page organised by scale; on a page organised by
+ * surfaces it overpowers the card holding it and makes four of them a wall.
+ * Call sites passing `size` still win, so a screen that wants the big number
+ * keeps it.
  */
-export function KpiBand({ items, loading = false, size = 44 }: { items: Kpi[]; loading?: boolean; size?: number }) {
+export function KpiBand({ items, loading = false, size = 30 }: { items: Kpi[]; loading?: boolean; size?: number }) {
   const cells: (Kpi | null)[] = loading ? Array.from({ length: 4 }, () => null) : items;
   return (
     <div
       className="grid grid-cols-2 lg:grid-cols-4"
-      style={{ borderBottom: "1px solid var(--color-divider)" }}
+      style={{ gap: 14, padding: "20px 24px 6px" }}
     >
       {cells.map((k, i) => (
         <div
           key={k?.label ?? i}
           style={{
-            padding: "20px 26px 22px",
-            borderLeft: i === 0 ? undefined : "1px solid var(--color-divider)",
+            padding: "16px 18px",
+            background: "var(--color-bg)",
+            border: "1px solid var(--color-divider)",
+            borderRadius: "var(--radius-lg)",
           }}
         >
           {k ? (
@@ -92,19 +126,19 @@ export function KpiBand({ items, loading = false, size = 44 }: { items: Kpi[]; l
                   fontFamily: "var(--font-heading)",
                   fontWeight: 700,
                   fontSize: size,
-                  lineHeight: 1,
-                  letterSpacing: "-0.035em",
+                  lineHeight: 1.1,
+                  letterSpacing: "-0.03em",
                   color: k.accent ? "var(--color-accent)" : undefined,
                 }}
               >
                 {k.value}
-                {k.unit && <span style={{ fontSize: 15, marginLeft: 6, letterSpacing: 0 }}>{k.unit}</span>}
+                {k.unit && <span style={{ fontSize: 13, marginLeft: 5, letterSpacing: 0, color: "var(--color-neutral-800)" }}>{k.unit}</span>}
               </p>
             </>
           ) : (
             <>
-              <div className="mb-3 h-2.5 w-24 animate-pulse" style={{ background: "var(--color-neutral-300)" }} />
-              <div className="h-9 w-16 animate-pulse" style={{ background: "var(--color-neutral-300)" }} />
+              <div className="mb-3 h-2.5 w-20 animate-pulse" style={{ background: "var(--color-neutral-300)", borderRadius: 4 }} />
+              <div className="h-7 w-16 animate-pulse" style={{ background: "var(--color-neutral-300)", borderRadius: 5 }} />
             </>
           )}
         </div>
@@ -113,7 +147,11 @@ export function KpiBand({ items, loading = false, size = 44 }: { items: Kpi[]; l
   );
 }
 
-/** Horizontal filter tabs sitting under the page header, over a 2px rule. */
+/**
+ * Filter tabs under the page header — a row of pills, matching the sidebar's
+ * items, rather than the underlined bar the Modernist system used. Two
+ * different active-state idioms on one screen read as two different controls.
+ */
 export function FilterTabs<T extends string>({
   tabs,
   active,
@@ -124,10 +162,7 @@ export function FilterTabs<T extends string>({
   onSelect: (id: T) => void;
 }) {
   return (
-    <div
-      className="flex overflow-x-auto"
-      style={{ borderBottom: "1px solid var(--color-divider)", padding: "0 32px" }}
-    >
+    <div className="flex overflow-x-auto" style={{ gap: 4, padding: "4px 24px 14px" }}>
       {tabs.map((t) => {
         const on = t.id === active;
         return (
@@ -135,14 +170,16 @@ export function FilterTabs<T extends string>({
             key={t.id}
             type="button"
             onClick={() => onSelect(t.id)}
-            className="cursor-pointer whitespace-nowrap"
+            aria-current={on ? "page" : undefined}
+            className="swp-navitem cursor-pointer whitespace-nowrap"
             style={{
-              background: "transparent",
+              background: on ? "var(--color-accent-200)" : "transparent",
               border: 0,
-              borderBottom: `3px solid ${on ? "var(--color-accent)" : "transparent"}`,
-              color: on ? "var(--color-text)" : "var(--color-neutral-700)",
-              padding: "12px 16px 10px",
+              borderRadius: "var(--radius-sm)",
+              color: on ? "var(--color-accent)" : "var(--color-neutral-800)",
+              padding: "8px 13px",
               fontFamily: "var(--font-body)",
+              fontWeight: on ? 600 : 500,
               fontSize: 13,
             }}
           >

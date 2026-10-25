@@ -19,20 +19,25 @@ export function PageHeader({ kicker, title, onBack, action }: PageHeaderProps) {
   return (
     <div
       className="flex flex-wrap items-end gap-4 px-8 pb-[18px] pt-[26px]"
-      style={{ borderBottom: "1px solid var(--color-divider)" }}
+      // No closing rule: the cards below separate themselves, and a divider
+      // above a gap reads as a line that lost its table.
+      style={{ paddingBottom: 4 }}
     >
       <div className="min-w-0">
         <p
           className="m-0 mb-1.5 uppercase"
           style={{
-            fontSize: 10,
+            fontSize: 11,
+            fontWeight: 600,
             letterSpacing: "0.16em",
             color: "var(--color-neutral-600)",
           }}
         >
           {kicker}
         </p>
-        <h1 className="m-0" style={{ fontSize: 36, letterSpacing: "-0.03em", lineHeight: 1 }}>
+        {/* 36px was the Modernist poster scale, set against a page with no
+            card edges to compete with. 26 sits correctly above them. */}
+        <h1 className="m-0" style={{ fontSize: 26, letterSpacing: "-0.025em", lineHeight: 1.15 }}>
           {title}
         </h1>
       </div>

@@ -211,3 +211,59 @@
   .swp-sweep { animation-duration: 3s; }
   .swp-navitem { transition: none; }
 }
+
+/**
+ * Tables.
+ *
+ * modernist.css rules every row and tints the header text to 60% of the ink —
+ * correct on a page where rules do the organising. Inside a v2 card the row
+ * rules are a second grid competing with the card's own edge, so the header
+ * gets a rule and the rows get space, with the last one's rule removed since
+ * the card edge already closes the table.
+ */
+.table th {
+  color: var(--color-neutral-800);
+  font-weight: 600;
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid var(--color-divider);
+}
+.table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+.table tbody tr:last-child td { border-bottom: 0; }
+.table tbody tr { transition: background var(--dur) ease; }
+.table tbody tr:hover { background: var(--color-neutral-100); }
+
+/**
+ * Buttons.
+ *
+ * Radius, accent and the hover/pressed steps already follow the tokens, so
+ * modernist's .btn needed nothing there. Two things it asserts directly do
+ * not survive the change of system:
+ *
+ * `.btn-block` is flush-left, which was a RULE of the old system — "a button
+ * wider than its label starts the text at the left padding edge, never
+ * centered". v2's primary action is centred; its own checkout button is
+ * `justify-content:center`. A left-aligned label inside a full-width filled
+ * button reads as a list row here, not a thing to press.
+ *
+ * And the press is a 2% scale on the design's easing, which is what makes a
+ * filled button feel like a button rather than a coloured rectangle. Excluded
+ * for anyone who asked for less motion.
+ */
+.btn-block {
+  justify-content: center;
+  text-align: center;
+}
+
+.btn {
+  transition: background var(--dur) ease, border-color var(--dur) ease,
+              transform var(--dur) var(--ease-out-quint);
+}
+.btn:active:not(:disabled) { transform: scale(0.98); }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn { transition: background var(--dur) ease, border-color var(--dur) ease; }
+  .btn:active:not(:disabled) { transform: none; }
+}
