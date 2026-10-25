@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useScope } from "@/context/scope";
 import { PageHeader } from "@/components/portal/PageHeader";
 import { Dialog, EmptyNote, ErrorNote, Kicker, Mono, StatusTag } from "@/components/portal/primitives";
 import { apiFetch, messageOf, wasCancelled } from "@/lib/stepup";
@@ -52,6 +53,15 @@ export function WebhooksPage() {
   const [error, setError] = useState("");
   const [formUrl, setFormUrl] = useState("");
   const [availableEvents, setAvailableEvents] = useState<AvailableEvent[]>([]);
+  /**
+   * Which path's events to offer. Read from the console's scope, not from a
+   * local control: the sidebar and the theme already say which half this is,
+   * and a second switcher on this page would be able to disagree with them.
+   */
+  const scope = useScope();
+  /// True when the account can receive rail events at all — any one of them
+  /// being `available` is the server's answer to that.
+  const railEnabled = availableEvents.some((e) => e.group === "rail" && e.available);
   const [formEvents, setFormEvents] = useState<string[]>([]);
   // Once the merchant has picked events themselves, a reload must not silently
   // re-tick everything under them.
@@ -121,7 +131,14 @@ export function WebhooksPage() {
         if (json.available_events) {
           setAvailableEvents(json.available_events);
           if (!eventsTouched) {
-            setFormEvents(json.available_events.filter((e) => e.available).map((e) => e.id));
+            // Pre-select only the path in view: a developer building a rail
+            // integration who submits the default should not silently
+            // subscribe to seven subscription events they will never read.
+            setFormEvents(
+              json.available_events
+                .filter((e) => e.available && e.group === (scope === "rail" ? "rail" : "subscriptions"))
+                .map((e) => e.id)
+            );
           }
         }
       })
@@ -129,6 +146,24 @@ export function WebhooksPage() {
   }
 
   useEffect(() => { loadEndpoints(); }, []);
+
+  /**
+   * Re-sync the pre-selection when the scope changes.
+   *
+   * Switching scope currently navigates to that path's dashboard, so this
+   * page is unmounted and the mount-time selection is correct. That is a
+   * property of chooseScope rather than of this page, and relying on it
+   * would leave a stale list of checkboxes the first time it changes —
+   * `eventsTouched` still protects a selection the merchant made by hand.
+   */
+  useEffect(() => {
+    if (eventsTouched || availableEvents.length === 0) return;
+    setFormEvents(
+      availableEvents
+        .filter((e) => e.available && e.group === (scope === "rail" ? "rail" : "subscriptions"))
+        .map((e) => e.id)
+    );
+  }, [scope, availableEvents, eventsTouched]);
 
   function toggleEvent(ev: string) {
     setEventsTouched(true);
@@ -160,7 +195,11 @@ export function WebhooksPage() {
       }
       setNewSecret({ id: data.id!, url: data.url!, secret: data.secret! });
       setFormUrl("");
-      setFormEvents(availableEvents.filter((e) => e.available).map((e) => e.id));
+      setFormEvents(
+        availableEvents
+          .filter((e) => e.available && e.group === (scope === "rail" ? "rail" : "subscriptions"))
+          .map((e) => e.id)
+      );
       setEventsTouched(false);
       loadEndpoints();
     } catch (e) {
@@ -318,7 +357,7 @@ export function WebhooksPage() {
               >
                 <span
                   className="uppercase"
-                  style={{ fontSize: 10, letterSpacing: "0.14em", color: "var(--color-neutral-600)" }}
+                  style={{ fontSize: 11, letterSpacing: "0.14em", color: "var(--color-neutral-600)" }}
                 >
                   Signing secret
                 </span>
@@ -453,7 +492,26 @@ export function WebhooksPage() {
               </p>
             </div>
 
+            {/*
+              One path's events, not both.
+
+              The console is pointed at hosted subscriptions or at the rail,
+              and a form offering all eleven events made the developer read
+              past the half that does not apply to the integration they are
+              building. The scope switcher is what makes the other half
+              discoverable now — which it was not when this list was written,
+              and which is why the comment on AvailableEvent argued for
+              showing everything.
+
+              An account without the rail still sees the rail group, greyed:
+              scope only exists for an account that HAS both, so for everyone
+              else `scope` is "hosted" and the group below carries its own
+              "available once the rail is enabled" note.
+            */}
             {(["subscriptions", "rail"] as const).map((group) => {
+              const otherPath = group !== (scope === "rail" ? "rail" : "subscriptions");
+              const railLocked = group === "rail" && !railEnabled;
+              if (otherPath && !railLocked) return null;
               const events = availableEvents.filter((e) => e.group === group);
               if (events.length === 0) return null;
               const groupAvailable = events.some((e) => e.available);

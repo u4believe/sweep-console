@@ -64,16 +64,34 @@
   --color-accent-2-900: #1C1E6E;
 
   /* — neutrals, violet-tinted so they sit under indigo without going muddy —
-     700 is 3.34:1 on white: large text, icons and chrome only, never body
-     copy. Use 800 for small labels. */
+
+     THE TEXT STEPS ARE DARKER THAN THE DESIGN'S.
+
+     The design reaches for #A3A4B5 and #8A8BA0 on small labels, which measure
+     2.46:1 and 3.34:1 on white — the first fails WCAG at any size, the second
+     at anything under 19px. The app uses them for text in 187 places, and the
+     result reads as faint, which it is.
+
+     So 100–500 are the design's values unchanged (they are fills, borders and
+     dots, where contrast is not the question) and 600–900 are shifted down
+     one notch so every step an app uses for TEXT clears AA:
+
+       600  #6B6C8F  5.04:1 on white, 4.60:1 on the #F4F4FB surface
+       700  #5D5E73  6.34:1 — the design's own "muted"
+       800  #4A4B61  8.50:1
+       900  #3E3F55 10.26:1
+
+     #6B6C8F is not invented: it is in the design's own palette, used for the
+     comment colour in its code samples. Darkening the ramp rather than
+     editing 187 call sites also means the next one is readable by default. */
   --color-neutral-100: #FAFAFC;
   --color-neutral-200: #F4F4FB;
   --color-neutral-300: #ECECF3;
   --color-neutral-400: #E2E2EC;
   --color-neutral-500: #D4D5E2;
-  --color-neutral-600: #A3A4B5;
-  --color-neutral-700: #8A8BA0;
-  --color-neutral-800: #5D5E73;
+  --color-neutral-600: #6B6C8F;
+  --color-neutral-700: #5D5E73;
+  --color-neutral-800: #4A4B61;
   --color-neutral-900: #3E3F55;
 
   /* — status —
@@ -237,7 +255,8 @@ figcaption { font-size: 11px; margin-top: var(--space-1); color: var(--color-neu
   border-radius: var(--radius-sm);
   transition: border-color var(--dur) ease, box-shadow var(--dur) ease;
 }
-.input::placeholder { color: var(--color-neutral-700); }
+/* A hint, not content, so it stays lighter than the value it prefigures. */
+.input::placeholder { color: #8A8BA0; }
 .input:hover { border-color: var(--color-neutral-500); }
 .input:focus-visible {
   border-color: var(--color-accent);

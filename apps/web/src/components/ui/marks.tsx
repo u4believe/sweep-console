@@ -34,17 +34,16 @@ export const USDC_TOKEN = `${BASE}/token-usdc.svg`;
 export const METAMASK_LOGO = `${BASE}/metamask-logo.svg`;
 export const CIRCLE_LOGO = `${BASE}/circle-logo.png`;
 
-/**
- * A chain's mark at the design's default of 24px.
- *
- * `alt=""` throughout: every call site puts the chain's name in text beside
- * the mark, so naming it again is a screen reader saying "Base Base".
- */
 export function isChainKey(k: string): k is ChainKey {
   return k in CHAIN_ASSET;
 }
 
 /**
+ * A chain's mark, at the design's default of 24px.
+ *
+ * `alt=""` throughout: every call site puts the chain's name in text beside
+ * the mark, so naming it again is a screen reader saying "Base Base".
+ *
  * `chain` is a plain string because every caller has one — `chain_key` off
  * an API row — and a cast at each site would turn an unknown chain into a
  * broken image. An unrecognised key renders nothing, so a new chain the API

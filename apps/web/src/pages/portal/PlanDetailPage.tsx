@@ -365,7 +365,7 @@ export function PlanDetailPage() {
           <div style={{ borderTop: "2px solid var(--color-accent)", marginTop: 26, paddingTop: 14 }}>
             <p
               className="m-0 mb-2 uppercase"
-              style={{ fontSize: 10, letterSpacing: "0.14em", color: "var(--color-accent)" }}
+              style={{ fontSize: 11, letterSpacing: "0.14em", color: "var(--color-accent)" }}
             >
               Danger zone
             </p>

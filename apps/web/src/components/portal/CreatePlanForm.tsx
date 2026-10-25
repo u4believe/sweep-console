@@ -88,7 +88,7 @@ export function CreatePlanForm() {
       <div style={{ borderTop: "1px solid var(--color-divider)", paddingTop: 20 }}>
         <p
           className="m-0 uppercase"
-          style={{ fontSize: 10, letterSpacing: "0.14em", color: "var(--color-neutral-600)", marginBottom: 12 }}
+          style={{ fontSize: 11, letterSpacing: "0.14em", color: "var(--color-neutral-600)", marginBottom: 12 }}
         >
           Plan
         </p>
@@ -124,7 +124,7 @@ export function CreatePlanForm() {
         <div className="mb-3 flex flex-wrap items-baseline gap-3">
           <p
             className="m-0 uppercase"
-            style={{ fontSize: 10, letterSpacing: "0.14em", color: "var(--color-neutral-600)" }}
+            style={{ fontSize: 11, letterSpacing: "0.14em", color: "var(--color-neutral-600)" }}
           >
             First tier
           </p>

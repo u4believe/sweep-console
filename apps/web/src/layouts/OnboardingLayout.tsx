@@ -159,7 +159,7 @@ export function OnboardingLayout({
           ))}
           <span
             className="uppercase"
-            style={{ fontSize: 10, letterSpacing: "0.14em", color: "var(--color-neutral-600)", marginLeft: 8 }}
+            style={{ fontSize: 11, letterSpacing: "0.14em", color: "var(--color-neutral-600)", marginLeft: 8 }}
           >
             Step {step} of {ONBOARDING_STEPS.length}
           </span>
@@ -169,7 +169,7 @@ export function OnboardingLayout({
         <div key={step} className="swp-in" style={{ maxWidth: 520, animationDuration: "0.28s" }}>
           <p
             className="m-0 uppercase"
-            style={{ fontSize: 10, letterSpacing: "0.16em", color: "var(--color-accent)", marginBottom: 8 }}
+            style={{ fontSize: 11, letterSpacing: "0.16em", color: "var(--color-accent)", marginBottom: 8 }}
           >
             {kicker}
           </p>

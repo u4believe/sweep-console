@@ -20,7 +20,7 @@
  */
 
 import type { FC, ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/auth";
 import { DOCS_URL } from "@/lib/docs";
@@ -158,9 +158,11 @@ function Kicker({ children, align = "center" }: { children: ReactNode; align?: "
 /**
  * A band of the page.
  *
- * `ground` alternates the surface. That alternation is how v2 separates
- * sections — the previous design did it with 2px rules, and keeping those
- * under rounded cards is what made the retint look like neither system.
+ * The page is WHITE. Only `demo` and `developers` sit on the surface tint —
+ * the two sections built around a card, where the tint is what lifts the
+ * card off the page. I had this inverted: `how` and `features` tinted and
+ * those two white, which greyed most of the page and flattened the two
+ * places that needed depth.
  */
 function Section({ id, ground, children }: { id?: string; ground?: boolean; children: ReactNode }) {
   return (
@@ -186,9 +188,11 @@ function H2({ children, align = "center" }: { children: ReactNode; align?: "cent
   return (
     <h2
       style={{
-        fontSize: "clamp(28px,4.2vw,40px)",
-        letterSpacing: "-0.03em",
-        lineHeight: 1.1,
+        // The design's own size. Mine was clamp(28,4.2vw,40) — small enough
+        // that a section heading read as a card title.
+        fontSize: "clamp(32px,4vw,50px)",
+        letterSpacing: "-0.035em",
+        lineHeight: 1.06,
         margin: "12px 0 0",
         textAlign: align,
       }}
@@ -290,7 +294,7 @@ function Hero() {
         style={{ gap: 56, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,380px),1fr))" }}
       >
         <div>
-          <h1 style={{ fontSize: "clamp(38px,5.4vw,56px)", lineHeight: 1.05, letterSpacing: "-0.035em", margin: 0 }}>
+          <h1 style={{ fontSize: "clamp(46px,6.6vw,86px)", lineHeight: 0.98, letterSpacing: "-0.045em", margin: 0, fontWeight: 800 }}>
             Recurring revenue in{" "}
             {/* USDC carries the accent and the mark sits inline before it —
                 the design's own treatment. The full stop stays ink: it
@@ -303,7 +307,7 @@ function Hero() {
               <span style={{ marginLeft: -12 }}>.</span>
             </span>
           </h1>
-          <p className="mt-5" style={{ fontSize: 17, lineHeight: 1.6, color: "var(--color-neutral-800)", maxWidth: 520 }}>
+          <p className="mt-5" style={{ fontSize: "clamp(16px,1.4vw,18px)", lineHeight: 1.6, color: "var(--color-neutral-800)", maxWidth: 540 }}>
             Subscribers pay from Base, Arbitrum or Optimism with one signature. Every charge
             settles to you on Arc — and renewals run themselves.
           </p>
@@ -319,133 +323,207 @@ function Hero() {
           </div>
         </div>
 
-        <CycleViz />
+        <RailViz />
       </div>
     </section>
   );
 }
 
 /**
- * The cycle, drawn: one signature, then four things that repeat without one.
+ * The rail, animated — a carriage running a beaded track, stations lighting
+ * as it passes.
  *
- * This is the design's hero visual and it carries the product's actual
- * claim — not "we support three chains" but "you sign once and it keeps
- * going". An earlier version of this file drew three chain rows with an
- * arrow down to Arc, which says something true and much less interesting.
+ * This is the design's hero and it is in motion, which two earlier versions
+ * of this file missed: the first drew three chain rows with an arrow, the
+ * second a static ring. Neither says the thing the movement says — that the
+ * loop runs on its own, which is the whole product.
  *
- * The ring is a dotted circle with four stations. 04 is filled because it is
- * the one that has not happened yet: the eye lands on the period about to
- * run, which is the point.
+ * Built from the design's own buildRail(): viewBox 560x420, centre 280/210,
+ * r 150, one lap every 8s. The track is a thick dashed stroke rather than
+ * drawn beads, the comet is three arcs of decreasing length and increasing
+ * opacity, and each station's pulse `begin` is its angle as a fraction of
+ * the lap — so a station lights exactly as the carriage reaches it rather
+ * than on a timer that drifts out of step with it.
+ *
+ * SMIL rather than CSS keyframes because the pulses must be offset per
+ * station and stay locked to one clock; `begin` does that in one attribute,
+ * where CSS would need four animations with negative delays kept in sync by
+ * hand. Supported everywhere this app runs.
  */
+const LAP = 8; // seconds, the design's D
+const RAIL_CX = 280;
+const RAIL_CY = 210;
+const RAIL_R = 150;
+const RAIL_C = 2 * Math.PI * RAIL_R;
+
 const STATIONS = [
-  { n: "01", label: "Charge", note: "on schedule", at: "right" },
-  { n: "02", label: "Settle", note: "in seconds", at: "bottom" },
-  { n: "03", label: "Receipt", note: "sent automatically", at: "left" },
-  { n: "04", label: "Next period", note: "no new signature", at: "top" },
+  { a: 0, n: "01", t: "Charge", s: "on schedule", lx: RAIL_CX + RAIL_R + 26, ly: RAIL_CY, anchor: "start" },
+  { a: 90, n: "02", t: "Settle", s: "in seconds", lx: RAIL_CX, ly: RAIL_CY + RAIL_R + 34, anchor: "middle" },
+  { a: 180, n: "03", t: "Receipt", s: "sent automatically", lx: RAIL_CX - RAIL_R - 26, ly: RAIL_CY, anchor: "end" },
+  { a: 270, n: "04", t: "Next period", s: "no new signature", lx: RAIL_CX, ly: RAIL_CY - RAIL_R - 40, anchor: "middle" },
 ] as const;
 
-function CycleViz() {
-  const R = 150;          // ring radius
-  const C = 190;          // centre, in the 380-square viewBox
-  const pos: Record<string, { x: number; y: number }> = {
-    top: { x: C, y: C - R },
-    right: { x: C + R, y: C },
-    bottom: { x: C, y: C + R },
-    left: { x: C - R, y: C },
-  };
+const at = (a: number): [number, number] => [
+  RAIL_CX + RAIL_R * Math.cos((a * Math.PI) / 180),
+  RAIL_CY + RAIL_R * Math.sin((a * Math.PI) / 180),
+];
+
+/**
+ * Whether the viewer asked for less movement.
+ *
+ * CSS cannot switch SMIL off — `prefers-reduced-motion` reaches a keyframes
+ * animation and not an <animate> element — so this is read in JS and the
+ * animation elements are simply not rendered. The rail still draws, with the
+ * carriage parked at 01 and the stations in their resting state, which is a
+ * legible diagram rather than an empty box.
+ */
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const q = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(q.matches);
+    const on = () => setReduced(q.matches);
+    q.addEventListener("change", on);
+    return () => q.removeEventListener("change", on);
+  }, []);
+  return reduced;
+}
+
+/** One full turn about the ring's centre, used by the carriage and the inner dust. */
+function Spin({ dur }: { dur: string }) {
+  return (
+    <animateTransform
+      attributeName="transform"
+      type="rotate"
+      from={`0 ${RAIL_CX} ${RAIL_CY}`}
+      to={`360 ${RAIL_CX} ${RAIL_CY}`}
+      dur={dur}
+      repeatCount="indefinite"
+    />
+  );
+}
+
+function RailViz() {
+  const still = usePrefersReducedMotion();
+  const pulse = (a: number) => ({
+    dur: `${LAP}s`,
+    begin: `${((a / 360) * LAP).toFixed(2)}s`,
+    repeatCount: "indefinite" as const,
+    keyTimes: "0;0.04;0.3;1",
+  });
 
   return (
     <div
       style={{
-        background: "var(--color-neutral-200)",
-        borderRadius: "var(--radius-lg)",
-        padding: "clamp(18px,3vw,30px)",
         position: "relative",
-        aspectRatio: "1 / 0.92",
-        display: "grid",
-        placeItems: "center",
+        height: "clamp(440px,46vw,540px)",
+        borderRadius: 20,
+        background: "var(--color-neutral-200)",
+        overflow: "hidden",
       }}
     >
-      <svg viewBox="0 0 380 380" style={{ width: "100%", height: "auto", maxWidth: 440 }} role="img"
-           aria-label="One signature, then charge, settle, receipt and the next period repeating without another.">
-        {/* The dotted ring. A dasharray of 1 on a round cap is a dot, and the
-            gap sets their spacing — cheaper and crisper than 120 circles. */}
-        <circle
-          cx={C} cy={C} r={R}
-          fill="none"
-          stroke="var(--color-neutral-500)"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeDasharray="1 7"
-          opacity={0.9}
-        />
-        {/* The arc already travelled, from 04 round to 01. */}
-        <path
-          d={`M ${C} ${C - R} A ${R} ${R} 0 0 1 ${C + R * 0.42} ${C - R * 0.9}`}
-          fill="none"
-          stroke="var(--color-accent)"
-          strokeWidth={2.5}
-          strokeLinecap="round"
-        />
-        {STATIONS.map((st) => {
-          const p = pos[st.at]!;
-          const filled = st.n === "04";
-          return (
-            <circle
-              key={st.n}
-              cx={p.x} cy={p.y} r={filled ? 11 : 9}
-              fill={filled ? "var(--color-accent)" : "var(--color-bg)"}
-              stroke={filled ? "var(--color-accent)" : "var(--color-neutral-500)"}
-              strokeWidth={2}
-            />
-          );
-        })}
-        {/* The trailing dot: the charge in flight, just past 04. */}
-        <circle cx={C + R * 0.42} cy={C - R * 0.9} r={6} fill="var(--color-accent)" />
-      </svg>
+      {/* The dotted field behind it, masked to an ellipse so it fades out
+          rather than ending at an edge. */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundImage: "radial-gradient(var(--color-neutral-500) 1.2px, transparent 1.4px)",
+          backgroundSize: "10px 10px",
+          maskImage: "radial-gradient(ellipse 75% 70% at 55% 50%, #000 25%, transparent 80%)",
+          WebkitMaskImage: "radial-gradient(ellipse 75% 70% at 55% 50%, #000 25%, transparent 80%)",
+        }}
+      />
 
-      {/* The centre and the labels sit over the ring rather than inside the
-          SVG, so they take the page's own type rather than SVG text metrics. */}
-      <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", pointerEvents: "none" }}>
-        <div style={{ textAlign: "center" }}>
-          <p className="m-0" style={{
-            fontSize: 11, fontWeight: 600, letterSpacing: "0.16em",
-            textTransform: "uppercase", color: "var(--color-neutral-700)",
-          }}>
-            Signed once
-          </p>
-          <p className="m-0" style={{ fontSize: "clamp(28px,4vw,38px)", fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1.1 }}>
-            Cycle 38
-          </p>
-          <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-800)" }}>
-            Renewed Feb 1, 2029
-          </p>
-        </div>
+      <div style={{ position: "absolute", inset: 12 }}>
+        <svg
+          viewBox="0 0 560 420"
+          width="100%"
+          height="100%"
+          preserveAspectRatio="xMidYMid meet"
+          style={{ display: "block", overflow: "visible" }}
+          aria-hidden="true"
+        >
+          <defs>
+            <filter id="sc-glow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation={5} />
+            </filter>
+          </defs>
+
+          {/* The track: beads, then a rail either side of them. */}
+          <circle cx={RAIL_CX} cy={RAIL_CY} r={RAIL_R} fill="none" stroke="#E4E4EF" strokeWidth={18} strokeDasharray="2.5 9" />
+          <circle cx={RAIL_CX} cy={RAIL_CY} r={RAIL_R + 9} fill="none" stroke="#D6D7EC" strokeWidth={2} />
+          <circle cx={RAIL_CX} cy={RAIL_CY} r={RAIL_R - 9} fill="none" stroke="#D6D7EC" strokeWidth={2} />
+          {/* Dust inside, turning far slower — it gives the whole thing a
+              sense of depth without competing with the carriage. */}
+          <circle cx={RAIL_CX} cy={RAIL_CY} r={RAIL_R - 46} fill="none" stroke="#E4E4EF" strokeWidth={1.5} strokeDasharray="1 7">
+            {!still && <Spin dur="60s" />}
+          </circle>
+
+          {/* The carriage and its tail, one group turning once a lap. */}
+          <g>
+            {!still && <Spin dur={`${LAP}s`} />}
+            <circle cx={RAIL_CX} cy={RAIL_CY} r={RAIL_R} fill="none" stroke="var(--color-accent)" strokeWidth={10}
+                    strokeLinecap="round" strokeDasharray={`170 ${RAIL_C - 170}`} strokeDashoffset={170} opacity={0.1} />
+            <circle cx={RAIL_CX} cy={RAIL_CY} r={RAIL_R} fill="none" stroke="var(--color-accent)" strokeWidth={6}
+                    strokeLinecap="round" strokeDasharray={`90 ${RAIL_C - 90}`} strokeDashoffset={90} opacity={0.28} />
+            <circle cx={RAIL_CX} cy={RAIL_CY} r={RAIL_R} fill="none" stroke="var(--color-accent)" strokeWidth={4}
+                    strokeLinecap="round" strokeDasharray={`36 ${RAIL_C - 36}`} strokeDashoffset={36} opacity={0.6} />
+            <rect x={RAIL_CX + RAIL_R - 9} y={RAIL_CY - 22} width={18} height={30} rx={9}
+                  fill="var(--color-accent)" filter="url(#sc-glow)" opacity={0.6} />
+            <rect x={RAIL_CX + RAIL_R - 8} y={RAIL_CY - 20} width={16} height={28} rx={8} fill="var(--color-accent)" />
+            <rect x={RAIL_CX + RAIL_R - 3} y={RAIL_CY - 2} width={6} height={6} rx={3} fill="#fff" />
+          </g>
+
+          {STATIONS.map((st) => {
+            const [x, y] = at(st.a);
+            const p = pulse(st.a);
+            return (
+              <g key={st.n}>
+                {!still && (
+                  <circle cx={x} cy={y} r={13} fill="var(--color-accent)" opacity={0}>
+                    <animate attributeName="r" values="13;13;30;30" {...p} />
+                    <animate attributeName="opacity" values="0;0.35;0;0" {...p} />
+                  </circle>
+                )}
+                <circle cx={x} cy={y} r={12} fill="#fff" stroke="#C9CAF6" strokeWidth={2}>
+                  {!still && <animate attributeName="fill" values="#fff;#4447D6;#fff;#fff" {...p} />}
+                  {!still && <animate attributeName="stroke" values="#C9CAF6;#4447D6;#C9CAF6;#C9CAF6" {...p} />}
+                </circle>
+                <text x={st.lx} y={st.ly - 4} textAnchor={st.anchor}
+                      fontFamily="Plus Jakarta Sans, sans-serif" fontSize={14} fontWeight={700} fill="#23233B">
+                  <tspan fill="#4447D6" fontFamily="JetBrains Mono, monospace" fontSize={11} fontWeight={500}>
+                    {st.n}{" "}
+                  </tspan>
+                  {st.t}
+                  {!still && <animate attributeName="fill" values="#23233B;#4447D6;#23233B;#23233B" {...p} />}
+                </text>
+                <text x={st.lx} y={st.ly + 13} textAnchor={st.anchor}
+                      fontFamily="Plus Jakarta Sans, sans-serif" fontSize={12} fill="#8A8BA0">
+                  {st.s}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
       </div>
 
-      {STATIONS.map((st) => (
-        <span
-          key={st.n}
-          style={{
-            position: "absolute",
-            pointerEvents: "none",
-            ...(st.at === "top" ? { top: "7%", left: "50%", transform: "translateX(-50%)", textAlign: "center" as const } : {}),
-            ...(st.at === "bottom" ? { bottom: "7%", left: "50%", transform: "translateX(-50%)", textAlign: "center" as const } : {}),
-            ...(st.at === "right" ? { right: "4%", top: "50%", transform: "translateY(-50%)", textAlign: "left" as const } : {}),
-            ...(st.at === "left" ? { left: "4%", top: "50%", transform: "translateY(-50%)", textAlign: "right" as const } : {}),
-          }}
-        >
-          <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap" }}>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, fontWeight: 400, color: "var(--color-accent)", marginRight: 5 }}>
-              {st.n}
-            </span>
-            {st.label}
-          </span>
-          <span style={{ display: "block", fontSize: 11.5, color: "var(--color-neutral-800)", whiteSpace: "nowrap" }}>
-            {st.note}
-          </span>
-        </span>
-      ))}
+      {/* The centre, in page type rather than SVG text. */}
+      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+                    alignItems: "center", justifyContent: "center", textAlign: "center", pointerEvents: "none" }}>
+        <p className="m-0" style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.14em",
+                                    textTransform: "uppercase", color: "var(--color-neutral-700)", marginBottom: 6 }}>
+          Signed once
+        </p>
+        <p className="m-0" style={{ fontSize: "clamp(30px,3.4vw,42px)", fontWeight: 800,
+                                    letterSpacing: "-0.035em", fontVariantNumeric: "tabular-nums" }}>
+          Cycle 38
+        </p>
+        <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-800)", marginTop: 6 }}>
+          Renewed Feb 1, 2029
+        </p>
+      </div>
     </div>
   );
 }
@@ -546,9 +624,9 @@ function Statement() {
           margin: "0 auto",
           padding: "0 clamp(18px,4vw,40px)",
           textAlign: "center",
-          fontSize: "clamp(22px,3.4vw,34px)",
+          fontSize: "clamp(24px,3vw,38px)",
           fontWeight: 500,
-          lineHeight: 1.32,
+          lineHeight: 1.34,
           letterSpacing: "-0.02em",
         }}
       >
@@ -562,7 +640,7 @@ function Statement() {
 
 function HowItWorks() {
   return (
-    <Section id="how" ground>
+    <Section id="how">
       <Kicker>How it works</Kicker>
       <H2>Three steps. Zero gas for your subscribers.</H2>
       <div className="mt-10 grid" style={{ gap: 18, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,260px),1fr))" }}>
@@ -578,7 +656,7 @@ function HowItWorks() {
               {s.n}
             </span>
             <h3 style={{ fontSize: 18, margin: "10px 0 0", letterSpacing: "-0.015em" }}>{s.title}</h3>
-            <p className="mt-2 mb-0" style={{ fontSize: 14, lineHeight: 1.6, color: "var(--color-neutral-800)" }}>{s.body}</p>
+            <p className="mt-2 mb-0" style={{ fontSize: 14.5, lineHeight: 1.62, color: "var(--color-neutral-900)" }}>{s.body}</p>
           </Card>
         ))}
       </div>
@@ -589,7 +667,7 @@ function HowItWorks() {
 function Demo() {
   const [picked, setPicked] = useState("base");
   return (
-    <Section id="demo">
+    <Section id="demo" ground>
       <Kicker align="left">Hosted checkout</Kicker>
       <H2 align="left">Pick a chain. That&rsquo;s the payment.</H2>
       <div
@@ -672,7 +750,7 @@ function Demo() {
 
 function Features() {
   return (
-    <Section id="features" ground>
+    <Section id="features">
       <Kicker>Features</Kicker>
       <H2>Everything a subscription business needs, on-chain.</H2>
       <div className="mt-10 grid" style={{ gap: 18, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,290px),1fr))" }}>
@@ -688,7 +766,7 @@ function Features() {
               {f.n}
             </span>
             <h3 style={{ fontSize: 17, margin: "10px 0 0", letterSpacing: "-0.015em" }}>{f.title}</h3>
-            <p className="mt-2 mb-0" style={{ fontSize: 14, lineHeight: 1.6, color: "var(--color-neutral-800)" }}>{f.body}</p>
+            <p className="mt-2 mb-0" style={{ fontSize: 14.5, lineHeight: 1.62, color: "var(--color-neutral-900)" }}>{f.body}</p>
           </Card>
         ))}
       </div>
@@ -701,7 +779,7 @@ function ConsolePreview() {
     <Section id="console">
       <Kicker align="left">The console</Kicker>
       <H2 align="left">Run it all from one place.</H2>
-      <p className="mt-4" style={{ fontSize: 16, color: "var(--color-neutral-800)", maxWidth: 620 }}>
+      <p className="mt-4" style={{ fontSize: "clamp(15px,1.3vw,16.5px)", lineHeight: 1.6, color: "var(--color-neutral-900)", maxWidth: 620 }}>
         Plans and tiers, subscribers, payments, withdrawals, webhooks and API keys — test mode
         included.
       </p>
@@ -796,7 +874,7 @@ function Developers() {
     <Section id="developers" ground>
       <Kicker align="left">For developers</Kicker>
       <H2 align="left">A checkout in one request.</H2>
-      <p className="mt-4" style={{ fontSize: 16, color: "var(--color-neutral-800)", maxWidth: 640 }}>
+      <p className="mt-4" style={{ fontSize: "clamp(15px,1.3vw,16.5px)", lineHeight: 1.6, color: "var(--color-neutral-900)", maxWidth: 640 }}>
         Create a session, redirect, and listen for webhooks. Or skip code entirely with a shareable
         payment link.
       </p>
@@ -929,13 +1007,13 @@ function StartCta() {
         <span className="inline-flex" style={{ marginBottom: 22 }}>
           <SweepMark size={46} />
         </span>
-        <h2 style={{ fontSize: "clamp(30px,5vw,52px)", letterSpacing: "-0.035em", lineHeight: 1.08, margin: 0 }}>
+        <h2 style={{ fontSize: "clamp(38px,5.6vw,72px)", letterSpacing: "-0.04em", lineHeight: 1.02, margin: 0, fontWeight: 800 }}>
           Start getting paid in <span style={{ color: "var(--color-accent)" }}>USDC</span> today.
         </h2>
         <p
           style={{
-            fontSize: 15.5,
-            color: "var(--color-neutral-800)",
+            fontSize: "clamp(15px,1.3vw,16.5px)",
+            color: "var(--color-neutral-900)",
             margin: "14px auto 0",
             maxWidth: 520,
             lineHeight: 1.6,

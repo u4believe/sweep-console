@@ -164,7 +164,7 @@ function SettledChart({ bars, unit }: { bars: Bar[]; unit: ChartRange["unit"] })
       </div>
       <div
         className="mt-[7px] flex justify-between"
-        style={{ fontSize: 10, color: "var(--color-neutral-600)", fontFamily: "ui-monospace, Menlo, monospace" }}
+        style={{ fontSize: 11, color: "var(--color-neutral-600)", fontFamily: "ui-monospace, Menlo, monospace" }}
       >
         <span>{axisLabel(bars[0]!, unit)}</span>
         <span>{axisLabel(mid, unit)}</span>

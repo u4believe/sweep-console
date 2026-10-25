@@ -38,7 +38,7 @@ export function LoginPage() {
     <div>
       <p
         className="m-0 uppercase"
-        style={{ fontSize: 10, letterSpacing: "0.16em", color: "var(--color-accent)", marginBottom: 8 }}
+        style={{ fontSize: 11, letterSpacing: "0.16em", color: "var(--color-accent)", marginBottom: 8 }}
       >
         Welcome back
       </p>

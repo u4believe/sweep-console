@@ -160,7 +160,7 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
     <div>
       <p
         className="m-0 uppercase"
-        style={{ fontSize: 10, letterSpacing: "0.16em", color: "var(--color-accent)", marginBottom: 8 }}
+        style={{ fontSize: 11, letterSpacing: "0.16em", color: "var(--color-accent)", marginBottom: 8 }}
       >
         03 — Payout wallet
       </p>
@@ -256,7 +256,7 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
             >
               <p
                 className="m-0 uppercase"
-                style={{ fontSize: 10, letterSpacing: "0.14em", color: "var(--color-neutral-600)" }}
+                style={{ fontSize: 11, letterSpacing: "0.14em", color: "var(--color-neutral-600)" }}
               >
                 What happens next
               </p>
@@ -320,7 +320,7 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
         <div>
           <p
             className="m-0 uppercase"
-            style={{ fontSize: 10, letterSpacing: "0.14em", color: "var(--color-neutral-600)", marginBottom: 8 }}
+            style={{ fontSize: 11, letterSpacing: "0.14em", color: "var(--color-neutral-600)", marginBottom: 8 }}
           >
             Settles on
           </p>
@@ -333,7 +333,7 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
         <div>
           <p
             className="m-0 uppercase"
-            style={{ fontSize: 10, letterSpacing: "0.14em", color: "var(--color-neutral-600)", marginBottom: 8 }}
+            style={{ fontSize: 11, letterSpacing: "0.14em", color: "var(--color-neutral-600)", marginBottom: 8 }}
           >
             Subscribers can pay from
           </p>

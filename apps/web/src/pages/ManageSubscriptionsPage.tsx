@@ -108,7 +108,7 @@ const fmtDate = (iso: string) =>
 /// The design's micro-label: 10px, wide tracking, upper. Used for every column
 /// heading, kicker and stat key on this page, so it is written once.
 const UPPER: React.CSSProperties = {
-  fontSize: 10,
+  fontSize: 11,
   letterSpacing: "0.14em",
   textTransform: "uppercase",
   color: "var(--color-neutral-600)",

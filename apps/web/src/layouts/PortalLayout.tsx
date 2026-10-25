@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/auth";
 import { SweepMark } from "@/components/ui/marks";
 import { StepUpDialog } from "@/components/portal/StepUpDialog";
+import { ScopeProvider, type Scope } from "@/context/scope";
 
 // The two dashboards. Facts about this product rather than configuration —
 // a variable for them is one more thing that can point at the wrong network.
@@ -49,7 +50,6 @@ const NAV_TAIL = [
  * on one belonging to the other scope switches to it rather than showing a
  * page the nav denies.
  */
-type Scope = "hosted" | "rail";
 const SCOPE_KEY = "sweep.console.scope";
 
 const SCOPE_COPY: Record<Scope, { label: string; note: string; other: Scope; switchTo: string }> = {
@@ -461,7 +461,11 @@ export function PortalLayout() {
 
         {/* Keyed on the route so each screen plays the system's entrance. */}
         <main key={pathname} className="min-w-0 swp-in">
-          <Outlet />
+          {/* Published so a screen can answer the scope for itself — the
+              webhooks form offers one path's events, not both. */}
+          <ScopeProvider scope={effectiveScope}>
+            <Outlet />
+          </ScopeProvider>
         </main>
       </div>
 
