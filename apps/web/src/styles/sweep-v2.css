@@ -119,6 +119,10 @@
   --color-ok-bg: #E7F6EE;
   --color-ok-text: #15704A;
   --color-header-bg: rgba(255, 255, 255, 0.86);
+  /* The track a segmented control sits in — #EEEEF6 in the design, a shade
+     cooler than neutral-200 and a shade warmer than neutral-300, so neither
+     step is it. One token rather than a literal repeated at each control. */
+  --color-track: #EEEEF6;
 }
 
 /*
@@ -130,3 +134,80 @@
  * says what dark should look like. When the design covers it, it belongs in
  * this file as a `prefers-color-scheme` block over the same token names.
  */
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Motion.
+
+   modernist.css already carries the entrance (`swp-in`), the spinner
+   (`swp-spin`) and the indeterminate bar (`swp-activity`), and the v2 design
+   uses all three unchanged — `swp-in` appears in six of its screens. What it
+   adds is an easing and two more keyframes.
+   ══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /**
+   * The design's one easing, on ten of its transitions: a fast start that
+   * settles rather than coasting. Everything that MOVES uses it; things that
+   * only change colour stay on `ease`, because a tint does not need a
+   * deceleration curve and 160ms of it reads as lag.
+   */
+  --ease-out-quint: cubic-bezier(0.23, 1, 0.32, 1);
+  --dur: 160ms;
+}
+
+/**
+ * A shimmer travelling across a placeholder.
+ *
+ * Distinct from `swp-activity`, which is a determinate-looking bar on a row
+ * that is working. This one is for a surface with nothing in it yet.
+ */
+@keyframes swp-sweep {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+
+/**
+ * The USDC mark turning over.
+ *
+ * The hold at each face (0–12%, 50–62%) is what stops it reading as a spin:
+ * it shows a side, turns, shows the other. Decoration, so unlike the spinner
+ * it stops entirely under reduced motion.
+ */
+@keyframes usdc-flip {
+  0%, 12%  { transform: rotateY(0deg); }
+  50%, 62% { transform: rotateY(180deg); }
+  100%     { transform: rotateY(360deg); }
+}
+
+.swp-sweep { animation: swp-sweep 1.4s var(--ease-out-quint) infinite; }
+.usdc-flip { animation: usdc-flip 4.5s var(--ease-out-quint) infinite; transform-style: preserve-3d; }
+
+/**
+ * Sidebar and top-bar items.
+ *
+ * The hover tint is the design's #F0F0F7 — between neutral-200 and
+ * neutral-300, so neither step is it. Excluded on the current item, which
+ * already carries the accent wash and would otherwise go grey under the
+ * pointer, reading as though the click had not registered.
+ */
+.swp-navitem {
+  transition: background var(--dur) ease, color var(--dur) ease;
+}
+.swp-navitem:not([aria-current="page"]):hover {
+  background: #F0F0F7;
+}
+
+/**
+ * Reduced motion.
+ *
+ * The entrance and the decoration go; the two indicators do not. A still
+ * spinner reads as frozen, and on a payment screen that is the one impression
+ * worth avoiding — so they slow down instead, which modernist.css already
+ * argues for and this keeps true of the new ones.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .swp-in { animation: none; }
+  .usdc-flip { animation: none; }
+  .swp-sweep { animation-duration: 3s; }
+  .swp-navitem { transition: none; }
+}

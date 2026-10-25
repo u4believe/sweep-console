@@ -28,11 +28,6 @@ const NAV_HOSTED = [
  * product does not work that way: rail access is a grant on top of a hosted
  * account, and a merchant can run both. So these are added to the hosted
  * items rather than replacing them.
- *
- * They were one "Payment rail" tab holding two tables behind a sub-tab.
- * Promoting them matches the design's intent — these are destinations a rail
- * merchant lives in, not a section they visit — without inventing an
- * either/or the account model does not have.
  */
 const NAV_RAIL = [
   { href: "/rail/mandates", label: "Mandates" },
@@ -57,15 +52,29 @@ const ADMIN_NAV = [
   { href: "/admin/treasury", label: "Balances" },
 ];
 
+/** Two letters for the avatar, from whatever the account actually has. */
+function initials(nameOrEmail: string | undefined): string {
+  if (!nameOrEmail) return "··";
+  const local = nameOrEmail.split("@")[0] ?? nameOrEmail;
+  const parts = local.split(/[.\-_\s]+/).filter(Boolean);
+  const take = parts.length >= 2 ? `${parts[0]![0]}${parts[1]![0]}` : local.slice(0, 2);
+  return take.toUpperCase();
+}
+
 /**
- * The portal shell — the Modernist top-nav variant.
+ * The portal shell — the v2 sidebar.
  *
- * Structure is load-bearing here: a sticky header closed by a 2px rule, an
- * identity row above a 1px rule, and tabs that mark the active section with a
- * 3px accent underline. Nothing is rounded and nothing floats; the rules do the
- * organising. The design carries a sidebar variant of this same shell — see
- * `dashboardShell` in the canvas — and the two are interchangeable because the
- * screens below make no assumption about which is mounted.
+ * Replaces the Modernist top-nav variant entirely. That one organised with
+ * rules: a sticky header closed by a 2px line, tabs underlined in accent,
+ * nothing rounded and nothing floating. This one organises with a surface —
+ * a 236px rail in neutral-100 against a white page, items that round and tint
+ * on hover, and the identity sitting at the bottom of the rail rather than
+ * across the top of the page.
+ *
+ * Below `lg` the rail becomes a sticky top bar with the same three parts in a
+ * row, because 236px of chrome on a phone is most of the screen. The design
+ * draws that as a second state (`narrow`); here it is a media query, so it
+ * follows the viewport rather than a prop someone has to remember to set.
  */
 export function PortalLayout() {
   const [isAdmin, setIsAdmin] = useState(false);
@@ -102,155 +111,218 @@ export function PortalLayout() {
    * that only ever errors is worse than no tab.
    */
   const showAdmin = isAdmin && mode?.testMode === false;
-  const railNav =
-    railEnabled === undefined ? [] : railEnabled ? NAV_RAIL : NAV_RAIL_LOCKED;
-  const nav = [
-    ...NAV_HOSTED,
-    ...railNav,
-    ...NAV_TAIL,
-    ...(showAdmin ? ADMIN_NAV : []),
-  ];
+  const railNav = railEnabled === undefined ? [] : railEnabled ? NAV_RAIL : NAV_RAIL_LOCKED;
+  const nav = [...NAV_HOSTED, ...railNav, ...NAV_TAIL, ...(showAdmin ? ADMIN_NAV : [])];
 
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
   const navigate = useNavigate();
 
   /**
-   * A tab is lit on its own path and on anything beneath it, so "Plans" stays
-   * lit on /plans/new and /plans/:planId. Laid out horizontally, an unlit tab
-   * bar on a child route reads as "nowhere" far more loudly than it did in
-   * the rail.
+   * An item is lit on its own path and anything beneath it, so "Plans" stays
+   * lit on /plans/new and /plans/:planId.
    *
-   * This compares whole paths rather than the leading segment, which it used
-   * to. The segment worked while every tab was one level deep; "Mandates" at
-   * /rail/mandates would have compared "rail" against "rail/mandates" and
-   * never lit at all.
+   * Whole paths, not the leading segment: the segment worked while every item
+   * was one level deep, and "Mandates" at /rail/mandates would have compared
+   * "rail" against "rail/mandates" and never lit at all.
    */
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
 
-  return (
-    <div className="flex min-h-screen flex-col" style={{ background: "var(--color-bg)" }}>
-      <header
-        className="sticky top-0"
+  /**
+   * Which deployment this is, and a way to the other one.
+   *
+   * The design draws this as a switch that sets state. Ours cannot be: the
+   * mode follows the DEPLOYMENT, so changing it means changing site. A
+   * session-set mode allowed test mode on the live deployment, where every
+   * Circle call uses the live key and a test payout wallet comes back 404.
+   * So the inactive half is a link, and the active half is not a control at
+   * all.
+   */
+  const modeSwitch = mode && (
+    <div
+      className="flex"
+      style={{
+        padding: 4,
+        gap: 4,
+        background: "var(--color-track)",
+        borderRadius: 10,
+      }}
+    >
+      {([true, false] as const).map((isTest) => {
+        const here = mode.testMode === isTest;
+        const label = isTest ? "Test mode" : "Live";
+        const sub = isTest ? "No real USDC" : "Real payments";
+        const inner = (
+          <>
+            <span style={{ fontSize: 13, fontWeight: 700, color: here ? "#fff" : "var(--color-neutral-800)" }}>
+              {label}
+            </span>
+            <span style={{ fontSize: 11, color: here ? "rgba(255,255,255,0.72)" : "var(--color-neutral-700)" }}>
+              {sub}
+            </span>
+          </>
+        );
+        const box = {
+          flex: 1,
+          display: "flex",
+          flexDirection: "column" as const,
+          alignItems: "flex-start" as const,
+          gap: 1,
+          textAlign: "left" as const,
+          borderRadius: 7,
+          padding: "8px 10px",
+          textDecoration: "none",
+          background: here ? "var(--color-accent)" : "transparent",
+          boxShadow: here ? "0 4px 10px -4px rgba(68,71,214,0.6)" : "none",
+          transition: "background 160ms ease",
+        };
+        return here ? (
+          <span key={label} style={box} aria-current="true">{inner}</span>
+        ) : (
+          <a
+            key={label}
+            href={isTest ? SANDBOX_SITE_URL : LIVE_SITE_URL}
+            style={box}
+            title={`Open the ${isTest ? "sandbox" : "live"} dashboard`}
+          >
+            {inner}
+          </a>
+        );
+      })}
+    </div>
+  );
+
+  const navButtons = nav.map((item) => {
+    const active = isActive(item.href);
+    return (
+      <button
+        key={item.href}
+        type="button"
+        onClick={() => navigate(item.href)}
+        aria-current={active ? "page" : undefined}
+        className="swp-navitem cursor-pointer"
         style={{
-          zIndex: 30,
-          background: "var(--color-bg)",
-          borderBottom: "1px solid var(--color-divider)",
+          textAlign: "left",
+          font: "inherit",
+          fontSize: 14,
+          fontWeight: 500,
+          border: 0,
+          borderRadius: 7,
+          padding: "9px 12px",
+          whiteSpace: "nowrap",
+          color: active ? "var(--color-accent)" : "var(--color-neutral-800)",
+          background: active ? "var(--color-accent-200)" : "transparent",
         }}
       >
-        {/* Identity row */}
-        <div className="flex items-center" style={{ gap: 14, padding: "14px 32px" }}>
-          <button
-            type="button"
-            onClick={() => navigate("/")}
-            className="flex cursor-pointer items-center gap-2.5 text-left"
-            style={{ background: "transparent", border: 0, padding: 0 }}
-          >
-            <Logo height={21} />
-            <span
-              style={{
-                fontFamily: "var(--font-heading)",
-                fontWeight: 700,
-                fontSize: 15,
-                letterSpacing: "-0.02em",
-              }}
-            >
-              Sweep Console
-            </span>
-          </button>
+        {item.label}
+      </button>
+    );
+  });
 
-          {/* Which deployment this is, and a way to the other one.
-              It sits beside the wordmark, where a hardcoded "Test mode" badge
-              used to be — that one said "Test mode" on the live site too,
-              which is the single place it must never say.
-              Not a switch: the mode follows the deployment, so changing it
-              means changing site. A session-set mode allowed test mode on the
-              live deployment, where every Circle call uses the live key and a
-              test payout wallet comes back 404. */}
-          {mode && (
-            <div
-              className="flex shrink-0 items-center"
-              style={{ border: "1px solid var(--color-divider)", marginLeft: 10 }}
-            >
-              {([true, false] as const).map((isTest) => {
-                const here = mode.testMode === isTest;
-                const href = isTest ? SANDBOX_SITE_URL : LIVE_SITE_URL;
-                const label = isTest ? "Test" : "Live";
-                const style = {
-                  fontSize: 11,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase" as const,
-                  padding: "5px 11px",
-                  background: here ? "var(--color-text)" : "transparent",
-                  color: here ? "var(--color-ground)" : "var(--color-neutral-700)",
-                  textDecoration: "none",
-                };
-                return here ? (
-                  <span key={label} style={style}>{label}</span>
-                ) : (
-                  <a key={label} href={href} style={style} title={`Open the ${label.toLowerCase()} dashboard`}>
-                    {label}
-                  </a>
-                );
-              })}
-            </div>
-          )}
+  const brand = (
+    <button
+      type="button"
+      onClick={() => navigate("/")}
+      className="flex cursor-pointer items-center gap-2.5 text-left"
+      style={{ background: "transparent", border: 0, padding: 0, color: "var(--color-text)" }}
+    >
+      <Logo height={22} />
+      <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15, letterSpacing: "-0.02em" }}>
+        Sweep Console
+      </span>
+    </button>
+  );
 
-          <span
-            className="ml-auto truncate"
-            style={{ fontSize: 12, color: "var(--color-neutral-800)", minWidth: 0 }}
-          >
-            {user?.email}
-          </span>
-          <button
-            type="button"
-            className="btn btn-ghost shrink-0"
-            style={{ fontSize: 12, color: "var(--color-neutral-700)" }}
-            onClick={() => void logout()}
-          >
-            Sign out
-          </button>
-        </div>
+  return (
+    <div className="flex min-h-screen flex-col lg:flex-row" style={{ background: "var(--color-bg)" }}>
+      {/* ── Wide: the rail ─────────────────────────────────────────────── */}
+      <aside
+        className="hidden lg:flex"
+        style={{
+          width: 236,
+          flex: "none",
+          flexDirection: "column",
+          gap: 2,
+          padding: "20px 14px",
+          background: "var(--color-neutral-100)",
+          borderRight: "1px solid var(--color-divider)",
+          position: "sticky",
+          top: 0,
+          height: "100vh",
+        }}
+      >
+        <div style={{ padding: "4px 10px 22px" }}>{brand}</div>
+        <div style={{ margin: "0 0 14px" }}>{modeSwitch}</div>
+        {navButtons}
 
-        {/* Section tabs. Scroll rather than wrap — a wrapped second row would
-            shift every screen down by a line at narrow widths. */}
-        <nav
-          className="flex"
+        {/* Identity at the foot of the rail, not across the top of the page.
+            `margin-top:auto` is what pins it there however long the nav is. */}
+        <div
+          className="flex items-center"
           style={{
+            marginTop: "auto",
+            gap: 10,
+            padding: "12px 10px",
             borderTop: "1px solid var(--color-divider)",
-            padding: "0 32px",
-            overflowX: "auto",
+            minWidth: 0,
           }}
         >
-          {nav.map((item) => {
-            const active = isActive(item.href);
-            return (
-              <button
-                key={item.href}
-                type="button"
-                onClick={() => navigate(item.href)}
-                aria-current={active ? "page" : undefined}
-                className="cursor-pointer"
-                style={{
-                  background: "transparent",
-                  border: 0,
-                  borderBottom: `3px solid ${active ? "var(--color-accent)" : "transparent"}`,
-                  color: active ? "var(--color-text)" : "var(--color-neutral-700)",
-                  padding: "11px 16px 9px",
-                  fontFamily: "var(--font-body)",
-                  fontSize: 13.5,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {item.label}
-              </button>
-            );
-          })}
-        </nav>
+          <span
+            aria-hidden="true"
+            style={{
+              width: 30, height: 30, flex: "none", borderRadius: "50%",
+              background: "var(--color-accent-200)", color: "var(--color-accent)",
+              display: "grid", placeItems: "center", fontWeight: 700, fontSize: 13,
+            }}
+          >
+            {initials(user?.email)}
+          </span>
+          <span style={{ fontSize: 13, lineHeight: 1.3, minWidth: 0 }}>
+            <span className="block truncate" style={{ fontWeight: 600 }}>{user?.email}</span>
+            <button
+              type="button"
+              onClick={() => void logout()}
+              className="cursor-pointer"
+              style={{
+                background: "transparent", border: 0, padding: 0, font: "inherit",
+                fontSize: 12, color: "var(--color-neutral-700)",
+              }}
+            >
+              Log out
+            </button>
+          </span>
+        </div>
+      </aside>
+
+      {/* ── Narrow: the same three parts, stacked ──────────────────────── */}
+      <header
+        className="lg:hidden sticky top-0"
+        style={{ zIndex: 30, background: "var(--color-bg)", borderBottom: "1px solid var(--color-divider)" }}
+      >
+        <div className="flex items-center" style={{ gap: 10, padding: "14px 18px" }}>
+          {brand}
+          <button
+            type="button"
+            onClick={() => void logout()}
+            className="ml-auto cursor-pointer shrink-0"
+            style={{
+              background: "transparent", border: 0, font: "inherit",
+              fontSize: 12, color: "var(--color-neutral-700)",
+            }}
+          >
+            Log out
+          </button>
+        </div>
+        <div style={{ padding: "0 12px 10px" }}>{modeSwitch}</div>
+        {/* Scroll rather than wrap — a wrapped second row shifts every screen
+            down by a line at exactly the widths where space is tightest. */}
+        <div className="flex" style={{ gap: 4, overflowX: "auto", padding: "0 12px 10px" }}>
+          {navButtons}
+        </div>
       </header>
 
       {/* Keyed on the route so each screen plays the system's entrance. */}
-      <main key={pathname} className="min-w-0 swp-in" style={{ background: "var(--color-bg)" }}>
+      <main key={pathname} className="min-w-0 flex-1 swp-in" style={{ background: "var(--color-bg)" }}>
         <Outlet />
       </main>
 
