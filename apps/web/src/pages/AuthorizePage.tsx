@@ -623,11 +623,29 @@ export function AuthorizePage() {
           </div>
         )}
 
+        {/*
+          The settled step, as one line: number, the address it captured, and
+          a green pill. The same shape the hosted checkout uses, and the
+          design's — a square accent dot and an uppercase accent word was the
+          Modernist idiom, which this page no longer speaks.
+        */}
         {verified && (
-          <div className="mt-6 flex items-center gap-2 border-t border-gray-100 pt-3">
-            <span className="block h-2 w-2 bg-brand-600" />
-            <span className="text-sm text-gray-900">{email.trim()}</span>
-            <span className="ml-auto text-xs font-semibold uppercase tracking-wider text-brand-700">
+          <div
+            className="mt-6 flex items-center"
+            style={{ gap: 10, padding: "12px 0", borderTop: "1px solid var(--color-divider)", fontSize: 13.5 }}
+          >
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-accent)", width: 22, flex: "none" }}>
+              01
+            </span>
+            <span>{email.trim()}</span>
+            <span
+              className="ml-auto"
+              style={{
+                fontSize: 11, fontWeight: 600, whiteSpace: "nowrap",
+                color: "var(--color-ok-text)", background: "var(--color-ok-bg)",
+                padding: "3px 8px", borderRadius: 5,
+              }}
+            >
               Verified
             </span>
           </div>

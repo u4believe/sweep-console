@@ -138,35 +138,108 @@ function friendlyWalletError(e: unknown): string {
 /**
  * A numbered step inside the payment card.
  *
- * It used to take `strong` to pick the heavier of two rules. RULE and
- * HAIRLINE are both `1px solid var(--color-divider)` and have been for some
- * time, so that choice has drawn the same line either way — the prop is
- * removed rather than left as a no-op that reads like it does something.
+ * Two shapes, which is the thing an earlier version of this missed. The
+ * design collapses a FINISHED step to one line — number, the value it
+ * captured, and a status pill pushed right — and keeps the label-above-
+ * content block only for the step currently being worked. Rendering every
+ * step as a block made a payment card four tall sections where the design
+ * has two settled lines and one live panel, and buried the thing the payer
+ * is meant to be doing.
+ *
+ * `done` takes the value and the status; without it the step is the active
+ * block and renders its children.
  */
-function StepRow({ n, label, children }: {
-  n: string; label: string; children: React.ReactNode;
+function StepRow({
+  n,
+  label,
+  children,
+  done,
+}: {
+  n: string;
+  label: string;
+  children?: React.ReactNode;
+  /**
+   * `pill` for something the payer achieved — Verified is green, and reads as
+   * a reward. Plain text for a state they are merely in, like a connected
+   * wallet, which the design leaves grey. A pill on both would make "your
+   * wallet is attached" look like a prize.
+   *
+   * `action` is for the one thing a finished step may still need to offer.
+   */
+  done?: {
+    value: React.ReactNode;
+    status: string;
+    mono?: boolean;
+    pill?: boolean;
+    action?: React.ReactNode;
+  };
 }) {
-  return (
-    <div
-      className="grid gap-3"
+  const num = (
+    <span
       style={{
-        gridTemplateColumns: "22px 1fr",
-        padding: "13px 0",
-        borderBottom: HAIRLINE,
+        fontFamily: "var(--font-mono)",
+        fontSize: 11,
+        color: "var(--color-accent)",
+        width: 22,
+        flex: "none",
+        letterSpacing: 0,
       }}
     >
-      <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--color-neutral-700)", paddingTop: 2 }}>
-        {n}
-      </span>
-      <div>
-        <p
-          className="m-0 uppercase"
-          style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", color: "var(--color-neutral-800)", marginBottom: 7 }}
+      {n}
+    </span>
+  );
+
+  if (done) {
+    return (
+      <div
+        className="flex items-center"
+        style={{ gap: 10, padding: "12px 0", borderBottom: HAIRLINE, fontSize: 13.5 }}
+      >
+        {num}
+        <span style={done.mono ? { fontFamily: "var(--font-mono)", fontSize: 13 } : undefined}>
+          {done.value}
+        </span>
+        {done.action}
+        <span
+          className="ml-auto"
+          style={
+            done.pill
+              ? {
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "var(--color-ok-text)",
+                  background: "var(--color-ok-bg)",
+                  padding: "3px 8px",
+                  borderRadius: 5,
+                  whiteSpace: "nowrap",
+                }
+              : { fontSize: 12, color: "var(--color-neutral-700)", whiteSpace: "nowrap" }
+          }
         >
-          {label}
-        </p>
-        {children}
+          {done.status}
+        </span>
       </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: "12px 0 6px", borderBottom: HAIRLINE }}>
+      <p
+        className="m-0 uppercase"
+        style={{
+          display: "flex",
+          gap: 10,
+          marginBottom: 8,
+          fontSize: 11,
+          fontWeight: 600,
+          letterSpacing: "0.1em",
+          color: "var(--color-neutral-700)",
+        }}
+      >
+        {num}
+        {label}
+      </p>
+      {children}
     </div>
   );
 }
@@ -804,9 +877,21 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
             <>
               <div>
                 {/* 01 — email, verified first, before any wallet connection */}
+                {verified ? (
+                  <StepRow
+                    n="01"
+                    label="Email"
+                    done={{
+                      value: emailToken ? email.trim() : recognizedEmail ?? "your account",
+                      status: "Verified",
+                      pill: true,
+                    }}
+                  />
+                ) : (
                 <StepRow n="01" label="Email">
-                  {!verified ? (
-                    <>
+                  {/* Only rendered while unverified — the verified case is the
+                      compact row above — so no branch is needed here. */}
+                  <>
                       <p className="m-0" style={{ fontSize: 12.5, color: "var(--color-neutral-700)", marginBottom: 10 }}>
                         {isReturning
                           ? `Welcome back — you've paid here before with ${recalledWallet}. Verify your email to continue.`
@@ -878,17 +963,9 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                       {otpError && (
                         <p className="m-0 mt-2" style={{ fontSize: 12, color: "var(--color-accent-700)" }}>{otpError}</p>
                       )}
-                    </>
-                  ) : (
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      <span style={{ width: 9, height: 9, background: "var(--color-accent)", display: "block" }} />
-                      <span style={{ fontSize: 14 }}>
-                        {emailToken ? email.trim() : recognizedEmail ?? "your account"}
-                      </span>
-                      <span className="tag tag-outline ml-auto">Verified</span>
-                    </div>
-                  )}
+                  </>
                 </StepRow>
+                )}
 
                 {/* Returning customer: a standing warning in the step sequence,
                     directly under the email it is about, plus a blocking dialog
@@ -908,6 +985,27 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
 
                 {/* 02 — wallet */}
                 {verified && (
+                  walletPresent && !walletBlocked ? (
+                    <StepRow
+                      n="02"
+                      label="Wallet"
+                      done={{
+                        value: shortAddr(payAddress),
+                        mono: true,
+                        status: "Wallet connected",
+                        action: (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ fontSize: 12.5, padding: 0 }}
+                            onClick={onUseDifferentWallet}
+                          >
+                            Change
+                          </button>
+                        ),
+                      }}
+                    />
+                  ) : (
                   <StepRow n="02" label="Wallet">
                     {!walletPresent ? (
                       isReturning ? (
@@ -964,6 +1062,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                       </div>
                     )}
                   </StepRow>
+                  )
                 )}
 
                 {/* 03 — pay from. One row per chain, exactly as the design has
