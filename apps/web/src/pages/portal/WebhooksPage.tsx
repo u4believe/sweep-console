@@ -15,10 +15,13 @@ interface AvailableEvent {
   id: string;
   description: string;
   group: "subscriptions" | "rail";
-  /// False for rail events on an account without the rail: shown, but not
-  /// selectable. Hiding them would leave a developer unaware the capability
-  /// exists; offering them would let them subscribe to something that can never
-  /// be delivered.
+  /// False for rail events on an account without the rail: rendered greyed
+  /// and not selectable, so a developer can see the capability exists without
+  /// being able to subscribe to something that can never be delivered.
+  ///
+  /// Only ever seen in the RAIL scope now. The hosted scope renders the
+  /// subscription group alone, so an unavailable rail event is not something
+  /// the hosted tab displays at all.
   available: boolean;
 }
 
@@ -59,9 +62,6 @@ export function WebhooksPage() {
    * and a second switcher on this page would be able to disagree with them.
    */
   const scope = useScope();
-  /// True when the account can receive rail events at all — any one of them
-  /// being `available` is the server's answer to that.
-  const railEnabled = availableEvents.some((e) => e.group === "rail" && e.available);
   const [formEvents, setFormEvents] = useState<string[]>([]);
   // Once the merchant has picked events themselves, a reload must not silently
   // re-tick everything under them.
@@ -503,22 +503,29 @@ export function WebhooksPage() {
               and which is why the comment on AvailableEvent argued for
               showing everything.
 
-              An account without the rail still sees the rail group, greyed:
-              scope only exists for an account that HAS both, so for everyone
-              else `scope` is "hosted" and the group below carries its own
-              "available once the rail is enabled" note.
+              This used to make one exception: an account WITHOUT the rail
+              still saw the rail group, greyed, on the reasoning that such an
+              account has no scope switcher and would otherwise never learn
+              the events existed. That reasoning expired — PortalLayout now
+              shows the switcher whenever the profile has loaded
+              (`canSwitch = railEnabled !== undefined`), so an account
+              without the rail can still switch to the rail scope and read
+              them there, where the greyed group and its "available once the
+              rail is enabled" note still appear.
+
+              Leaving the exception in meant the live Hosted tab listed rail
+              events beside its own, which is the one thing this list is
+              supposed to stop.
             */}
             {(["subscriptions", "rail"] as const).map((group) => {
-              const otherPath = group !== (scope === "rail" ? "rail" : "subscriptions");
-              const railLocked = group === "rail" && !railEnabled;
-              if (otherPath && !railLocked) return null;
+              if (group !== (scope === "rail" ? "rail" : "subscriptions")) return null;
               const events = availableEvents.filter((e) => e.group === group);
               if (events.length === 0) return null;
               const groupAvailable = events.some((e) => e.available);
               return (
                 <div key={group} style={{ marginBottom: 14 }}>
                   <Kicker>
-                    {group === "subscriptions" ? "Events to receive · " : ""}
+                    {"Events to receive · "}
                     {GROUP_LABEL[group]}
                   </Kicker>
                   {!groupAvailable && (

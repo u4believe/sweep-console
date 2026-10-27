@@ -5,7 +5,9 @@ after that: the checkout page, the schedule, renewals, trials, retries when a
 payment fails, and a portal where subscribers manage what they pay for.
 
 **You write no billing code.** The only thing you build is a webhook handler
-that tells your app who subscribed.
+that tells your app who subscribed. A link and a webhook handler need no API
+key; calling Sweep from your own server does — see
+[Do you need an API key?](#do-you-need-an-api-key) below.
 
 ## The shape of it
 
@@ -16,6 +18,25 @@ that tells your app who subscribed.
 4. Handle `subscription.renewed` and `subscription.cancelled` to keep it in step.
 
 That is the integration. Everything else is Sweep's problem.
+
+## Do you need an API key?
+
+Only for step 2's second half, and for reading anything back.
+
+| What you are doing | API key |
+| --- | --- |
+| Share a payment link (`/pay/<id>`) | **no** |
+| Receive webhooks | **no** — verification uses the webhook *signing secret*, which is a different credential |
+| Create a checkout session from your server | **yes** |
+| Read or change anything over the API — subscriptions, plans, payments, webhook endpoints | **yes** |
+
+Everything under `/v1` takes a key. Nothing else does.
+
+So "you write no billing code" holds for the link-and-webhook integration,
+and that genuinely needs no key. The moment your server calls Sweep —
+to open a session for a signed-in user, or to ask what a subscriber's
+state is rather than waiting to be told — you need one. Issue it under
+**API keys**.
 
 ## One plan, several tiers
 
