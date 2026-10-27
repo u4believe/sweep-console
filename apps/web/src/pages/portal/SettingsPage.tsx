@@ -16,7 +16,15 @@ interface MerchantProfile {
   walletAddress: string | null;
   walletType: string;
   addressVerifiedAt: string | null;
-  isLive: boolean;
+  /**
+   * Which dashboard this is — NOT merchant.isLive, which is the activation
+   * flag and the field this row used to read. They answer different
+   * questions: isLive is "has this account been switched on for real money",
+   * testMode is "which of the two deployments am I looking at". A merchant on
+   * the live console who had not been activated yet was told their mode was
+   * Test, on the live console, beside their live key.
+   */
+  testMode: boolean;
   railChargeReceipts: boolean;
   createdAt: string;
 }
@@ -324,8 +332,8 @@ function AccountTab({
               { k: "Merchant ID", v: <Mono size={12.5}>{profile.merchantId}</Mono> },
               {
                 k: "Mode",
-                v: <span className={`tag ${profile.isLive ? "tag-accent" : "tag-outline"}`}>
-                     {profile.isLive ? "Live" : "Test"}
+                v: <span className={`tag ${profile.testMode ? "tag-outline" : "tag-accent"}`}>
+                     {profile.testMode ? "Test" : "Live"}
                    </span>,
               },
               {

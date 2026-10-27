@@ -270,6 +270,66 @@ function main(): void {
   }
   findings.push(...claims);
 
+  /**
+   * Fourth pass: the mode written into the words, not into a prop.
+   *
+   * Three bugs reached the live console in one day that the pass above could
+   * not see, because none of them mentions isTestMode at all:
+   *
+   *   "Authorization: Bearer test_your_key_here"   a literal key prefix
+   *   "only test keys are available ..."           an unconditional claim
+   *   profile.isLive ? "Live" : "Test"             the wrong boolean
+   *
+   * The last is the subtlest and the reason this pass checks identifiers as
+   * well as strings: isLive is the ACTIVATION flag — whether the account has
+   * been switched on for real money — and testMode is WHICH DEPLOYMENT this
+   * is. A merchant on the live console who had not been activated yet was
+   * shown "Mode: Test" beside the live key they had just been issued.
+   *
+   * Heuristic, deliberately: it reads text, so it cannot be sound. It is
+   * scoped to the portal, skips comments, and lets a line off when a mode
+   * variable is in scope nearby — the window is generous because the guard
+   * is usually the enclosing `{testMode && (`, several lines up.
+   */
+  const WORDS = /\b(test|live)_your_key|only test keys|beta period|test mode is|in test mode\b/i;
+  const MODEWORD_TERNARY = /\bisLive\s*\?[^:]*["'`](Live|Test)["'`]/;
+  const GUARD = /\b(isTestMode|testMode|keyInfo\.testMode|profile\.testMode)\b/;
+  const WINDOW = 14;
+
+  const words: Finding[] = [];
+  const walkWords = (dir: string): void => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) { walkWords(full); continue; }
+      if (!e.name.endsWith(".tsx") && !e.name.endsWith(".ts")) continue;
+      const rel = full.slice(WEB_SRC.length + 1);
+      // The payer's screens legitimately say "test mode" on the sandbox
+      // deployment, where there is no live counterpart to be wrong about.
+      if (!rel.includes("portal")) continue;
+      const lines = readFileSync(full, "utf8").split("\n");
+      lines.forEach((line, i) => {
+        const t = line.trim();
+        if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")) return;
+        const ternary = MODEWORD_TERNARY.test(line);
+        if (!ternary && !WORDS.test(line)) return;
+        const from = Math.max(0, i - WINDOW);
+        const near = lines.slice(from, i + 3).join("\n");
+        if (!ternary && GUARD.test(near)) return;
+        words.push({
+          file: rel,
+          line: i + 1,
+          model: "UI",
+          method: ternary ? "isLive used as the mode" : "mode asserted in text",
+          fix: ternary
+            ? "isLive is the activation flag; the dashboard's mode is testMode"
+            : "derive it from testMode, or guard the line with it",
+        });
+      });
+    }
+  };
+  try { walkWords(WEB_SRC); } catch { /* web app not present */ }
+  findings.push(...words);
+
   if (deferred.length > 0) {
     console.log(`${deferred.length} read(s) on models with no isTestMode column — deferred, not forgotten:`);
     const byModel = new Map<string, number>();

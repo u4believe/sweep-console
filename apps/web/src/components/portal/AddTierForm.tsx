@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { friendlyError } from "@/lib/errors";
+import { ApiError, friendlyError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -54,7 +54,7 @@ export function AddTierForm({ planId, onAdded }: { planId: string; onAdded: () =
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({})) as { error?: { message?: string } };
-        throw new Error(json.error?.message ?? "Couldn't add the tier.");
+        throw new ApiError(json.error?.message ?? "Couldn't add the tier.");
       }
       reset();
       setOpen(false);

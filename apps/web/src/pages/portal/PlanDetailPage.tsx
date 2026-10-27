@@ -14,7 +14,7 @@ import {
 import { TierEditor } from "@/components/portal/TierEditor";
 import { AddTierForm } from "@/components/portal/AddTierForm";
 import { type Plan, type PaymentLink } from "./plan-model";
-import { friendlyError } from "@/lib/errors";
+import { ApiError, friendlyError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -78,7 +78,7 @@ export function PlanDetailPage() {
         error?: { message?: string };
       };
       const url = json.data?.url ?? json.url;
-      if (!url) throw new Error(json.error?.message ?? "Couldn't create the checkout link.");
+      if (!url) throw new ApiError(json.error?.message ?? "Couldn't create the checkout link.");
       setLink(url);
     } catch (e) {
       setError(friendlyError(e, "Couldn't create the checkout link."));
@@ -104,7 +104,7 @@ export function PlanDetailPage() {
       });
       if (!res.ok) {
         const json = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-        throw new Error(json.error?.message ?? "Couldn't set the recommended tier.");
+        throw new ApiError(json.error?.message ?? "Couldn't set the recommended tier.");
       }
       await loadPlans();
     } catch (e) {

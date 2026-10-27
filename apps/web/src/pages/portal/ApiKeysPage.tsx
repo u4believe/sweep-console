@@ -196,7 +196,15 @@ export function ApiKeysPage() {
                     fontSize: 12.5,
                   }}
                 >
-{`Authorization: Bearer ${keyInfo.prefix ? keyInfo.prefix + "••••••••••••••••" : "test_your_key_here"}`}
+{/* The placeholder has to carry THIS mode's prefix. Hardcoded
+                      "test_" it told a live merchant to send a test key, which
+                      the live API refuses with wrong_environment — an error
+                      about the thing the page just told them to do. */}
+{`Authorization: Bearer ${
+  keyInfo.prefix
+    ? keyInfo.prefix + "••••••••••••••••"
+    : `${keyInfo.testMode ? "test" : "live"}_your_key_here`
+}`}
                 </pre>
               </div>
             </div>
@@ -248,12 +256,20 @@ export function ApiKeysPage() {
             </p>
           </Section>
 
-          <Section bordered={false}>
-            <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
-              <strong>Beta note:</strong> only test keys are available during the beta period. Live
-              keys are enabled when you go live.
-            </p>
-          </Section>
+          {/*
+            Only on the sandbox. On the live dashboard this said live keys were
+            not yet available while sitting directly under the live key the
+            merchant had just been issued — the page contradicting itself about
+            the one thing it exists to hand out.
+          */}
+          {keyInfo.testMode && (
+            <Section bordered={false}>
+              <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
+                <strong>Beta note:</strong> only test keys are available during the beta period. Live
+                keys are enabled when you go live.
+              </p>
+            </Section>
+          )}
         </>
       )}
     </>
