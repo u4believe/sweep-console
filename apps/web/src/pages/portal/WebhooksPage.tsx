@@ -3,7 +3,7 @@ import { useScope } from "@/context/scope";
 import { PageHeader } from "@/components/portal/PageHeader";
 import { Dialog, EmptyNote, ErrorNote, Kicker, Mono, StatusTag } from "@/components/portal/primitives";
 import { apiFetch, messageOf, wasCancelled } from "@/lib/stepup";
-import { friendlyError } from "@/lib/errors";
+import { ApiError, friendlyError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -191,7 +191,7 @@ export function WebhooksPage() {
       if (!res.ok) {
         // A rejected URL explains itself in details.url — the top-level message
         // is only ever "Validation failed", which tells the merchant nothing.
-        throw new Error(data.error?.details?.url ?? data.error?.message ?? "Failed to create endpoint");
+        throw new ApiError(data.error?.details?.url ?? data.error?.message ?? "Failed to create endpoint");
       }
       setNewSecret({ id: data.id!, url: data.url!, secret: data.secret! });
       setFormUrl("");

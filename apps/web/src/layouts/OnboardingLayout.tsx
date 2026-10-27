@@ -117,7 +117,20 @@ export function OnboardingLayout({
                 gridTemplateColumns: "34px 1fr",
                 padding: "16px 0",
                 borderBottom: "1px solid rgba(243,242,242,.28)",
-                opacity: i + 1 === step ? 1 : i + 1 < step ? 0.75 : 0.45,
+                /**
+                 * White on the indigo panel, measured against it:
+                 *
+                 *   0.45 -> #989AE8  2.60:1   was the upcoming steps
+                 *   0.75 -> #D0D1F5  4.53:1   was the done steps
+                 *   0.85 -> #E3E3F9  5.33:1
+                 *   1.00 -> #FFFFFF  6.73:1
+                 *
+                 * A step the merchant has not reached was below AA, and its
+                 * hint multiplied this by a further 0.85 and landed at
+                 * 2.26:1. Dimming still orders the list; it no longer
+                 * decides whether the list can be read.
+                 */
+                opacity: i + 1 === step ? 1 : i + 1 < step ? 0.92 : 0.85,
               }}
             >
               <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12 }}>{s.n}</span>
@@ -125,7 +138,7 @@ export function OnboardingLayout({
                 <p className="m-0" style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 15 }}>
                   {s.title}
                 </p>
-                <p className="m-0" style={{ marginTop: 2, fontSize: 12, opacity: 0.85 }}>{s.hint}</p>
+                <p className="m-0" style={{ marginTop: 2, fontSize: 12 }}>{s.hint}</p>
               </div>
             </div>
           ))}

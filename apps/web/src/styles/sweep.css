@@ -94,7 +94,7 @@
   --color-neutral-300: #ECECF3;
   --color-neutral-400: #E2E2EC;
   --color-neutral-500: #D4D5E2;
-  --color-neutral-600: #5D5E73;
+  --color-neutral-600: #4E4F61;
   --color-neutral-700: #4A4B61;
   --color-neutral-800: #3E3F55;
   --color-neutral-900: #2C2C47;
@@ -103,7 +103,7 @@
      The design pairs #1F8A5B on #E7F6EE, which is 3.88:1 and under AA for
      text on a badge. Darkened to 5.46:1 on the unchanged ground. */
   --color-ok-bg: #E7F6EE;
-  --color-ok-text: #15704A;
+  --color-ok-text: #125F3F;
 
   /* — type — */
   --font-heading: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;

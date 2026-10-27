@@ -5,7 +5,7 @@ import { SecuritySettings } from "@/components/portal/SecuritySettings";
 import { useAuth } from "@/context/auth";
 import { PageHeader } from "@/components/portal/PageHeader";
 import { ErrorNote, Kicker, Mono, Section } from "@/components/portal/primitives";
-import { friendlyError } from "@/lib/errors";
+import { ApiError, friendlyError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -124,7 +124,7 @@ export function SettingsPage() {
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-        throw new Error(data.error?.message ?? "Couldn't save. Please try again.");
+        throw new ApiError(data.error?.message ?? "Couldn't save. Please try again.");
       }
       setProfile((p) => (p ? { ...p, name: name.trim() } : p));
       await refresh();

@@ -41,6 +41,38 @@ const config: Config = {
           900: "#262995",
           950: "#1C1E6E",
         },
+        /**
+         * Tailwind's default grey, replaced with the token ramp.
+         *
+         * The payer screens — authorize, payment link, the gateway panel —
+         * style text with `text-gray-*`, which reads from here and never
+         * touches --color-neutral-*. So the ramp that was tuned for contrast
+         * applied to the console and stopped at the checkout, and the two
+         * drifted apart without either looking wrong on its own.
+         *
+         * Measured against the three grounds these actually sit on (white,
+         * the #F4F4FB surface tint, and #FAFAFC):
+         *
+         *   gray-500 #6b7280   4.83 / 4.42 / 4.64   FAILED AA on the tint
+         *   gray-600 #4b5563   7.56 / 6.90 / 7.25   passed, still thin
+         *
+         * Mapped onto the neutral ramp, 500 and 600 now land at 8.50/7.76 and
+         * 10.26/9.37. The light steps keep roughly their old lightness, so a
+         * border or a fill written as gray-200 does not turn into a slab.
+         */
+        gray: {
+          50:  "#FAFAFC",
+          100: "#F4F4FB",
+          200: "#ECECF3",
+          300: "#E2E2EC",
+          400: "#D4D5E2",
+          500: "#4A4B61", // was #6b7280 — body-size secondary text
+          600: "#3E3F55", // was #4b5563
+          700: "#2C2C47",
+          800: "#23233B",
+          900: "#1A1A2B",
+        },
+
         // The v2 ground: white, with violet-tinted surfaces rather than the
         // warm greys the previous accent was tuned against.
         ground:  "#ffffff",

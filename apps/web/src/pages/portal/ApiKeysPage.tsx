@@ -1,4 +1,5 @@
 import { useEffect, useState, useId } from "react";
+import { EnrolmentGate, useEnrolmentRequired } from "@/components/portal/EnrolmentGate";
 import { PageHeader } from "@/components/portal/PageHeader";
 import { ErrorNote, Kicker, Mono, Section } from "@/components/portal/primitives";
 import { apiFetch, wasCancelled } from "@/lib/stepup";
@@ -50,6 +51,7 @@ export function ApiKeysPage() {
   const [name, setName] = useState("");
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState("");
+  const enrolmentRequired = useEnrolmentRequired();
   const nameId = useId();
 
   useEffect(() => {
@@ -210,7 +212,15 @@ export function ApiKeysPage() {
             </div>
           </Section>
 
-          {/* Create / rotate. */}
+          {/*
+            Create / rotate — or, before an authenticator exists, the reason
+            it cannot be done yet. Issuing a key is `totp-only`, so an
+            unenrolled account is refused at submit; saying so here means the
+            merchant is not told after naming the key.
+          */}
+          {enrolmentRequired ? (
+            <EnrolmentGate action="issuing an API key" />
+          ) : (
           <Section title={keyInfo.hasKey ? "Rotate key" : "Create key"}>
             <form onSubmit={handleGenerate} className="max-w-lg">
               {keyInfo.hasKey && (
@@ -240,6 +250,8 @@ export function ApiKeysPage() {
               </button>
             </form>
           </Section>
+
+          )}
 
           <Section title="Base URL">
             <p className="m-0 mb-2" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>

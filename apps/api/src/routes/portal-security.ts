@@ -58,10 +58,24 @@ securityRouter.get("/", async (req, res) => {
       where: { id: dbId },
       select: { totpSecret: true, totpConfirmedAt: true, recoveryCodes: true },
     });
+    const enrolled = Boolean(merchant.totpConfirmedAt);
     return ok(res, {
       step_up_enabled: stepUpEnabled(),
-      totp_enrolled: Boolean(merchant.totpConfirmedAt),
-      totp_setup_started: Boolean(merchant.totpSecret) && !merchant.totpConfirmedAt,
+      totp_enrolled: enrolled,
+      /**
+       * Should the console stop the merchant BEFORE they fill in a form?
+       *
+       * Computed here rather than in the client because it is the same
+       * policy requireStepUp applies, and two copies of a rule drift. The
+       * client asking "is enrolment required of me right now" gets one
+       * boolean and cannot disagree with the gate that will actually run.
+       *
+       * Mirrors requireStepUp exactly: off when step-up is disabled, off in
+       * test mode, off once enrolled.
+       */
+      enrolment_required:
+        stepUpEnabled() && !(req as PortalRequest).isTestMode && !enrolled,
+      totp_setup_started: Boolean(merchant.totpSecret) && !enrolled,
       totp_confirmed_at: merchant.totpConfirmedAt?.toISOString() ?? null,
       recovery_codes_remaining: merchant.recoveryCodes.length,
     });

@@ -1,8 +1,8 @@
 import { useState } from "react";
+import { apiFetch } from "@/lib/stepup";
 import { useNavigate } from "react-router-dom";
-import { friendlyError } from "@/lib/errors";
+import { ApiError, friendlyError } from "@/lib/errors";
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
 const INTERVALS = [
   { value: "daily", label: "Daily" },
@@ -56,7 +56,13 @@ export function CreatePlanForm() {
       if (tierName.trim()) metadata.defaultTierName = tierName.trim();
       if (featureList.length) metadata.defaultFeatures = featureList;
 
-      const res = await fetch(`${API_URL}/portal/plans`, {
+      // apiFetch, not fetch. Creating a plan is gated now, and a bare fetch
+      // never meets the step-up interceptor — so the 401 the server sends
+      // arrived here as an unexplained failure instead of the enrolment
+      // dialog it was meant to raise. The page gate above catches the common
+      // case; this is the backstop for a session that enrolled, or un-enrolled,
+      // in another tab after this page loaded.
+      const res = await apiFetch(`/portal/plans`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -72,7 +78,7 @@ export function CreatePlanForm() {
         }),
       });
       const data = (await res.json()) as { id?: string; error?: { message?: string } };
-      if (!res.ok || !data.id) throw new Error(data.error?.message ?? "Couldn't create the plan.");
+      if (!res.ok || !data.id) throw new ApiError(data.error?.message ?? "Couldn't create the plan.");
 
       // Straight to the plan, where further tiers are added one at a time.
       navigate(`/plans/${data.id}`);

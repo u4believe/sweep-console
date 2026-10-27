@@ -1,4 +1,5 @@
 import { useLocation, useNavigate } from "react-router-dom";
+import { EnrolmentGate, useEnrolmentRequired } from "@/components/portal/EnrolmentGate";
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
 import { PageHeader } from "@/components/portal/PageHeader";
@@ -100,6 +101,7 @@ export function RailPage() {
   const tab: Tab = pathname.endsWith("/mandates") ? "mandates" : "charges";
   const setTab = (next: Tab) => navigate(`/rail/${next}`, { replace: true });
   const [requesting, setRequesting] = useState(false);
+  const enrolmentRequired = useEnrolmentRequired();
   const [requestError, setRequestError] = useState("");
 
   /**
@@ -199,7 +201,16 @@ export function RailPage() {
                   "the docs for what that involves."
             }
           />
-          {!data.requestedAt && (
+          {/*
+            An unenrolled live account is refused by requireStepUp when it
+            clicks, so the gate replaces the button: a request that cannot
+            succeed should not look available. Reviewed by hand, so a failed
+            attempt is wasted on both sides.
+          */}
+          {!data.requestedAt && enrolmentRequired && (
+            <EnrolmentGate action="requesting rail access" />
+          )}
+          {!data.requestedAt && !enrolmentRequired && (
             <div style={{ padding: "0 32px 26px" }}>
               <button
                 type="button"

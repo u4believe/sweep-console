@@ -1093,7 +1093,7 @@ function Pricing() {
             </div>
             <p className="m-0 mt-4" style={{ fontSize: 32, fontWeight: 700, letterSpacing: "-0.03em" }}>
               {p.price}
-              <span style={{ fontSize: 13, fontWeight: 500, opacity: 0.7 }}>{p.unit}</span>
+              <span style={{ fontSize: 13, fontWeight: 500, opacity: 0.85 }}>{p.unit}</span>
             </p>
             <p
               className="mt-2"
