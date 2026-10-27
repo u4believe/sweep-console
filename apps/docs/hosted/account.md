@@ -7,6 +7,30 @@ Go to [Sign up](https://www.sweepconsole.xyz/signup) and choose email or Google.
 - **Email**: you verify via a link, where you set a password.
 - **Google**: you are signed in straight away, with no link to open.
 
+## Set up your authenticator
+
+On the live dashboard, four things need an authenticator app on the account
+before you can use them:
+
+| Action | What it needs |
+| --- | --- |
+| Create a plan | an authenticator **enrolled** — no code typed |
+| Request rail access | an authenticator **enrolled** — no code typed |
+| Issue an API key | a **code**, every time |
+| Withdraw from a Sweep wallet | a **code**, every time |
+
+The first two ask only that the second factor exists. The last two hand over a
+credential or move money, so they ask you to prove it each time — and they do
+not accept an emailed code, because the inbox is also where password resets
+land.
+
+Settings → Security, about a minute. You get recovery codes for if you lose
+the phone; keep them somewhere other than the phone.
+
+**None of this applies on the sandbox.** Test mode moves no real USDC and
+issues no key that can, so nothing there asks you to confirm anything. Set up
+your plans and integration freely, and enrol when you go live.
+
 ## Create your plan
 
 In the dashboard. One plan per account, with optional tiers — name, price,

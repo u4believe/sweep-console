@@ -315,7 +315,7 @@ const createPlanSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
-portalRouter.post("/plans", async (req, res) => {
+portalRouter.post("/plans", requireStepUp("plan.create"), async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
 
   const parsed = createPlanSchema.safeParse(req.body);
@@ -1259,7 +1259,7 @@ portalRouter.get("/rail", async (req, res) => {
 //
 // Idempotent. A second click is a person wondering whether the first worked, not
 // a new request, and re-sending mail for it would train us to ignore the mail.
-portalRouter.post("/rail/request", async (req, res) => {
+portalRouter.post("/rail/request", requireStepUp("rail.request"), async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
   try {
     const merchant = await withRetry(() =>

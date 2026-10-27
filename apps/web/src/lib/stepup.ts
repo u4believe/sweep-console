@@ -23,6 +23,11 @@ export interface StepUpNeed {
   /// The action accepts only an authenticator, and this account has none set up.
   /// `methods` is empty; send them to enrol rather than showing a code field.
   enrolment_required?: boolean;
+  /// Why enrolment is being asked for, so the dialog can explain itself
+  /// truthfully. "enrolment" means the account simply must have a second
+  /// factor; absent means the stricter case — the action hands over a
+  /// credential or moves money, and an emailed code is refused for it.
+  reason?: "enrolment";
 }
 
 /// Resolves with a step-up token, or null if the merchant closed the dialog.

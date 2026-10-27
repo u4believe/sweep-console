@@ -136,9 +136,19 @@ export function StepUpDialog() {
         }
       >
         <p className="m-0" style={{ fontSize: 13.5, color: "var(--color-neutral-800)", lineHeight: 1.6 }}>
-          To {need.action_label}, you need an authenticator app on this account. This action
-          hands over a credential that outlives your session, so an emailed code isn&apos;t
-          accepted for it — anyone who reached your inbox could use one.
+          {need.reason === "enrolment" ? (
+            <>
+              To {need.action_label}, this account needs an authenticator app set up. You
+              won&apos;t be asked for a code each time — the requirement is having the second
+              factor, not proving it again for every plan.
+            </>
+          ) : (
+            <>
+              To {need.action_label}, you need an authenticator app on this account. This action
+              hands over a credential that outlives your session, so an emailed code isn&apos;t
+              accepted for it — anyone who reached your inbox could use one.
+            </>
+          )}
         </p>
         <p className="m-0" style={{ fontSize: 12.5, color: "var(--color-neutral-700)", marginTop: 12, lineHeight: 1.6 }}>
           Setting one up takes about a minute under Settings → Security, and you&apos;ll get

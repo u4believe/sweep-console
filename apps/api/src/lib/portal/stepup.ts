@@ -46,7 +46,9 @@ export type StepUpAction =
   | "wallet.unlink"
   | "payout.withdraw"
   | "totp.disable"
-  | "recovery.regenerate";
+  | "recovery.regenerate"
+  | "plan.create"
+  | "rail.request";
 
 /// How hard a proof an action demands.
 ///
@@ -65,7 +67,14 @@ export type StepUpAction =
 /// the attacker who took the inbox — and the inbox is also where password
 /// resets land. For the actions that hand over long-lived credentials, the
 /// proof has to be something the mailbox cannot produce.
-type FactorPolicy = "any" | "totp-preferred" | "totp-only";
+/// - "enrol-only"     the account must HAVE an authenticator, but no code is
+///                    typed for this action. The gate is enrolment, not a
+///                    fresh proof. For actions frequent enough that a code
+///                    each time would train the merchant to reach for their
+///                    phone reflexively — which is the habit phishing wants —
+///                    but which still should not be available to an account
+///                    with no second factor at all.
+type FactorPolicy = "any" | "totp-preferred" | "totp-only" | "enrol-only";
 
 interface ActionPolicy {
   /// Second person, completing "confirm it's you before we …" — shown in the
@@ -114,6 +123,14 @@ export const STEP_UP_ACTIONS: Record<StepUpAction, ActionPolicy> = {
   // takeover step. Both are meaningless without an authenticator anyway.
   "totp.disable": { label: "turn off your authenticator", factor: "totp-only" },
   "recovery.regenerate": { label: "issue new recovery codes", factor: "totp-only" },
+
+  // Enrolment gates, not challenges. Creating a plan is routine — a code for
+  // each one would be a prompt the merchant learns to clear without reading.
+  // Requesting the rail is rare, but it is the first step toward soliciting
+  // other people's recurring authorizations, so the account behind it should
+  // have a second factor before it starts.
+  "plan.create": { label: "create a plan", factor: "enrol-only" },
+  "rail.request": { label: "request rail access", factor: "enrol-only" },
 };
 
 export type StepUpMethod = "email" | "totp" | "recovery";
@@ -302,6 +319,8 @@ export async function availableMethods(merchantDbId: string, action: StepUpActio
   const enrolled = Boolean(merchant.totpConfirmedAt);
   const { factor } = STEP_UP_ACTIONS[action];
 
+  // "enrol-only" is not a challenge, so no method satisfies it and email is
+  // not among them: the only way past the gate is to have enrolled already.
   const emailAccepted = factor === "any" || (factor === "totp-preferred" && !enrolled);
 
   const methods: StepUpMethod[] = [];
@@ -313,7 +332,7 @@ export async function availableMethods(merchantDbId: string, action: StepUpActio
     methods,
     required: emailAccepted ? "any" : "totp",
     totpEnrolled: enrolled,
-    enrolmentRequired: factor === "totp-only" && !enrolled,
+    enrolmentRequired: (factor === "totp-only" || factor === "enrol-only") && !enrolled,
   };
 }
 
@@ -548,10 +567,61 @@ export function requireStepUp(action: StepUpAction) {
       next();
       return;
     }
+
+    /**
+     * The sandbox confirms nothing.
+     *
+     * Test mode moves no real USDC and issues no key that spends any, so a
+     * confirmation there protects nothing and only teaches the merchant to
+     * clear the dialog. Every gate below is live-only.
+     *
+     * Known and accepted: the Merchant row is SHARED between the two
+     * deployments — `email @unique`, no isTestMode column — so "turn off your
+     * authenticator" performed on the sandbox turns it off for live too, and
+     * this early return means that particular action now asks for no proof.
+     * A sandbox session can therefore strip the second factor that guards
+     * live money. That was chosen deliberately over exempting the security
+     * actions. If it is ever revisited, the fix is to let a policy opt out of
+     * this return rather than to drop the return.
+     */
+    if ((req as unknown as PortalRequest).isTestMode) {
+      next();
+      return;
+    }
+
     const merchantDbId = (req as unknown as PortalRequest).merchantDbId;
     const header = req.header("x-step-up-token") ?? undefined;
 
     try {
+      /**
+       * An enrolment gate asks for no code, so there is no token to consume
+       * and nothing to spend: being enrolled IS the proof. Checked before the
+       * token path so an "enrol-only" action never burns a step-up token a
+       * merchant obtained for something else.
+       */
+      if (STEP_UP_ACTIONS[action].factor === "enrol-only") {
+        const { enrolmentRequired } = await availableMethods(merchantDbId, action);
+        if (!enrolmentRequired) {
+          next();
+          return;
+        }
+        res.status(401).json({
+          error: {
+            message: `Set up an authenticator before you ${STEP_UP_ACTIONS[action].label}.`,
+            code: "step_up_required",
+            action,
+            action_label: STEP_UP_ACTIONS[action].label,
+            methods: [],
+            required: "totp",
+            enrolment_required: true,
+            /// Why, for the dialog — the credential wording it uses by
+            /// default is untrue of creating a plan.
+            reason: "enrolment",
+          },
+        });
+        return;
+      }
+
       if (await consumeStepUpToken(merchantDbId, action, header)) {
         next();
         return;
