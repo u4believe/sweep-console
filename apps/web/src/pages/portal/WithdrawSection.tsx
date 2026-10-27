@@ -37,8 +37,22 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
   const [dest, setDest] = useState("");
   const [amount, setAmount] = useState("");
   const [withdrawing, setWithdrawing] = useState(false);
-  const [withdrawErr, setWithdrawErr] = useState("");
-  const [withdrawSuccess, setWithdrawSuccess] = useState(false);
+  /**
+   * ONE outcome, not an error flag and a success flag side by side.
+   *
+   * They were independent, and the Circle SDK made that visible: `execute`
+   * opens a modal that handles its own retries, so a wrong PIN followed by
+   * the right one in the SAME modal session fires the error callback and
+   * then the success callback without handleWithdraw running again. The
+   * reset at the top of handleWithdraw never happened in between, so the
+   * page showed "Transfer failed: …" and "Transfer submitted …" at once —
+   * telling the merchant their money both did and did not move.
+   *
+   * Clearing each when setting the other would fix today's path and leave
+   * the next one to be remembered. A single value cannot hold both.
+   */
+  type Outcome = { kind: "error"; message: string } | { kind: "success" } | null;
+  const [outcome, setOutcome] = useState<Outcome>(null);
 
   function loadBalance(force = false) {
     const url = `${API_URL}/portal/wallet/circle/balance${force ? "?refresh=1" : ""}`;
@@ -63,7 +77,7 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
   async function handleWithdraw(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setWithdrawing(true);
-    setWithdrawErr("");
+    setOutcome(null);
 
     try {
       // The highest-stakes button in the portal: it moves real USDC out. Once
@@ -90,8 +104,11 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
 
       sdk.execute(data.challengeId!, (err) => {
         setWithdrawing(false);
-        if (err) { setWithdrawErr(`Transfer failed: ${err.message ?? "Unknown error"}`); return; }
-        setWithdrawSuccess(true);
+        if (err) {
+          setOutcome({ kind: "error", message: `Transfer failed: ${err.message ?? "Unknown error"}` });
+          return;
+        }
+        setOutcome({ kind: "success" });
         setDest("");
         setAmount("");
         // Refresh balance after a short delay
@@ -106,9 +123,9 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
       if (isStaleBuildError(e)) {
         // Recovers by itself where it can; the message is for when it cannot.
         if (recoverFromStaleBuild()) return;
-        setWithdrawErr(STALE_BUILD_MESSAGE);
+        setOutcome({ kind: "error", message: STALE_BUILD_MESSAGE });
       } else {
-        setWithdrawErr(e instanceof Error ? e.message : "Something went wrong");
+        setOutcome({ kind: "error", message: e instanceof Error ? e.message : "Something went wrong" });
       }
     }
   }
@@ -170,13 +187,13 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
         </button>
       </div>
 
-      {withdrawSuccess && (
+      {outcome?.kind === "success" && (
         <p className="tag tag-outline mb-4" style={{ padding: "8px 12px" }}>
           Transfer submitted — it may take a few minutes to confirm on-chain.
         </p>
       )}
-      {withdrawErr && (
-        <p className="m-0 mb-4" style={{ fontSize: 13, color: "var(--color-accent-700)" }}>{withdrawErr}</p>
+      {outcome?.kind === "error" && (
+        <p className="m-0 mb-4" style={{ fontSize: 13, color: "var(--color-accent-700)" }}>{outcome.message}</p>
       )}
 
       <form onSubmit={handleWithdraw} className="max-w-lg space-y-3">

@@ -307,8 +307,25 @@ function main(): void {
       // deployment, where there is no live counterpart to be wrong about.
       if (!rel.includes("portal")) continue;
       const lines = readFileSync(full, "utf8").split("\n");
+      /**
+       * Track block comments across lines, not just their first one.
+       *
+       * The prefix test alone said a line was code whenever it sat in the
+       * BODY of a `{/* … *\/}` block, because those lines begin with prose.
+       * This file is heavily commented, and several of those comments
+       * discuss modes by name — so the check reported a page that was
+       * correct and invited someone to reword an accurate comment to quiet
+       * it. A check that is wrong about its own codebase gets ignored.
+       */
+      let inBlock = false;
       lines.forEach((line, i) => {
         const t = line.trim();
+        const wasInBlock = inBlock;
+        const opens = line.lastIndexOf("/*");
+        const closes = line.lastIndexOf("*/");
+        if (!inBlock && opens !== -1 && closes < opens) inBlock = true;
+        else if (inBlock && closes !== -1 && closes > opens) inBlock = false;
+        if (wasInBlock || inBlock) return;
         if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")) return;
         const ternary = MODEWORD_TERNARY.test(line);
         if (!ternary && !WORDS.test(line)) return;

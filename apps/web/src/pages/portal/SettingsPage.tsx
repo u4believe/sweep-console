@@ -412,9 +412,20 @@ function AccountTab({
         </aside>
       </div>
 
-      {/* Full width under the grid: enrolling an authenticator is a wide,
-          multi-step job that would be cramped in the aside column. */}
-      <SecuritySettings />
+      {/*
+        Full width under the grid: enrolling an authenticator is a wide,
+        multi-step job that would be cramped in the aside column.
+
+        Live only. Step-up is exempt in test mode, so nothing on the sandbox
+        ever asks for a code — an enrolment panel there offers a key to a
+        door that is standing open, and the recovery-code sheet it prints
+        looks like sandbox scaffolding rather than the one credential that
+        gets a locked-out merchant back into live.
+
+        There is one shared Merchant row, so enrolling on live is enrolling
+        full stop; nothing is lost by having the panel in one place.
+      */}
+      {!profile.testMode && <SecuritySettings />}
     </>
   );
 }

@@ -93,6 +93,9 @@ export function TierEditor({
   async function save() {
     setSaving(true);
     setError("");
+    // "Saved" lingers for two seconds, so without this a retry that fails
+    // inside that window shows the tick and the error together.
+    setSaved(false);
     try {
       const body: Record<string, unknown> = {};
       if (name.trim() !== tier.name) body.name = name.trim();
@@ -132,6 +135,7 @@ export function TierEditor({
   async function remove() {
     setRemoving(true);
     setError("");
+    setSaved(false);
     try {
       const res = await apiFetch(`/portal/plans/${planId}/tiers/${tier.id}`, { method: "DELETE" });
       if (!res.ok) {
