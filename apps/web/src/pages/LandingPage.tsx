@@ -545,10 +545,20 @@ function RailViz() {
     <div
       style={{
         position: "relative",
-        // Shorter and wider than the design's clamp(440px,46vw,540px): at
-        // that height the "Pay from" and "Built with" strips fell below the
-        // fold on a laptop, and they are the page's proof.
-        height: "clamp(330px,33vw,430px)",
+        /**
+         * The design's own height, restored.
+         *
+         * This was cut to clamp(330px,33vw,430px) to keep the "Pay from" and
+         * "Built with" strips above the fold on a laptop. That reasoning was
+         * sound and the result was still wrong: the panel is the first thing
+         * on the page and shrinking it by a fifth made the whole hero read as
+         * compressed, which is what a reader notices before they notice a
+         * logo strip they have to scroll for.
+         *
+         * If the strips do fall below the fold on a short window, the space
+         * to take back is the section's vertical padding, not this.
+         */
+        height: "clamp(440px,46vw,540px)",
         borderRadius: 20,
         background: "var(--color-neutral-200)",
         overflow: "hidden",

@@ -322,7 +322,7 @@ export function PortalLayout() {
   });
 
   const brand = (
-    <span className="flex items-center" style={{ gap: 9 }}>
+    <span className="flex items-center" style={{ gap: 7, flexWrap: "nowrap" }}>
       <button
         type="button"
         onClick={() => navigate("/")}
@@ -330,7 +330,21 @@ export function PortalLayout() {
         style={{ background: "transparent", border: 0, padding: 0, color: "var(--color-text)" }}
       >
         <SweepMark size={22} />
-        <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15, letterSpacing: "-0.02em" }}>
+        {/*
+          nowrap, because the rail is a fixed 236px and the chip beside this
+          was enough to break "Sweep Console" over two lines. The product's
+          name wrapping is worse than any badge, so the name holds its line
+          and the chip gives way.
+        */}
+        <span
+          style={{
+            fontFamily: "var(--font-heading)",
+            fontWeight: 800,
+            fontSize: 15,
+            letterSpacing: "-0.02em",
+            whiteSpace: "nowrap",
+          }}
+        >
           Sweep Console
         </span>
       </button>
@@ -346,12 +360,16 @@ export function PortalLayout() {
         <span
           title="Test mode — no real USDC moves here"
           style={{
-            fontSize: 10.5,
+            // Small enough to sit on the wordmark's line in 236px. The tint
+            // and the uppercase do the signalling; the size does not need to.
+            fontSize: 9,
             fontWeight: 700,
-            letterSpacing: "0.06em",
+            letterSpacing: "0.04em",
             textTransform: "uppercase",
-            padding: "2px 7px",
-            borderRadius: 5,
+            padding: "1.5px 5px",
+            borderRadius: 4,
+            lineHeight: 1.4,
+            flex: "none",
             background: "var(--color-accent-200)",
             color: "var(--color-accent)",
           }}
