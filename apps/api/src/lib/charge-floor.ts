@@ -11,25 +11,31 @@
  * be cheaper still". It is not, on Arbitrum. Three complete payments, every
  * leg, at ETH $2342:
  *
- *             pull (ETH)    settle (USDC)   mint on Arc   TOTAL
- *   base      $0.004859     0.007153        0.003607      $0.015619
- *   arbitrum  $0.016378     0.023334        0.003607      $0.043319
+ *             pull (ETH)    settle          mint on Arc   TOTAL
+ *   base      $0.004859     0.007153 USDC   0.003607      $0.015619
+ *   arbitrum  $0.016378     0.023334 USDC   0.003607      $0.043319
+ *   optimism  $0.000850     $0.003387 ETH   0.003606      $0.007843
  *
- * A renewal is three transactions on two chains, not one: the pull is paid in
- * ETH by the delegate, the settle through Circle Paymaster in USDC, and the
- * mint in USDC on Arc. Counting only the settle — which the testnet estimate
- * did — understates the cost by roughly half.
+ * A renewal is three transactions on two chains, not one: the pull in ETH by
+ * the delegate, the settle, and the mint in USDC on Arc. Counting only the
+ * settle — which the testnet estimate did — understates it by roughly half.
  *
- * Against a 2% fee that puts break-even at $0.78 on Base and $2.17 on
- * ARBITRUM, and the floor has to clear the most expensive chain because the
- * payer picks it, not the creator.
+ * OPTIMISM IS THE CHEAPEST, which is the opposite of what having no Circle
+ * Paymaster suggests. Paying its own gas in ETH avoids the paymaster's ~21%
+ * premium over gas burned and its validation and postOp gas, and Optimism
+ * prices gas around 0.001 gwei against Arbitrum's 0.020. Its figure above even
+ * includes deploying the account, 1.3M gas it will not spend again.
  *
- * $2.00 IS DELIBERATELY JUST UNDER THAT. At $2 Arbitrum earns 0.0400 against
- * 0.0433 of gas — about a third of a cent lost per renewal, forever, since a
- * subscription renews itself. It was chosen as a round number a creator can
- * reason about. $2.50 would be the first round figure that clears every
- * chain; raise MIN_CHARGE_USDC to it if the subsidy on cheap Arbitrum plans
- * stops being worth the simpler number.
+ * ARBITRUM SETS THE FLOOR, because the PAYER chooses the chain and so the
+ * dearest one has to clear. At 250 bps — what live runs — break-even there is
+ * $1.73, and a $2.00 plan earns 0.0500 against 0.0433 of gas: +0.0067 a
+ * renewal. Base +0.0344, Optimism +0.0422.
+ *
+ * At the 200 bps this was first written against, $2.00 was SHORT on Arbitrum
+ * by 0.0033 a renewal. The fee moved to cover it. If it ever moves back,
+ * $2.00 is subsidised again on that chain and the floor has to rise to about
+ * $2.50 — check-charge-floor.ts prints the margin per chain so that shows up
+ * as a number rather than as this paragraph going quietly out of date.
  *
  * Gas is near-FIXED per payment, so the percentage is set by the price: the
  * same $0.0433 is 4.3% of a $1 plan and 0.4% of a $10 one. That is the whole

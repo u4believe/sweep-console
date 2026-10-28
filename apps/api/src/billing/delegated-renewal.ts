@@ -17,6 +17,7 @@
 // the relayer's source-chain balance (swept to treasury out of band).
 
 import type { Address, Hex } from "viem";
+import { platformFeeBps } from "../lib/platform-fee";
 import type { Prisma, BridgeTransfer } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { selectPaymentChain } from "../lib/gateway/selector";
@@ -41,9 +42,6 @@ import { ids } from "../lib/ids";
 import { getSettlementAddress } from "../lib/chain/signers";
 import { walletFor } from "../lib/merchant-wallet";
 
-function platformFeeBps(): bigint {
-  return BigInt(process.env.PLATFORM_FEE_BPS ?? "0");
-}
 function treasuryAddress(): Address {
   const t = process.env.PLATFORM_TREASURY_ADDRESS;
   if (!t) throw new Error("PLATFORM_TREASURY_ADDRESS not set");

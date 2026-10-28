@@ -25,6 +25,7 @@
 // receipt and an unexplained withdrawal.
 
 import type { Address, Hex } from "viem";
+import { platformFeeBps } from "../lib/platform-fee";
 import { WALLET_SELECT, walletFor } from "../lib/merchant-wallet";
 import { prisma } from "../lib/prisma";
 import { selectPaymentChain } from "../lib/gateway/selector";
@@ -41,9 +42,6 @@ import { payFeeToTreasury } from "../lib/chain/fee-payout";
 import { fireWebhook } from "../lib/webhooks/delivery";
 import { sendRailChargeReceipt } from "../lib/email/rail-receipt";
 
-function platformFeeBps(): bigint {
-  return BigInt(process.env.PLATFORM_FEE_BPS ?? "0");
-}
 
 /// Why a charge could not be attempted. These map onto the documented API codes,
 /// and each one is decided BEFORE any funds move.

@@ -10,6 +10,7 @@
 // every merchant webhook carries external_ref + tx_hash + block_number.
 
 import { addDays } from "date-fns";
+import { platformFeeBps } from "../platform-fee";
 import { prisma } from "../prisma";
 import { ids } from "../ids";
 import { fireWebhook } from "../webhooks/delivery";
@@ -24,9 +25,6 @@ import type { CheckoutSession, Merchant, Plan } from "@prisma/client";
 /// The platform's cut, in basis points — the same figure delegated-renewal.ts and
 /// cctp-activate.ts split with. Reported to the merchant so the event explains the
 /// difference between what the subscriber paid and what arrived.
-function platformFeeBps(): bigint {
-  return BigInt(process.env.PLATFORM_FEE_BPS ?? "0");
-}
 
 export const INTERVAL_SECONDS: Record<string, number> = {
   daily: 86_400,

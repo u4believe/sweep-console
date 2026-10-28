@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { platformFeeBps } from "../lib/platform-fee";
 import { z } from "zod";
 import { prisma, withRetry } from "../lib/prisma";
 import { ok, err, serverError } from "../lib/response";
@@ -396,9 +397,16 @@ publicRouter.post("/customer/subscriptions/:id/revoke", async (req, res) => {
 // Public on purpose: the fee is on the pricing page, and the chains are on the
 // checkout. Nothing here is a secret, and nothing here identifies anyone.
 publicRouter.get("/config", (_req, res) => {
-  const bps = Number(process.env.PLATFORM_FEE_BPS ?? "200");
+  /**
+   * The SAME reader the charging paths use.
+   *
+   * This advertised 200 by default while every path that actually takes the
+   * fee defaulted to 0, so an unset variable meant the pricing page quoted
+   * 2% and the platform took nothing. Two numbers for one fact, and the one
+   * on the page was the wrong one to trust.
+   */
   return ok(res, {
-    platform_fee_bps: Number.isFinite(bps) ? bps : 200,
+    platform_fee_bps: Number(platformFeeBps()),
     source_chains: supportedSourceChains().map((c) => ({ key: c.key, name: c.name })),
     settlement_chain: "arc",
     currency: "USDC",

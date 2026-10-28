@@ -14,8 +14,15 @@ delete process.env.MIN_CHARGE_USDC;
 import { chargeFloorMicros, belowChargeFloor, chargeFloorMessage, formatFloor } from "../src/lib/charge-floor.js";
 
 /// Measured end to end on mainnet, every leg, at ETH $2342.
-const GAS_USD: Record<string, number> = { base: 0.015619, arbitrum: 0.043319 };
-const FEE_BPS = Number(process.env.PLATFORM_FEE_BPS ?? "200");
+const GAS_USD: Record<string, number> = {
+  base: 0.015619,
+  arbitrum: 0.043319, // the dearest, so this is the one the floor must clear
+  optimism: 0.007843, // includes deploying the account; steady state is lower
+};
+/// 250 is what live runs. The app's own default is 0 — the fee is deliberately
+/// opt-in — so this names the deployed value rather than inheriting a zero that
+/// would make every margin look negative.
+const FEE_BPS = Number(process.env.PLATFORM_FEE_BPS ?? "250");
 
 function main(): void {
   const fails: string[] = [];

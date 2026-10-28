@@ -19,6 +19,7 @@
 //     settlement window "the ONLY refund path", and this path no longer has one.
 
 import { createPublicClient, http, type Address, type Hex } from "viem";
+import { platformFeeBps } from "../platform-fee";
 import { prisma, withRetry } from "../prisma";
 import { completeCheckoutSession } from "./complete";
 import { findWalletConflict } from "./wallet-guard";
@@ -27,9 +28,6 @@ import { revokeSessionGrants } from "../subscriptions/orphan-grants";
 
 /// The platform's cut, in basis points. Split here rather than by a contract —
 /// the same arithmetic billing/delegated-renewal.ts does for a renewal.
-function platformFeeBps(): bigint {
-  return BigInt(process.env.PLATFORM_FEE_BPS ?? "0");
-}
 import { resolveTier } from "./tiers";
 import {
   getPublicClient,
