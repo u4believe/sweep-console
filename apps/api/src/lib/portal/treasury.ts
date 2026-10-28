@@ -102,10 +102,35 @@ export async function readTreasury(): Promise<TreasuryRow[]> {
    * rather than "this is no longer being watched". The accounts exist as long
    * as the KEYS exist, so the keys decide what is listed.
    */
-  const delegates: Array<[string, RelayerMode]> = [
-    ["renewal", "hosted"],
-    ["external", "external"],
-  ];
+  const delegates: Array<[string, RelayerMode]> = [["renewal", "hosted"]];
+  /**
+   * The rail's own delegate, listed only while it IS one.
+   *
+   * Since the rail's grants name the renewal delegate, "external" resolves
+   * through getRelayerAccount's fallback to the renewal key wherever
+   * EXTERNAL_RELAYER_PRIVATE_KEY is unset — and listing it then put the SAME
+   * address on screen twice under two role names. Two rows reading as two
+   * wallets to keep funded, when there is one, is the same class of mistake
+   * as the vanishing rows this list was written to prevent: it misstates what
+   * is being watched.
+   *
+   * Compared by ADDRESS rather than by reading the env var, because the key
+   * can arrive by KMS as well, and the question here is only ever "is this a
+   * second account someone has to fund".
+   *
+   * So a deployment that still has its own rail key keeps the row, and one
+   * that has retired it loses it, with no per-environment branch: the sandbox
+   * can hold the key while live does not, and each screen tells the truth
+   * about itself.
+   */
+  try {
+    if (getRelayerAccount("external").address !== getRelayerAccount("hosted").address) {
+      delegates.push(["external", "external"]);
+    }
+  } catch {
+    // Either key unreadable — fall through with renewal alone rather than
+    // deciding this from a failure.
+  }
 
   await Promise.all(
     SOURCE_CHAINS.map(async ({ key, chain, rpc, needsEth }) => {
