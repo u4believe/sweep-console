@@ -173,13 +173,8 @@ function Section({ id, ground, children }: { id?: string; ground?: boolean; chil
         padding: "88px 0",
       }}
     >
-      {/* 1200 with clamp(18px,4vw,40px) beside it — the design's own numbers,
-          used at all ten of its container sites. max-w-6xl was 1152, which
-          squeezed every band; the correction overshot to 1240 with a flat
-          20px gutter, which widened each hero column from 524 to 564 and
-          scaled the rail up with it, since the SVG is width:100% of its
-          column. */}
-      <div className="mx-auto w-full" style={{ maxWidth: 1200, paddingInline: "clamp(18px,4vw,40px)" }}>{children}</div>
+      {/* PAGE_W — see its definition. */}
+      <div className="mx-auto w-full" style={{ maxWidth: PAGE_W, paddingInline: "clamp(18px,4vw,40px)" }}>{children}</div>
     </section>
   );
 }
@@ -240,7 +235,7 @@ function Header() {
         borderBottom: "1px solid var(--color-divider)",
       }}
     >
-      <div className="mx-auto flex w-full items-center" style={{ maxWidth: 1200, paddingInline: "clamp(18px,4vw,40px)", gap: 14, height: 62 }}>
+      <div className="mx-auto flex w-full items-center" style={{ maxWidth: PAGE_W, paddingInline: "clamp(18px,4vw,40px)", gap: 14, height: 62 }}>
         <Link to="/" className="mr-auto flex items-center gap-2.5" style={{ color: "var(--color-text)" }}>
           <SweepMark size={22} />
           <span
@@ -300,7 +295,7 @@ function Hero() {
       <div
         className="mx-auto grid w-full items-center"
         style={{
-          maxWidth: 1200,
+          maxWidth: PAGE_W,
           padding: "clamp(28px,5vw,56px) clamp(18px,4vw,40px) 0",
           gap: "clamp(36px,5vw,72px)",
           gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,440px),1fr))",
@@ -393,6 +388,28 @@ function Hero() {
  * where CSS would need four animations with negative delays kept in sync by
  * hand. Supported everywhere this app runs.
  */
+/**
+ * How wide the page's bands run.
+ *
+ * The design fixes this at 1200px at all ten of its container sites, and on
+ * a 1280 or 1366 laptop that is right — it is the width the hero's two
+ * columns, the rail and the type were all proportioned against.
+ *
+ * It is a fixed pixel value though, so every pixel a display has beyond
+ * 1200 becomes margin: 192px a side at 1585, 360px at 1920. The page stops
+ * looking centred and starts looking stranded, which is what was reported.
+ *
+ * So: the design's 1200 up to ~1428px wide, then growth with the viewport,
+ * stopping at 1320. The ceiling matters as much as the floor — past it the
+ * hero's columns get wide enough that the h1 stops holding its three lines
+ * and the rail outgrows the text beside it.
+ *
+ * A DELIBERATE divergence from the package, not a drift from it. Anything
+ * proportioned against the band (the rail's 560x420 viewBox, the coin's
+ * 0.73em) scales with it rather than being re-measured.
+ */
+const PAGE_W = "clamp(1200px,84vw,1320px)";
+
 const LAP = 8; // seconds, the design's D
 const RAIL_CX = 280;
 const RAIL_CY = 210;
@@ -690,7 +707,7 @@ function Marks() {
   return (
     <section
       className="mx-auto flex w-full flex-col"
-      style={{ maxWidth: 1200, gap: 16, padding: "clamp(10px,2vw,22px) clamp(18px,4vw,40px) clamp(24px,4vw,44px)" }}
+      style={{ maxWidth: PAGE_W, gap: 16, padding: "clamp(10px,2vw,22px) clamp(18px,4vw,40px) clamp(24px,4vw,44px)" }}
     >
       <div
         className="flex flex-wrap items-center justify-center"
@@ -1164,7 +1181,7 @@ function Pricing() {
 function StartCta() {
   return (
     <section id="start" style={{ background: "var(--color-bg)", padding: "clamp(56px,8vw,96px) 0" }}>
-      <div className="mx-auto w-full" style={{ maxWidth: 1200, paddingInline: "clamp(18px,4vw,40px)", textAlign: "center" }}>
+      <div className="mx-auto w-full" style={{ maxWidth: PAGE_W, paddingInline: "clamp(18px,4vw,40px)", textAlign: "center" }}>
         <span className="inline-flex" style={{ marginBottom: 22 }}>
           <SweepMark size={46} />
         </span>
@@ -1200,7 +1217,7 @@ function Footer() {
     <footer style={{ background: "var(--color-bg)", borderTop: "1px solid var(--color-divider)", padding: "26px 0" }}>
       <div
         className="mx-auto flex w-full flex-wrap items-center"
-        style={{ maxWidth: 1200, paddingInline: "clamp(18px,4vw,40px)", gap: "10px 26px", fontSize: 13.5, color: "var(--color-neutral-800)" }}
+        style={{ maxWidth: PAGE_W, paddingInline: "clamp(18px,4vw,40px)", gap: "10px 26px", fontSize: 13.5, color: "var(--color-neutral-800)" }}
       >
         <span className="flex items-center" style={{ gap: 9, color: "var(--color-text)", fontWeight: 700 }}>
           <SweepMark size={20} />
