@@ -105,9 +105,34 @@ interface MandateForPage {
 /// defensive for rows created before that.
 function targetsFor(m: MandateForPage) {
   const sources = supportedSourceChains();
-  // The MSCA when the delegate path is on, so the grant is redeemable by an
-  // address whose owner key can later be rotated. Falls back to the EOA.
-  const delegate = delegateAddressForNewGrant("external");
+  /**
+   * The MSCA when the delegate path is on, so the grant is redeemable by an
+   * address whose owner key can later be rotated. Falls back to the EOA.
+   *
+   * "hosted", not "external" — ONE delegate for both products.
+   *
+   * The rail used to name its own relayer, which meant a second MSCA to
+   * deploy on every source chain and a second set of ETH balances to keep
+   * alive, for an isolation benefit that only pays off once each key has
+   * grants to isolate. The rail had none: no grant had ever named the
+   * external delegate on any network, so switching costs nothing now and
+   * three deployments later.
+   *
+   * What is given up is blast radius. One key now redeems every grant on
+   * both paths, where a compromised rail key previously could not reach a
+   * hosted subscriber. The MSCA is the mitigation that makes that bearable
+   * — its owner is rotatable without moving the address, so a compromise is
+   * recoverable rather than terminal.
+   *
+   * RelayerMode "external" is retired for NEW grants only. ownerOfDelegateMsca
+   * still walks both modes, so were a grant naming the old delegate ever to
+   * exist, it would still resolve to its key rather than becoming
+   * unredeemable. Do not remove that lookup to tidy up.
+   *
+   * Unrelated to the `mode: "external"` column on RenewalDelegation, which
+   * marks a row as rail-path and is untouched. The two share a word.
+   */
+  const delegate = delegateAddressForNewGrant("hosted");
   // Where a redemption may pay out. Pinned into the signed context as a
   // payee rule, so a delegate key alone cannot send a subscriber\'s USDC
   // anywhere else — see lib/chain/signers.ts settlementIsSeparate().
