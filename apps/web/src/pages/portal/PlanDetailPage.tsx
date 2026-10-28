@@ -362,10 +362,13 @@ export function PlanDetailPage() {
             </div>
           </div>
 
-          <div style={{ borderTop: "2px solid var(--color-accent)", marginTop: 26, paddingTop: 14 }}>
+          {/* Red, now that its button is. A section headed "Danger zone" in the
+              same indigo as "Create link" above it, over a red button, reads as
+              an accident rather than a warning. */}
+          <div style={{ borderTop: "2px solid var(--color-danger)", marginTop: 26, paddingTop: 14 }}>
             <p
               className="m-0 mb-2 uppercase"
-              style={{ fontSize: 11, letterSpacing: "0.14em", color: "var(--color-accent)" }}
+              style={{ fontSize: 11, letterSpacing: "0.14em", color: "var(--color-danger-text)" }}
             >
               Danger zone
             </p>
@@ -379,7 +382,7 @@ export function PlanDetailPage() {
             </p>
             <button
               type="button"
-              className="btn btn-primary"
+              className="btn btn-danger"
               style={{ padding: "9px 14px" }}
               onClick={() => setConfirmDelete(true)}
             >
@@ -398,7 +401,7 @@ export function PlanDetailPage() {
               <button type="button" className="btn btn-secondary" onClick={() => setConfirmDelete(false)} disabled={deleting}>
                 Cancel
               </button>
-              <button type="button" className="btn btn-primary" onClick={doDelete} disabled={deleting}>
+              <button type="button" className="btn btn-danger" onClick={doDelete} disabled={deleting}>
                 {deleting ? "Closing…" : "Delete plan"}
               </button>
             </>

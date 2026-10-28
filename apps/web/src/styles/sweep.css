@@ -105,6 +105,27 @@
   --color-ok-bg: #E7F6EE;
   --color-ok-text: #125F3F;
 
+  /* Danger. There was no red in this system at all — "Delete plan" was drawn
+     in the indigo accent, the same colour as "Create link" and "Save", so the
+     one irreversible action on the screen looked like the others.
+
+     Measured, as the neutrals were, against white AND the #F4F4FB surface tint:
+
+       --color-danger       #B3261E   white label on it   6.54
+       --color-danger-600   #991B1B   hover               8.31
+       --color-danger-700   #8E1F17   active              8.90
+       --color-danger-text  #991B1B   on white 8.31, on tint 7.59
+
+     danger-text clears 7:1 on both grounds, the bar the contrast pass set.
+     The one value under it is danger-text on danger-300 at 6.08 — the pressed
+     state of the ghost variant, momentary and still well past AA. */
+  --color-danger: #B3261E;
+  --color-danger-600: #991B1B;
+  --color-danger-700: #8E1F17;
+  --color-danger-200: #FBEAE8;
+  --color-danger-300: #F6D5D1;
+  --color-danger-text: #991B1B;
+
   /* — type — */
   --font-heading: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
   --font-heading-weight: 700;
@@ -228,6 +249,16 @@ figcaption { font-size: 11px; margin-top: var(--space-1); color: var(--color-neu
 .btn-ghost { color: var(--color-accent); padding-inline: var(--space-2); }
 .btn-ghost:hover { background: var(--color-accent-200); }
 .btn-ghost:active { background: var(--color-accent-300); }
+
+/* Irreversible actions. Same geometry as their counterparts — only the colour
+   carries the warning, so a red button is not also a bigger or louder one. */
+.btn-danger { background: var(--color-danger); color: #fff; }
+.btn-danger:hover { background: var(--color-danger-600); color: #fff; }
+.btn-danger:active { background: var(--color-danger-700); }
+
+.btn-ghost-danger { color: var(--color-danger-text); padding-inline: var(--space-2); }
+.btn-ghost-danger:hover { background: var(--color-danger-200); }
+.btn-ghost-danger:active { background: var(--color-danger-300); }
 
 .btn-icon { width: 34px; height: 34px; padding: 0; }
 /* Centred, not flush-left. Modernist's rule was that a button wider than its
