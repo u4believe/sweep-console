@@ -190,13 +190,15 @@ export function ManageSubscriptionsPanel({
       {/* The standing reminder, once the dialog has been waved through. Built to
           the same geometry as a StepRow so it reads as part of the sequence
           rather than something pasted between two steps: 26px marker gutter,
-          13px rhythm, hairline close. It stays for the rest of the checkout —
+          11px rhythm, hairline close — moved with StepRow when the payment
+          step was tightened, because the match is the point. It stays for the
+          rest of the checkout —
           the dialog is seen once, this is what carries the warning afterwards. */}
       <div
         style={{
           display: "grid",
           gridTemplateColumns: "26px 1fr",
-          padding: "13px 0",
+          padding: "11px 0",
           borderBottom: HAIRLINE,
           alignItems: "center",
         }}

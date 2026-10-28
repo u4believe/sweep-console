@@ -193,7 +193,7 @@ function StepRow({
     return (
       <div
         className="flex items-center"
-        style={{ gap: 10, padding: "12px 0", borderBottom: HAIRLINE, fontSize: 13.5 }}
+        style={{ gap: 10, padding: "10px 0", borderBottom: HAIRLINE, fontSize: 13 }}
       >
         {num}
         <span style={done.mono ? { fontFamily: "var(--font-mono)", fontSize: 13 } : undefined}>
@@ -785,13 +785,13 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
       */}
       <div
         className="mx-auto w-full"
-        style={{ maxWidth: 1040, padding: "clamp(28px,5vw,52px) clamp(16px,3vw,32px) 44px" }}
+        style={{ maxWidth: 1040, padding: "clamp(20px,3.5vw,36px) clamp(16px,3vw,32px) 30px" }}
       >
-        <div style={{ maxWidth: 540, margin: "0 auto 18px" }}>
-          <h1 style={{ margin: 0, fontSize: "clamp(28px,4vw,38px)", letterSpacing: "-0.035em" }}>
+        <div style={{ maxWidth: 540, margin: "0 auto 14px" }}>
+          <h1 style={{ margin: 0, fontSize: "clamp(24px,3.4vw,32px)", letterSpacing: "-0.035em" }}>
             Payment details
           </h1>
-          <p className="m-0 mt-1.5" style={{ fontSize: 14.5, color: "var(--color-neutral-800)" }}>
+          <p className="m-0 mt-1" style={{ fontSize: 13.5, color: "var(--color-neutral-800)" }}>
             One signature. No gas. Settled on Arc.
           </p>
         </div>
@@ -810,7 +810,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
               one line, so the steps below are what the eye lands on. */}
           <div
             className="flex flex-wrap items-baseline justify-between"
-            style={{ gap: 12, padding: "18px 20px 14px", borderBottom: HAIRLINE }}
+            style={{ gap: 12, padding: "14px 18px 11px", borderBottom: HAIRLINE }}
           >
             <div>
               <p
@@ -819,10 +819,10 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
               >
                 Your plan
               </p>
-              <p className="m-0 mt-1" style={{ fontWeight: 700, fontSize: 18 }}>{selectedTierName}</p>
+              <p className="m-0 mt-1" style={{ fontWeight: 700, fontSize: 16 }}>{selectedTierName}</p>
             </div>
             <div style={{ textAlign: "right" }}>
-              <p className="m-0" style={{ fontWeight: 700, fontSize: 28, letterSpacing: "-0.03em" }}>
+              <p className="m-0" style={{ fontWeight: 700, fontSize: 24, letterSpacing: "-0.03em" }}>
                 {hasTrial ? "Free" : formattedAmount}{" "}
                 <span style={{ fontSize: 13, fontWeight: 500, letterSpacing: 0, color: "var(--color-neutral-800)" }}>
                   {plan.currency} {INTERVAL_LABELS[effectiveInterval] ?? ""}
@@ -849,7 +849,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
         {/* Inside the card now, so no ground of its own and no heading —
             the title moved above the card, where the design has it, and two
             of them was one too many. */}
-        <main className="flex flex-col" style={{ padding: "4px 20px 20px" }}>
+        <main className="flex flex-col" style={{ padding: "4px 18px 16px" }}>
 
           {showSweep && payAddress ? (
             /* Cross-chain path: sweep USDC from Base / Arbitrum / Optimism */

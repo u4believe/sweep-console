@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { apiFetch, messageOf, wasCancelled } from "@/lib/stepup";
 import { Link, useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/portal/PageHeader";
 import {
+  Dialog,
   EmptyNote,
   ErrorNote,
   KpiBand,
@@ -24,6 +26,10 @@ export function PlansPage() {
   const [links, setLinks] = useState<Record<string, string>>({});
   const [creating, setCreating] = useState<string | null>(null);
   const [error, setError] = useState("");
+  /// Which plan the confirmation is open for, and which is mid-delete.
+  const [confirmDelete, setConfirmDelete] = useState<Plan | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     fetch(`${API_URL}/portal/plans`, { credentials: "include" })
@@ -42,6 +48,32 @@ export function PlansPage() {
       })
       .catch(() => { /* non-critical */ });
   }, []);
+
+  /**
+   * Deleting from the list, so a plan can be closed without opening it.
+   *
+   * apiFetch, not fetch — closing a plan is a step-up action, and only
+   * apiFetch meets the 401 and raises the confirmation. The detail page's
+   * copy of this does the same; the API is the one place that decides
+   * whether proof is needed, and both doors have to go through it.
+   */
+  async function doDelete(plan: Plan) {
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      const res = await apiFetch(`/portal/plans/${plan.id}`, { method: "DELETE" });
+      if (res.ok) {
+        // Drop it from the table rather than refetching: the row is gone and a
+        // reload would flash the whole list for one removal.
+        setPlans((prev) => (prev ? prev.filter((p) => p.id !== plan.id) : prev));
+        setConfirmDelete(null);
+      } else if (!(await wasCancelled(res))) {
+        setDeleteError(await messageOf(res, "Couldn't close this plan."));
+      }
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   async function createLink(planId: string) {
     setCreating(planId);
@@ -193,6 +225,17 @@ export function PlansPage() {
                       >
                         Open →
                       </button>
+                      {/* Deliberately quiet and second. Closing a plan cancels
+                          every live subscription on it, so it must not sit
+                          where "Open" is expected to be. */}
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ fontSize: 12, color: "var(--color-accent-700)", marginLeft: 4 }}
+                        onClick={() => { setDeleteError(""); setConfirmDelete(plan); }}
+                      >
+                        Delete
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -201,6 +244,42 @@ export function PlansPage() {
           </div>
         )}
       </Section>
+
+      {confirmDelete && (
+        <Dialog
+          title={`Delete ${confirmDelete.name}?`}
+          onDismiss={() => { if (!deleting) setConfirmDelete(null); }}
+          actions={
+            <>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setConfirmDelete(null)}
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => void doDelete(confirmDelete)} disabled={deleting}>
+                {deleting ? "Closing…" : "Delete plan"}
+              </button>
+            </>
+          }
+        >
+          {/* The same consequence the detail page states. A creator deleting
+              from the list is making the identical decision and must not be
+              told less about it because they took a shorter route. */}
+          <p className="m-0" style={{ fontSize: 13.5, color: "var(--color-neutral-800)", lineHeight: 1.6 }}>
+            This stops billing for every active subscriber on this plan, and they are emailed that
+            it happened. Nothing is refunded — charges already taken settled straight to your
+            wallet, so refunding is yours to do. This cannot be undone.
+          </p>
+          {deleteError && (
+            <p className="m-0" style={{ fontSize: 13, color: "var(--color-accent-700)", marginTop: 12 }}>
+              {deleteError}
+            </p>
+          )}
+        </Dialog>
+      )}
     </>
   );
 }
