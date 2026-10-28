@@ -173,10 +173,13 @@ function Section({ id, ground, children }: { id?: string; ground?: boolean; chil
         padding: "88px 0",
       }}
     >
-      {/* 1240, the design's width. max-w-6xl is 1152 and was making every
-          band narrower than it should be — which on a wide screen reads as
-          the whole page being squeezed toward the middle. */}
-      <div className="mx-auto w-full px-5" style={{ maxWidth: 1240 }}>{children}</div>
+      {/* 1200 with clamp(18px,4vw,40px) beside it — the design's own numbers,
+          used at all ten of its container sites. max-w-6xl was 1152, which
+          squeezed every band; the correction overshot to 1240 with a flat
+          20px gutter, which widened each hero column from 524 to 564 and
+          scaled the rail up with it, since the SVG is width:100% of its
+          column. */}
+      <div className="mx-auto w-full" style={{ maxWidth: 1200, paddingInline: "clamp(18px,4vw,40px)" }}>{children}</div>
     </section>
   );
 }
@@ -237,7 +240,7 @@ function Header() {
         borderBottom: "1px solid var(--color-divider)",
       }}
     >
-      <div className="mx-auto flex w-full items-center px-5" style={{ maxWidth: 1240, gap: 14, height: 62 }}>
+      <div className="mx-auto flex w-full items-center" style={{ maxWidth: 1200, paddingInline: "clamp(18px,4vw,40px)", gap: 14, height: 62 }}>
         <Link to="/" className="mr-auto flex items-center gap-2.5" style={{ color: "var(--color-text)" }}>
           <SweepMark size={22} />
           <span
@@ -290,12 +293,15 @@ function Header() {
 
 function Hero() {
   const { user, loading } = useAuth();
+  // The design puts the hero's padding on the grid itself, and gives it NO
+  // bottom padding — the strip below brings its own top space.
   return (
-    <section id="top" style={{ background: "var(--color-bg)", padding: "clamp(24px,3.5vw,44px) 0 clamp(18px,2.5vw,32px)" }}>
+    <section id="top" style={{ background: "var(--color-bg)" }}>
       <div
-        className="mx-auto grid w-full items-center px-5"
+        className="mx-auto grid w-full items-center"
         style={{
-          maxWidth: 1240,
+          maxWidth: 1200,
+          padding: "clamp(28px,5vw,56px) clamp(18px,4vw,40px) 0",
           gap: "clamp(36px,5vw,72px)",
           gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,440px),1fr))",
         }}
@@ -684,7 +690,7 @@ function Marks() {
   return (
     <section
       className="mx-auto flex w-full flex-col"
-      style={{ maxWidth: 1240, gap: 16, padding: "clamp(10px,2vw,22px) clamp(18px,4vw,40px) clamp(24px,4vw,44px)" }}
+      style={{ maxWidth: 1200, gap: 16, padding: "clamp(10px,2vw,22px) clamp(18px,4vw,40px) clamp(24px,4vw,44px)" }}
     >
       <div
         className="flex flex-wrap items-center justify-center"
@@ -1158,7 +1164,7 @@ function Pricing() {
 function StartCta() {
   return (
     <section id="start" style={{ background: "var(--color-bg)", padding: "clamp(56px,8vw,96px) 0" }}>
-      <div className="mx-auto w-full px-5" style={{ maxWidth: 1240, textAlign: "center" }}>
+      <div className="mx-auto w-full" style={{ maxWidth: 1200, paddingInline: "clamp(18px,4vw,40px)", textAlign: "center" }}>
         <span className="inline-flex" style={{ marginBottom: 22 }}>
           <SweepMark size={46} />
         </span>
@@ -1193,8 +1199,8 @@ function Footer() {
   return (
     <footer style={{ background: "var(--color-bg)", borderTop: "1px solid var(--color-divider)", padding: "26px 0" }}>
       <div
-        className="mx-auto flex w-full flex-wrap items-center px-5"
-        style={{ maxWidth: 1240, gap: "10px 26px", fontSize: 13.5, color: "var(--color-neutral-800)" }}
+        className="mx-auto flex w-full flex-wrap items-center"
+        style={{ maxWidth: 1200, paddingInline: "clamp(18px,4vw,40px)", gap: "10px 26px", fontSize: 13.5, color: "var(--color-neutral-800)" }}
       >
         <span className="flex items-center" style={{ gap: 9, color: "var(--color-text)", fontWeight: 700 }}>
           <SweepMark size={20} />
