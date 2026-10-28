@@ -48,7 +48,8 @@ export type StepUpAction =
   | "totp.disable"
   | "recovery.regenerate"
   | "plan.create"
-  | "rail.request";
+  | "rail.request"
+  | "live.grant";
 
 /// How hard a proof an action demands.
 ///
@@ -129,6 +130,11 @@ export const STEP_UP_ACTIONS: Record<StepUpAction, ActionPolicy> = {
   // Requesting the rail is rare, but it is the first step toward soliciting
   // other people's recurring authorizations, so the account behind it should
   // have a second factor before it starts.
+  // Switching an account on for real money. The largest decision an operator
+  // makes here — larger than granting the rail, which only lets an account ASK
+  // payers for authority. This one lets it take theirs.
+  "live.grant": { label: "activate an account for live mode", factor: "totp-only" },
+
   "plan.create": { label: "create a plan", factor: "enrol-only" },
   "rail.request": { label: "request rail access", factor: "enrol-only" },
 };

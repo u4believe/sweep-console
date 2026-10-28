@@ -162,6 +162,7 @@ portalRouter.get("/me", async (req, res) => {
         pendingWalletAddress: true,
         pendingWalletIsTestMode: true,
         isLive: true,
+        liveRequestedAt: true,
         railChargeReceipts: true,
         externalRailEnabled: true,
         createdAt: true,
@@ -187,6 +188,9 @@ portalRouter.get("/me", async (req, res) => {
         name: merchant.name,
         email: merchant.email,
         isLive: merchant.isLive,
+        /// Null = never asked. Lets Settings show "requested, waiting" rather
+        /// than a button that has already been pressed.
+        liveRequestedAt: merchant.liveRequestedAt?.toISOString() ?? null,
         railChargeReceipts: merchant.railChargeReceipts,
         createdAt: merchant.createdAt,
         // Flattened from the pair, so the other mode's address never ships.
@@ -1320,6 +1324,150 @@ portalRouter.post("/rail/request", requireStepUp("rail.request"), async (req, re
   }
 });
 
+/**
+ * POST /portal/live/request — ask for the account to be switched on for live.
+ *
+ * This route did not exist, and nothing else set `isLive` either. A creator on
+ * the live console who enrolled an authenticator and entered a correct code was
+ * told "this account is not activated for live mode yet" with nowhere to go,
+ * because the only activation path was editing the database by hand.
+ *
+ * Shaped exactly like /rail/request: record the ask, mail every operator, and
+ * leave the decision to a person. Going live is the larger of the two decisions
+ * — it is the one that lets an account take real money — so it gets no weaker a
+ * process, not a self-serve toggle.
+ *
+ * NOT step-up guarded, deliberately, unlike rail.request. Asking to be let in
+ * hands over nothing and moves nothing, and requiring an authenticator to ASK
+ * would recreate the dead end one step earlier: an account with no authenticator
+ * could not request the thing it needs an authenticator for. Enrolment is still
+ * required to act once granted — that is where the gate belongs.
+ */
+portalRouter.post("/live/request", async (req, res) => {
+  const dbId = (req as PortalRequest).merchantDbId;
+  try {
+    const merchant = await withRetry(() =>
+      prisma.merchant.findUnique({
+        where: { id: dbId },
+        select: {
+          merchantId: true, name: true, email: true, walletAddress: true,
+          isLive: true, liveRequestedAt: true, totpConfirmedAt: true,
+          _count: { select: { plans: true, subscriptions: true } },
+        },
+      })
+    );
+    if (!merchant) return err(res, "Merchant not found", 404, "not_found");
+    // Already live, or on the sandbox where there is nothing to ask for.
+    if (!isMainnet() || merchant.isLive) {
+      return ok(res, { data: { live: true, requestedAt: merchant.liveRequestedAt?.toISOString() ?? null } });
+    }
+    // Asking twice is not an error — it is the same ask. Report the first one
+    // rather than overwriting it, so the queue keeps its original order.
+    if (merchant.liveRequestedAt) {
+      return ok(res, { data: { live: false, requestedAt: merchant.liveRequestedAt.toISOString() } });
+    }
+
+    const requestedAt = new Date();
+    await withRetry(() =>
+      prisma.merchant.update({ where: { id: dbId }, data: { liveRequestedAt: requestedAt } })
+    );
+
+    const recipients = adminNotificationRecipients();
+    if (recipients.length === 0) {
+      console.warn(
+        `[portal/live/request] ${merchant.merchantId} asked to go live but no PLATFORM_ADMIN_EMAILS ` +
+          `or SUPPORT_EMAIL is set — no mail sent. The request is recorded; nothing will chase it.`
+      );
+    } else {
+      // After the write, and never fatal: a creator who clicked and saw an
+      // error would click again, and the mail is the least durable half.
+      await sendEmail({
+        to: recipients.join(", "),
+        subject: `Live access requested — ${merchant.name}`,
+        html:
+          `<p><strong>${merchant.name}</strong> &lt;${merchant.email}&gt; (${merchant.merchantId}) ` +
+          `asked to be activated for live mode.</p>` +
+          `<p>Payout wallet: ${merchant.walletAddress ?? "<em>NOT LINKED</em>"}<br>` +
+          `Authenticator: ${merchant.totpConfirmedAt ? "enrolled" : "<strong>not enrolled</strong>"}<br>` +
+          `Plans: ${merchant._count.plans} &middot; Subscriptions: ${merchant._count.subscriptions}<br>` +
+          `Requested: ${requestedAt.toISOString()}</p>` +
+          `<p>Activate from the operator screen, or refuse and tell them why.</p>`,
+        text:
+          `${merchant.name} <${merchant.email}> (${merchant.merchantId}) asked to go live. ` +
+          `Payout wallet: ${merchant.walletAddress ?? "NOT LINKED"}. ` +
+          `Authenticator: ${merchant.totpConfirmedAt ? "enrolled" : "NOT ENROLLED"}.`,
+      }).catch((e) => console.error("[portal/live/request] notification failed:", e));
+    }
+
+    console.log(`[portal/live/request] ${merchant.merchantId} (${merchant.email}) asked to go live`);
+    return ok(res, { data: { live: false, requestedAt: requestedAt.toISOString() } });
+  } catch (e) {
+    return serverError(res, "portal/live/request", e, "We couldn't send your request.");
+  }
+});
+
+const liveDecisionSchema = z.object({
+  live: z.boolean(),
+  reason: z.string().trim().min(3).max(500).optional(),
+});
+
+/**
+ * POST /portal/admin/live/:merchantId — switch an account on for live mode.
+ *
+ * The missing half. isLive was read in three places and written in none, so
+ * every activation was a hand-edited database row with no record of who did it
+ * — which is the thing the rail's grantedBy/grantedAt columns exist to avoid,
+ * for a smaller decision.
+ *
+ * Shaped like /admin/rail: 404 before the step-up prompt so a non-admin is
+ * never asked for a code for a screen they cannot see, and the grant history is
+ * kept on a withdrawal too, because who decided and when is the record of the
+ * decision rather than a description of today's state.
+ */
+portalRouter.post(
+  "/admin/live/:merchantId",
+  async (req, res, next) => ((await isAdminRequest(req)) ? next() : err(res, "Not found", 404, "not_found")),
+  requireStepUp("live.grant"),
+  async (req, res) => {
+    const parsed = liveDecisionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return validationError(
+        res,
+        Object.fromEntries(
+          Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [k, v?.[0] ?? "Invalid"])
+        )
+      );
+    }
+    const { live } = parsed.data;
+    try {
+      const actor = await sessionEmail(req);
+      const target = await prisma.merchant.findUnique({
+        where: { merchantId: req.params.merchantId as string },
+        select: { id: true, merchantId: true, name: true, email: true, isLive: true, totpConfirmedAt: true },
+      });
+      if (!target) return err(res, "Merchant not found", 404, "not_found");
+      if (target.isLive === live) {
+        return ok(res, { data: { merchant_id: target.merchantId, live } });
+      }
+
+      await prisma.merchant.update({
+        where: { id: target.id },
+        data: {
+          isLive: live,
+          ...(live ? { liveGrantedBy: actor, liveGrantedAt: new Date() } : {}),
+        },
+      });
+      console.log(
+        `[admin/live] ${actor} ${live ? "activated" : "deactivated"} live mode for ` +
+          `${target.merchantId} (${target.email})`
+      );
+      return ok(res, { data: { merchant_id: target.merchantId, live } });
+    } catch (e) {
+      return serverError(res, "portal/admin/live", e, "We couldn't change that account.");
+    }
+  }
+);
+
 // ─── Operator: the payment rail queue ─────────────────────────────────────────
 //
 // Visible only to PLATFORM_ADMIN_EMAILS. Reading the queue needs no step-up —
@@ -1475,13 +1623,42 @@ portalRouter.post(
         where: { merchantId: req.params.merchantId as string },
         select: {
           id: true, merchantId: true, name: true, email: true,
-          walletAddress: true, externalRailEnabled: true,
+          walletAddress: true, externalRailEnabled: true, isLive: true,
           _count: { select: { mandates: { where: { status: "active" } } } },
         },
       });
       if (!target) return err(res, "Merchant not found", 404, "not_found");
       if (target.externalRailEnabled === enabled) {
         return ok(res, { data: { merchant_id: target.merchantId, enabled } });
+      }
+
+      /**
+       * The rail is useless to an account that is not live, so do not pretend
+       * to grant it.
+       *
+       * These are two columns and were two unrelated decisions: isLive says an
+       * account may take real money at all, externalRailEnabled says it may
+       * additionally ask payers for a standing claim. But every rail endpoint
+       * goes through verifyApiKey, a live deployment accepts only live_ keys,
+       * and a live_ key cannot be ISSUED to an account that is not live. So a
+       * rail grant without activation produces an account that has been told
+       * yes and can do nothing — which is exactly what happened: a creator was
+       * granted the rail, went to issue the key it needs, and was refused with
+       * "this account is not activated for live mode yet".
+       *
+       * Refused rather than activated silently. Activating is the larger
+       * decision of the two and belongs to whoever makes it deliberately, not
+       * to a side effect of the smaller one. The operator is told which order
+       * to do them in.
+       */
+      if (enabled && isMainnet() && !target.isLive) {
+        return err(
+          res,
+          `${target.merchantId} is not activated for live mode, and the rail cannot be used ` +
+            `without a live API key. Activate the account for live mode first, then grant the rail.`,
+          409,
+          "not_live"
+        );
       }
 
       await prisma.merchant.update({
@@ -2767,7 +2944,9 @@ portalRouter.post(
         if (!isLive) {
           return err(
             res,
-            "This account is not activated for live mode yet, so there is no live key to issue.",
+            "This account is not activated for live mode yet, so there is no live key to " +
+              "issue. Ask for it under Settings — activation is reviewed by hand, because it " +
+              "lets the account take real money.",
             403,
             "not_live"
           );

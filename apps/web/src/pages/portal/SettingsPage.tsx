@@ -25,6 +25,9 @@ interface MerchantProfile {
    * Test, on the live console, beside their live key.
    */
   testMode: boolean;
+  isLive: boolean;
+  /// ISO timestamp, or null when the account has never asked to go live.
+  liveRequestedAt: string | null;
   railChargeReceipts: boolean;
   createdAt: string;
 }
@@ -47,6 +50,8 @@ export function SettingsPage() {
   const { refresh } = useAuth();
   const [params, setParams] = useSearchParams();
   const [profile, setProfile] = useState<MerchantProfile | null>(null);
+  const [requestingLive, setRequestingLive] = useState(false);
+  const [liveRequestError, setLiveRequestError] = useState("");
   const [webhooks, setWebhooks] = useState<WebhookSummary[] | null>(null);
   const [error, setError] = useState("");
   const [name, setName] = useState("");
@@ -110,6 +115,38 @@ export function SettingsPage() {
       setReceiptsError("Could not reach the API server.");
     } finally {
       setSavingReceipts(false);
+    }
+  }
+
+  /**
+   * Ask to be activated for live mode.
+   *
+   * Optimistic on success: the reply carries the timestamp, so the panel
+   * switches to "Requested …" without a refetch. A creator who clicks and sees
+   * nothing change clicks again, and the second request is silently the same
+   * ask — the route reports the FIRST timestamp rather than overwriting it, so
+   * nothing is lost either way, but there is no reason to make them wonder.
+   */
+  async function onRequestLive() {
+    setRequestingLive(true);
+    setLiveRequestError("");
+    try {
+      const res = await fetch(`${API_URL}/portal/live/request`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      });
+      const json = (await res.json()) as { data?: { live?: boolean; requestedAt?: string | null }; error?: { message?: string } };
+      if (!res.ok) throw new ApiError(json.error?.message ?? "Couldn't send the request.");
+      setProfile((prev) =>
+        prev
+          ? { ...prev, isLive: json.data?.live ?? prev.isLive, liveRequestedAt: json.data?.requestedAt ?? prev.liveRequestedAt }
+          : prev
+      );
+    } catch (e) {
+      setLiveRequestError(friendlyError(e, "Couldn't send the request."));
+    } finally {
+      setRequestingLive(false);
     }
   }
 
@@ -196,6 +233,9 @@ export function SettingsPage() {
 
       {tab === "account" && (
         <AccountTab
+          onRequestLive={() => void onRequestLive()}
+          requestingLive={requestingLive}
+          liveRequestError={liveRequestError}
           profile={profile}
           webhooks={webhooks}
           name={name}
@@ -237,7 +277,11 @@ export function SettingsPage() {
 function AccountTab({
   profile, webhooks, name, setName, onSave, saving, saved, saveError,
   receipts, onReceipts, savingReceipts, receiptsError,
+  onRequestLive, requestingLive, liveRequestError,
 }: {
+  onRequestLive: () => void;
+  requestingLive: boolean;
+  liveRequestError: string;
   profile: MerchantProfile;
   webhooks: WebhookSummary[] | null;
   name: string;
@@ -400,15 +444,46 @@ function AccountTab({
             ))}
           </div>
 
-          {/* Deliberately inert: there is no live-access request to submit yet,
-              and a button that silently does nothing is worse than one that
-              says so. */}
-          <button type="button" className="btn btn-primary" style={{ marginTop: 20, padding: "11px 18px" }} disabled>
-            Request live access
-          </button>
-          <p className="m-0" style={{ fontSize: 11.5, color: "var(--color-neutral-700)", marginTop: 8, lineHeight: 1.5 }}>
-            Live mode isn&apos;t open yet. The checklist above tracks what you&apos;ll need when it is.
-          </p>
+          {/*
+            This was inert, and said so: "Live mode isn't open yet." True when
+            written. It stopped being true when live opened, and then it was a
+            dead end — a creator on the live console, authenticator enrolled and
+            correct code entered, refused an API key with "this account is not
+            activated for live mode yet" and no way anywhere to ask.
+          */}
+          {profile.isLive ? (
+            <p className="m-0" style={{ fontSize: 12.5, color: "var(--color-neutral-800)", marginTop: 20, lineHeight: 1.6 }}>
+              This account is activated for live mode.
+            </p>
+          ) : profile.liveRequestedAt ? (
+            <p className="m-0" style={{ fontSize: 12.5, color: "var(--color-neutral-800)", marginTop: 20, lineHeight: 1.6 }}>
+              Requested {new Date(profile.liveRequestedAt).toLocaleDateString()}. We review these by
+              hand — activating an account lets it take real money, so a person reads it. You&apos;ll
+              be emailed when it&apos;s done. Asking again won&apos;t move it up the queue.
+            </p>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ marginTop: 20, padding: "11px 18px" }}
+                onClick={onRequestLive}
+                disabled={requestingLive}
+              >
+                {requestingLive ? "Sending…" : "Request live access"}
+              </button>
+              <p className="m-0" style={{ fontSize: 11.5, color: "var(--color-neutral-700)", marginTop: 8, lineHeight: 1.5 }}>
+                Reviewed by hand, because activating an account lets it take real money. The
+                checklist above is what we look at — a payout wallet and an authenticator are what
+                you&apos;ll be asked for either way.
+              </p>
+              {liveRequestError && (
+                <p className="m-0" style={{ fontSize: 12, color: "var(--color-accent-700)", marginTop: 8 }}>
+                  {liveRequestError}
+                </p>
+              )}
+            </>
+          )}
         </aside>
       </div>
 

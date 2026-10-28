@@ -787,15 +787,19 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
         className="mx-auto w-full"
         style={{ maxWidth: 1040, padding: "clamp(20px,3.5vw,36px) clamp(16px,3vw,32px) 30px" }}
       >
-        <div style={{ maxWidth: 540, margin: "0 auto 14px" }}>
-          <h1 style={{ margin: 0, fontSize: "clamp(24px,3.4vw,32px)", letterSpacing: "-0.035em" }}>
-            Payment details
-          </h1>
-          <p className="m-0 mt-1" style={{ fontSize: 13.5, color: "var(--color-neutral-800)" }}>
-            One signature. No gas. Settled on Arc.
-          </p>
-        </div>
+        {/*
+          No heading here.
 
+          "Payment details" duplicated the step rail directly above it, which
+          already reads "02 Payment details" and is the thing telling the payer
+          where they are. "One signature. No gas. Settled on Arc." is a promise
+          that belongs on the landing page; at the point of paying, the payer
+          has decided, and the card below answers the only remaining questions —
+          what, how much, how often.
+
+          Worth about 70px at the top of the step, which is the reason it went:
+          the amount and the first action should be visible without scrolling.
+        */}
         <div
           className="mx-auto w-full"
           style={{

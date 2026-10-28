@@ -23,10 +23,11 @@ model Merchant {
   // at once — the test key keeps working after they go live, which is the point
   // of having two.
   //
-  // auth.ts already looks a key up by the column its prefix implies and already
-  // refuses a live_ key whose merchant is not `isLive`. What is missing is
-  // issuance: nothing writes liveKeyHash, and portal.ts mints ids.apiKey(false)
-  // only.
+  // auth.ts looks a key up by the column its prefix implies and refuses a live_
+  // key whose merchant is not `isLive`. Issuance works too now — the api-keys
+  // route mints ids.apiKey(!isTestMode) and writes this column — so the only
+  // thing standing between an account and a live key is isLive, which is why
+  // there is finally a way to ask for it (liveRequestedAt, below).
   liveKeyHash          String? // HMAC hash of active live_ API key (null = no key yet)
   liveKeyName          String    @default("Default")
   liveKeyPrefix        String? // first 16 chars, for display (e.g. "live_a1b2c3d4e5f6")
@@ -99,6 +100,20 @@ model Merchant {
   passwordHash         String? // scrypt hash for portal login (null for Google-only accounts)
   onboarded            Boolean   @default(true) // false only for fresh Google accounts that still owe a company name
   isLive               Boolean   @default(false) // toggled when merchant goes live
+  // When this account asked to go live, and who let it.
+  //
+  // isLive existed from the start and NOTHING ever set it. No request route, no
+  // admin route — the only way to activate an account was to edit the database
+  // by hand, while Settings showed a permanently disabled "Request live access"
+  // button reading "Live mode isn't open yet". That was true when written and
+  // stopped being true when live opened, so a creator who reached the live
+  // console, enrolled an authenticator and entered a correct code was refused
+  // an API key with "this account is not activated for live mode yet" and had
+  // nowhere to go. The rail had asked-for/granted-by columns from the
+  // beginning; going live, which is the bigger decision, had neither.
+  liveRequestedAt      DateTime?
+  liveGrantedBy        String?
+  liveGrantedAt        DateTime?
   // Opt-in to the external payment rail (/v1/mandates, /v1/charges). Off by
   // default so the rail cannot be reached by an account that never asked for it —
   // a charge endpoint is the first place a leaked API key directly enriches
