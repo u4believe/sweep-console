@@ -6,6 +6,20 @@ import { friendlyError, throwApiError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
+/// An account asking to be switched on for live mode. Separate from a rail
+/// request: live lets an account take real money at all, the rail lets it
+/// additionally solicit standing claims on a payer's wallet.
+interface LiveWaiting {
+  merchant_id: string;
+  name: string;
+  email: string;
+  payout_wallet: string | null;
+  requested_at: string | null;
+  plans: number;
+  subscriptions: number;
+  totp_enrolled: boolean;
+}
+
 interface Waiting {
   merchant_id: string;
   name: string;
@@ -29,6 +43,7 @@ interface Holder {
 }
 
 export function AdminRailPage() {
+  const [liveWaiting, setLiveWaiting] = useState<LiveWaiting[] | null>(null);
   const [waiting, setWaiting] = useState<Waiting[] | null>(null);
   const [holders, setHolders] = useState<Holder[] | null>(null);
   const [error, setError] = useState("");
@@ -36,6 +51,13 @@ export function AdminRailPage() {
 
   const load = useCallback(async () => {
     try {
+      // The live queue first: the rail grant refuses an account that is not
+      // live, so an operator working top to bottom does them in an order that
+      // works rather than one that errors.
+      const lr = await fetch(`${API_URL}/portal/admin/live`, { credentials: "include" });
+      const ljson = (await lr.json()) as { data?: { waiting: LiveWaiting[] } };
+      if (ljson.data) setLiveWaiting(ljson.data.waiting);
+
       const r = await fetch(`${API_URL}/portal/admin/rail`, { credentials: "include" });
       const json = (await r.json()) as {
         data?: { waiting: Waiting[]; holders: Holder[] };
@@ -53,6 +75,34 @@ export function AdminRailPage() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  /// Activating an account for live mode. Same shape as the rail decision —
+  /// one code per decision, the account named in the confirm.
+  async function decideLive(merchantId: string, name: string, live: boolean) {
+    if (!window.confirm(
+      live
+        ? `Activate ${name} for live mode?\n\nThey will be able to issue a live API key and take real ` +
+          `USDC from payers. Reviewed by hand for exactly this reason.`
+        : `Deactivate ${name}?\n\nTheir live API key stops working.`
+    )) return;
+    setBusy(merchantId);
+    try {
+      const res = await apiFetch(`/portal/admin/live/${merchantId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ live }),
+      });
+      if (!res.ok) {
+        if (await wasCancelled(res)) return;
+        await throwApiError(res, await messageOf(res, "Couldn't change that account."));
+      }
+      await load();
+    } catch (e) {
+      setError(friendlyError(e, "Couldn't change that account."));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   /// One decision, one code. Named in the confirm because granting the wrong row
   /// should take effort, and because the step-up prompt that follows does not
@@ -108,9 +158,92 @@ export function AdminRailPage() {
 
   return (
     <>
-      <PageHeader kicker="Operator" title="Payment rail access" />
+      <PageHeader kicker="Operator" title="Account access" />
 
       {error && <ErrorNote>{error}</ErrorNote>}
+
+      {/*
+        LIVE FIRST, deliberately.
+
+        These are two grants and they are not interchangeable: live mode lets an
+        account take real money at all, the rail lets it additionally ask payers
+        for a standing claim on their wallet. But a rail grant is REFUSED for an
+        account that is not live, because every rail endpoint needs a live API
+        key and one cannot be issued to an inactive account. So the order is not
+        a preference, and putting live above the rail is what makes it obvious.
+      */}
+      <Section bordered={false}>
+        <h3 className="m-0 mb-2" style={{ fontSize: 15, fontWeight: 600 }}>
+          Waiting to go live{liveWaiting ? ` (${liveWaiting.length})` : ""}
+        </h3>
+        <p className="m-0 mb-3" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
+          Activating an account lets it issue a live API key and take real USDC. Reviewed by hand,
+          and confirmed with your authenticator each time.
+        </p>
+        {liveWaiting === null ? (
+          <TableSkeleton cols={4} />
+        ) : liveWaiting.length === 0 ? (
+          <EmptyNote title="Nothing waiting." hint="Requests appear here when a creator asks to go live from Settings." />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Account</th>
+                  <th>Requested</th>
+                  <th>Payout wallet</th>
+                  <th>Authenticator</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {liveWaiting.map((m) => (
+                  <tr key={m.merchant_id}>
+                    <td>
+                      <span style={{ fontWeight: 600 }}>{m.name}</span>
+                      <br />
+                      <span style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>
+                        {m.email} · {m.plans} plan{m.plans === 1 ? "" : "s"} · {m.subscriptions} sub
+                        {m.subscriptions === 1 ? "" : "s"}
+                      </span>
+                    </td>
+                    <td style={{ fontSize: 12.5 }}>
+                      {m.requested_at ? new Date(m.requested_at).toLocaleDateString() : "—"}
+                    </td>
+                    <td>
+                      {m.payout_wallet ? (
+                        <Mono size={12}>{shortAddress(m.payout_wallet)}</Mono>
+                      ) : (
+                        <span className="tag tag-outline">Not linked</span>
+                      )}
+                    </td>
+                    <td>
+                      {/* Said in the row because activating an account that
+                          cannot prove itself activates one that then cannot
+                          issue the key it came for — every credential action is
+                          totp-only. */}
+                      <span className={`tag ${m.totp_enrolled ? "tag-accent" : "tag-outline"}`}>
+                        {m.totp_enrolled ? "Enrolled" : "Not enrolled"}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        style={{ fontSize: 12, padding: "6px 12px" }}
+                        onClick={() => void decideLive(m.merchant_id, m.name, true)}
+                        disabled={busy === m.merchant_id}
+                      >
+                        {busy === m.merchant_id ? "Working…" : "Activate"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
 
       <Section bordered={false}>
         <p className="m-0 mb-4" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>

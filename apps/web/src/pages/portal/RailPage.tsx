@@ -1,4 +1,4 @@
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { EnrolmentGate, useEnrolmentRequired } from "@/components/portal/EnrolmentGate";
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
@@ -55,6 +55,8 @@ interface Charge {
 interface RailData {
   enabled: boolean;
   requestedAt: string | null;
+  /// Whether the account may take real money at all. The rail needs it.
+  isLive?: boolean;
   payoutWallet: string | null;
   totals: { collected: number; pendingCount: number; failedCount: number; activeMandates: number };
   mandates: Mandate[];
@@ -207,10 +209,35 @@ export function RailPage() {
             succeed should not look available. Reviewed by hand, so a failed
             attempt is wasted on both sides.
           */}
-          {!data.requestedAt && enrolmentRequired && (
+          {/*
+            ONE ASK AT A TIME.
+
+            Two "request access" buttons — this one and Settings' live request
+            — look like being made to ask twice for the same thing. They are
+            not the same grant: live mode lets an account take real money at
+            all, this lets it additionally solicit a standing claim on a
+            payer's wallet, and most creators only ever want the first. But
+            live is a PREREQUISITE — the rail grant is refused for an account
+            that is not live, since every rail endpoint needs a live API key.
+
+            So rather than merging two different decisions into one button,
+            only the one that can succeed is shown. Not live: this points at
+            Settings. Live but unenrolled: the enrolment gate. Otherwise: ask.
+          */}
+          {!data.requestedAt && data.isLive === false && (
+            <div style={{ padding: "0 32px 26px" }}>
+              <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-800)", lineHeight: 1.6 }}>
+                Go live first. The rail works through the API, and an API key can only be issued to
+                an account activated for live mode — so there is nothing to grant until that is
+                done. Ask under <Link to="/settings" style={{ color: "var(--color-accent)" }}>Settings</Link>,
+                and come back here once it is.
+              </p>
+            </div>
+          )}
+          {!data.requestedAt && data.isLive !== false && enrolmentRequired && (
             <EnrolmentGate action="requesting rail access" />
           )}
-          {!data.requestedAt && !enrolmentRequired && (
+          {!data.requestedAt && data.isLive !== false && !enrolmentRequired && (
             <div style={{ padding: "0 32px 26px" }}>
               <button
                 type="button"

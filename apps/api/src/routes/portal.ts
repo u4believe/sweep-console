@@ -1070,6 +1070,10 @@ portalRouter.get("/rail", async (req, res) => {
           externalRailEnabled: true,
           walletAddress: true,
           railRequestedAt: true,
+          /// So the page can tell "ask for the rail" from "go live first".
+          /// Granting the rail is refused for an account that is not live, so
+          /// offering the rail request to one is offering a dead end.
+          isLive: true,
         },
       }),
     );
@@ -1090,6 +1094,7 @@ portalRouter.get("/rail", async (req, res) => {
         data: {
           enabled: false,
           requestedAt: merchant.railRequestedAt?.toISOString() ?? null,
+          isLive: merchant.isLive,
           payoutWallet: merchant.walletAddress,
           mandates: [],
           charges: [],
@@ -1403,6 +1408,69 @@ portalRouter.post("/live/request", async (req, res) => {
     return ok(res, { data: { live: false, requestedAt: requestedAt.toISOString() } });
   } catch (e) {
     return serverError(res, "portal/live/request", e, "We couldn't send your request.");
+  }
+});
+
+/**
+ * GET /portal/admin/live — who is waiting to be switched on for live mode.
+ *
+ * The queue that was missing. POST /portal/live/request recorded the ask and
+ * mailed the operators, and then there was nowhere to see it: a creator clicked
+ * the button, the row was written, and the admin screen showed only the rail.
+ *
+ * Shaped like /admin/rail, and read by the same screen, because an operator
+ * deciding these needs both in front of them: the rail grant refuses an account
+ * that is not live, so the order matters and a single list makes it visible.
+ */
+portalRouter.get("/admin/live", async (req, res) => {
+  if (!(await isAdminRequest(req))) return err(res, "Not found", 404, "not_found");
+  try {
+    const [waiting, holders] = await Promise.all([
+      prisma.merchant.findMany({
+        where: { isLive: false, NOT: { liveRequestedAt: null } },
+        orderBy: { liveRequestedAt: "asc" },
+        select: {
+          merchantId: true, name: true, email: true, walletAddress: true,
+          liveRequestedAt: true, createdAt: true, totpConfirmedAt: true,
+          _count: { select: { plans: true, subscriptions: true } },
+        },
+      }),
+      prisma.merchant.findMany({
+        where: { isLive: true },
+        orderBy: { liveGrantedAt: "desc" },
+        select: {
+          merchantId: true, name: true, email: true,
+          liveGrantedAt: true, liveGrantedBy: true, externalRailEnabled: true,
+        },
+      }),
+    ]);
+    return ok(res, {
+      data: {
+        waiting: waiting.map((m) => ({
+          merchant_id: m.merchantId,
+          name: m.name,
+          email: m.email,
+          payout_wallet: m.walletAddress,
+          requested_at: m.liveRequestedAt?.toISOString() ?? null,
+          created_at: m.createdAt.toISOString(),
+          plans: m._count.plans,
+          subscriptions: m._count.subscriptions,
+          /// Shown because activating an account that cannot prove itself is
+          /// activating one that cannot then issue the key it came for.
+          totp_enrolled: Boolean(m.totpConfirmedAt),
+        })),
+        holders: holders.map((m) => ({
+          merchant_id: m.merchantId,
+          name: m.name,
+          email: m.email,
+          granted_at: m.liveGrantedAt?.toISOString() ?? null,
+          granted_by: m.liveGrantedBy,
+          has_rail: m.externalRailEnabled,
+        })),
+      },
+    });
+  } catch (e) {
+    return serverError(res, "portal/admin/live", e, "We couldn't read the live queue.");
   }
 });
 
