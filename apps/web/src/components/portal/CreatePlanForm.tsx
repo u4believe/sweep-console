@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { minChargeError, minChargeHint, useMinCharge } from "@/lib/minCharge";
 import { apiFetch } from "@/lib/stepup";
 import { useNavigate } from "react-router-dom";
 import { ApiError, friendlyError } from "@/lib/errors";
@@ -38,9 +39,20 @@ export function CreatePlanForm() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  const minCharge = useMinCharge();
   const priceNum = Number(price);
   const trialNum = Number(trialDays);
-  const priceValid = Number.isFinite(priceNum) && priceNum > 0;
+  const aboveZero = Number.isFinite(priceNum) && priceNum > 0;
+  /**
+   * Below the floor is refused HERE as well as by the API.
+   *
+   * The server has always refused it; what it could not do is say so before
+   * the creator had filled in the name, the interval, the trial and the
+   * features. Being told the price is too low at the end, by a red line under
+   * a finished form, is the part that reads as arbitrary.
+   */
+  const belowFloor = aboveZero && minCharge !== null && priceNum < minCharge;
+  const priceValid = aboveZero && !belowFloor;
   const trialValid = Number.isInteger(trialNum) && trialNum >= 0 && trialNum <= 365;
   const valid = name.trim().length > 0 && priceValid && trialValid;
 
@@ -158,7 +170,19 @@ export function CreatePlanForm() {
               onChange={(e) => setPrice(e.target.value)}
               placeholder="29.00"
               inputMode="decimal"
+              aria-describedby={minCharge !== null ? "tier-price-min" : undefined}
             />
+            {/* Stated up front, not only on refusal — the point is that the
+                creator never types a price that cannot be used. */}
+            {minCharge !== null && (
+              <p
+                id="tier-price-min"
+                className="m-0 mt-1"
+                style={{ fontSize: 12, color: "var(--color-neutral-700)", lineHeight: 1.5 }}
+              >
+                {minChargeHint(minCharge)}
+              </p>
+            )}
           </div>
           <div className="field">
             <label htmlFor="tier-interval">Interval</label>
@@ -197,9 +221,14 @@ export function CreatePlanForm() {
           />
         </div>
 
-        {price.length > 0 && !priceValid && (
+        {price.length > 0 && !aboveZero && (
           <p className="m-0 mt-2" style={{ fontSize: 12, color: "var(--color-accent-700)" }}>
             Enter a price above zero.
+          </p>
+        )}
+        {belowFloor && minCharge !== null && (
+          <p className="m-0 mt-2" style={{ fontSize: 12, color: "var(--color-accent-700)" }}>
+            {minChargeError(minCharge, priceNum)}
           </p>
         )}
         {!trialValid && (

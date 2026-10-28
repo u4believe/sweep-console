@@ -57,7 +57,9 @@ export class RailNotEnabled extends SweepError {}
 export class WrongEnvironment extends SweepError {}
 
 /**
- * 422 — the amount is under the mainnet minimum, 1.00 USDC by default.
+ * 422 — the amount is under the mainnet minimum, 2.00 USDC by default.
+ * Read the live value from GET /config (`minChargeUsdc`) rather than this
+ * number, which is only the default and moves with measured gas.
  *
  * `details.amount` names the floor and what was sent. Collecting a charge
  * costs the same gas whatever its size, so under about a dollar the platform

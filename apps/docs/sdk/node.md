@@ -136,7 +136,7 @@ Two refusals come from the environment rather than the request:
 | --- | --- | --- |
 | `wrong_environment` | 403 | a `test_` key reached the live API, or the reverse. The message names the host to use |
 | `payout_wallet_missing` | 409 | the merchant has no payout wallet **for this mode**. A wallet is configured per environment, so a test one does not serve live charges |
-| `amount_below_minimum` | 422 | the amount is under the mainnet floor, 1.00 USDC by default. `details.amount` names the floor and what you sent. Testnet has no floor |
+| `amount_below_minimum` | 422 | the amount is under the mainnet floor, 2.00 USDC by default. `details.amount` names the floor and what you sent. Testnet has no floor |
 
 Neither is retryable — both mean a configuration mismatch, not a transient
 failure.

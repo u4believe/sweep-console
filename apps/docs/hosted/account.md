@@ -40,6 +40,17 @@ The **interval is fixed** once a tier exists. A monthly tier cannot become
 yearly, because the billing period is part of what every subscriber's wallet
 signed. Create a new tier instead.
 
+**The minimum price on live is 2.00 USDC**, per plan and per tier. Collecting
+a payment costs roughly the same in network fees whatever its size — three
+transactions across two chains, measured at $0.016 on Base and $0.043 on
+Arbitrum — and the payer chooses the chain, not you. Below 2.00 the fee on
+the dearer chain would take more than the payment is worth, and a subscription
+renews itself, so it would keep doing so.
+
+Existing tiers priced below it keep working; only new ones and edits are held
+to it. **Test mode has no minimum**, so you can still try a 1-cent plan to see
+how the product behaves.
+
 ## Link a payout wallet
 
 Connect one, or create a Circle user-controlled Programmable Wallet from the

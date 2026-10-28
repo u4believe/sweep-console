@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { minChargeError, minChargeHint, useMinCharge } from "@/lib/minCharge";
 import { ApiError, friendlyError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
@@ -27,11 +28,15 @@ export function AddTierForm({ planId, onAdded }: { planId: string; onAdded: () =
     setError("");
   }
 
+  const minCharge = useMinCharge();
   const priceNum = Number(price);
   const trialNum = Number(trialDays);
+  // A tier is charged exactly as a plan is, so the same floor applies to it.
+  const aboveZero = Number.isFinite(priceNum) && priceNum > 0;
+  const belowFloor = aboveZero && minCharge !== null && priceNum < minCharge;
   const valid =
     name.trim().length > 0 &&
-    Number.isFinite(priceNum) && priceNum > 0 &&
+    aboveZero && !belowFloor &&
     Number.isInteger(trialNum) && trialNum >= 0 && trialNum <= 365;
 
   async function submit(e: React.FormEvent) {
@@ -112,7 +117,22 @@ export function AddTierForm({ planId, onAdded }: { planId: string; onAdded: () =
             onChange={(e) => setPrice(e.target.value)}
             placeholder="29.00"
             inputMode="decimal"
+            aria-describedby={minCharge !== null ? "nt-price-min" : undefined}
           />
+          {minCharge !== null && (
+            <p
+              id="nt-price-min"
+              className="m-0 mt-1"
+              style={{ fontSize: 12, color: "var(--color-neutral-700)", lineHeight: 1.5 }}
+            >
+              {minChargeHint(minCharge)}
+            </p>
+          )}
+          {belowFloor && minCharge !== null && (
+            <p className="m-0 mt-1" style={{ fontSize: 12, color: "var(--color-accent-700)" }}>
+              {minChargeError(minCharge, priceNum)}
+            </p>
+          )}
         </div>
         <div className="field">
           <label htmlFor="nt-interval">Interval</label>

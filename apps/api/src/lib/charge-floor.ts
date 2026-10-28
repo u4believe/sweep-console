@@ -6,17 +6,37 @@
  * the fee stops covering the cost and each renewal is subsidised, forever,
  * because a subscription renews on its own.
  *
- * Measured settlement gas on testnet: Base 0.006384 USDC, Optimism 0.002703,
- * Arbitrum 0.016562. Against a 2% fee that puts break-even near a dollar on
- * Arbitrum, the most expensive of the three — $1 earns 2 cents against 1.66
- * cents of gas. Base and Optimism clear it comfortably. Mainnet should be
- * cheaper still: CCTP V2 charges 0.325 bps there against 1.3 on the sandbox,
- * and L2 gas is usually lower than a testnet's.
+ * MEASURED ON MAINNET, which the earlier estimate was not. The figure here
+ * used to come from testnet settlement gas and reasoned that mainnet "should
+ * be cheaper still". It is not, on Arbitrum. Three complete payments, every
+ * leg, at ETH $2342:
  *
- * So the default is a dollar and the variable exists because those numbers
- * move. Lower it when real settlements say the margin is wider; do not raise
- * it without checking what it does to existing plans, which are not
- * retroactively blocked.
+ *             pull (ETH)    settle (USDC)   mint on Arc   TOTAL
+ *   base      $0.004859     0.007153        0.003607      $0.015619
+ *   arbitrum  $0.016378     0.023334        0.003607      $0.043319
+ *
+ * A renewal is three transactions on two chains, not one: the pull is paid in
+ * ETH by the delegate, the settle through Circle Paymaster in USDC, and the
+ * mint in USDC on Arc. Counting only the settle — which the testnet estimate
+ * did — understates the cost by roughly half.
+ *
+ * Against a 2% fee that puts break-even at $0.78 on Base and $2.17 on
+ * ARBITRUM, and the floor has to clear the most expensive chain because the
+ * payer picks it, not the creator.
+ *
+ * $2.00 IS DELIBERATELY JUST UNDER THAT. At $2 Arbitrum earns 0.0400 against
+ * 0.0433 of gas — about a third of a cent lost per renewal, forever, since a
+ * subscription renews itself. It was chosen as a round number a creator can
+ * reason about. $2.50 would be the first round figure that clears every
+ * chain; raise MIN_CHARGE_USDC to it if the subsidy on cheap Arbitrum plans
+ * stops being worth the simpler number.
+ *
+ * Gas is near-FIXED per payment, so the percentage is set by the price: the
+ * same $0.0433 is 4.3% of a $1 plan and 0.4% of a $10 one. That is the whole
+ * argument for a floor.
+ *
+ * Do not raise it without checking what it does to existing plans, which are
+ * not retroactively blocked.
  *
  * TESTNET IS EXEMPT. Nothing there costs real gas, and a floor would stop a
  * developer trying a 1-cent plan to see how the product behaves — which is
@@ -36,7 +56,7 @@ const MICROS_PER_USDC = 1_000_000n;
  */
 export function chargeFloorMicros(): bigint | null {
   if (!isMainnet()) return null;
-  const raw = process.env.MIN_CHARGE_USDC ?? "1.00";
+  const raw = process.env.MIN_CHARGE_USDC ?? "2.00";
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed < 0) {
     // A malformed value must not silently disable the floor — that is the one

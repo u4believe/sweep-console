@@ -34,7 +34,7 @@ curl -X POST https://api-sandbox.sweepconsole.xyz/v1/charges \
 
 ## The smallest charge
 
-On **mainnet**, a charge must be at least **1.00 USDC**. Below that a `422`
+On **mainnet**, a charge must be at least **2.00 USDC**. Below that a `422`
 comes back naming the floor and the amount you sent:
 
 ```json
@@ -43,7 +43,7 @@ comes back naming the floor and the amount you sent:
     "code": "amount_below_minimum",
     "message": "Validation failed",
     "details": {
-      "amount": "A charge must be at least 1.00 USDC on mainnet — this one is 0.50. Below that the network fee for collecting it exceeds what the payment is worth."
+      "amount": "A charge must be at least 2.00 USDC on mainnet — this one is 0.50. Below that the network fee for collecting it exceeds what the payment is worth."
     }
   }
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { minChargeError, useMinCharge } from "@/lib/minCharge";
 import { featureList, INTERVAL_NOUNS, type Tier } from "@/pages/portal/plan-model";
 import { apiFetch, messageOf, wasCancelled } from "@/lib/stepup";
 import { friendlyError, throwApiError } from "@/lib/errors";
@@ -74,8 +75,19 @@ export function TierEditor({
   // Micro-units, rounded rather than truncated: 9.999 typed into a USDC field is
   // a slip, and flooring it to 9.99 would quietly undercharge for the life of
   // the plan.
+  const minCharge = useMinCharge();
   const priceMicros = Math.round(Number(price) * 1_000_000);
-  const priceValid = /^\d+(\.\d{1,6})?$/.test(price.trim()) && priceMicros > 0;
+  const wellFormed = /^\d+(\.\d{1,6})?$/.test(price.trim()) && priceMicros > 0;
+  /**
+   * Repricing is held to the floor too.
+   *
+   * Existing tiers below it are NOT retroactively blocked — charge-floor.ts
+   * is explicit about that — but an EDIT is a new choice, and letting one be
+   * saved under the floor would create exactly the plan the floor exists to
+   * prevent, through the one door that did not check.
+   */
+  const belowFloor = wellFormed && minCharge !== null && priceMicros < minCharge * 1_000_000;
+  const priceValid = wellFormed && !belowFloor;
   const priceRaised = priceValid && priceMicros > tier.amount;
   const priceChanged = priceValid && priceMicros !== tier.amount;
 
@@ -243,7 +255,9 @@ export function TierEditor({
               className="m-0 mt-1"
               style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}
             >
-              {price.trim() !== "" && !priceValid
+              {belowFloor && minCharge !== null
+                ? minChargeError(minCharge, Number(price))
+                : price.trim() !== "" && !priceValid
                 ? "Enter an amount in USDC, up to 6 decimal places."
                 : priceChanged
                   ? `${priceRaised ? "Raising" : "Lowering"} from ${originalPrice} to ${Number(price).toFixed(2)} USDC.` +
