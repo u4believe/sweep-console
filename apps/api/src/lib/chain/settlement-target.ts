@@ -349,14 +349,92 @@ export function settlementGasFloor(chainId?: number): bigint {
 /**
  * The permit ceiling handed to Circle Paymaster.
  *
- * An allowance, not a charge — only the gas actually used is taken. It must
- * exceed the worst plausible cost or validation fails, and stays well below a
- * real balance so a compromised paymaster could not drain the account.
+ * An allowance, not a charge — only the gas actually used is taken, and the
+ * rest is refunded in postOp.
+ *
+ * WHY THIS IS NO LONGER floor * 2
+ *
+ * The floor and the ceiling answer different questions, and tying them
+ * together made the ceiling wrong whenever the floor was right.
+ *
+ *   the floor   how much USDC to KEEP so the next operation can be paid for.
+ *               A revolving float, refilled from the platform's fee. Too high
+ *               and fees reach the treasury late.
+ *
+ *   the ceiling how much the paymaster is ALLOWED to take for one operation.
+ *               Spends nothing by itself. Too low and validation reverts.
+ *
+ * So they pull in opposite directions: the floor wants to be small, the
+ * ceiling wants to be generous. One number could not be both, and the floor
+ * won — which is how a live Arbitrum payment died on 2026-10-28 with
+ * `AA33 reverted ERC20: transfer amount exceeds allowance`. The floor was
+ * 0.040, so the permit was 0.080, and the EntryPoint asked for ~0.15-0.25:
+ *
+ *   callGasLimit                 358,174
+ *   verificationGasLimit       1,500,000   <- the account deployed in this op
+ *   preVerificationGas            77,436
+ *   paymasterVerificationGas     200,000
+ *   paymasterPostOpGas            65,000
+ *                              ---------
+ *                              2,200,610 gas * 0.0279 gwei = 0.0000614 ETH
+ *
+ * The paymaster pre-charges against the LIMITS, not the usage, so the
+ * allowance has to cover the worst case even though almost none of it is
+ * spent. The subscriber's 3 USDC had already been pulled and sat in an
+ * undeployed account.
+ *
+ * THE CASE THESE DEFAULTS COVER IS DEPLOYMENT, NOT STEADY STATE
+ *
+ * The first operation on a chain also deploys the account, and the note on
+ * GAS_FLOOR_DEFAULTS has the measurement: Base's first settlement cost
+ * 0.055689 against 0.006581 once deployed — 8.5x. The floors are sized for
+ * the steady state because that is what they revolve against; the ceiling
+ * has to clear the one-off that happens exactly once per chain and is
+ * otherwise discovered in production, with a subscriber's money already
+ * moved.
+ *
+ * Still bounded. A compromised paymaster could take at most this much per
+ * operation, which is why it is a per-chain number a few multiples over the
+ * worst measurement rather than maxUint256.
  */
+const PERMIT_CEILING_DEFAULTS: Record<string, bigint> = {
+  // 0.055689 measured deploying on mainnet -> 0.20, about 3.6x.
+  base: 200_000n,
+  // No mainnet deployment has completed yet. 0.016562 steady state on
+  // testnet, x8.5 for deployment is ~0.14, and the op that failed wanted up
+  // to 0.25 at a higher ETH price -> 0.50.
+  arbitrum: 500_000n,
+};
+
+/// For a paymaster chain with no measurement of its own, assume it is at
+/// least as expensive as the most expensive one that has been measured.
+const PERMIT_CEILING_FALLBACK = 500_000n;
+
 export function settlementPermitCeiling(chainId?: number): bigint {
-  // Per-chain for the same reason the floor is: a ceiling derived from Base's
-  // floor would sit under Arbitrum's real cost and fail validation there.
-  return settlementGasFloor(chainId) * 2n;
+  const perChain =
+    chainId === undefined ? undefined : process.env[`SETTLEMENT_PERMIT_CEILING_USDC_${chainId}`];
+  const raw = perChain ?? process.env.SETTLEMENT_PERMIT_CEILING_USDC;
+  if (raw) {
+    try {
+      const parsed = BigInt(Math.round(Number(raw) * 1e6));
+      if (parsed > 0n) return parsed;
+    } catch {
+      /* fall through to the defaults */
+    }
+  }
+  const byChain =
+    (chainId !== undefined ? PERMIT_CEILING_DEFAULTS[chainKeyForId(chainId) ?? ""] : undefined) ??
+    PERMIT_CEILING_FALLBACK;
+  /**
+   * Never below the old coupling.
+   *
+   * An operator who raises a chain's floor because gas there got expensive is
+   * saying something true about that chain, and the ceiling should still move
+   * with it. This keeps that signal without letting the floor cap the ceiling
+   * from below, which was the bug.
+   */
+  const coupled = settlementGasFloor(chainId) * 2n;
+  return byChain > coupled ? byChain : coupled;
 }
 
 /**
