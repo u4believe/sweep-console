@@ -35,7 +35,8 @@ import {
   decodePeriodTransferTerms,
   isDelegationDisabled,
 } from "../lib/chain/delegation";
-import { getRelayerAddress, getSettlementAddress } from "../lib/chain/signers";
+import { getRelayerAddress } from "../lib/chain/signers";
+import { settlementTargetFor } from "../lib/chain/settlement-target";
 import { mandateGrantsWhere, periodConsumed, mandatePeriodStart, periodCommitted } from "../lib/rail";
 import { advanceBridge } from "./bridge";
 import { payFeeToTreasury } from "../lib/chain/fee-payout";
@@ -355,9 +356,28 @@ export async function executeCharge(chargeDbId: string): Promise<void> {
       context: plan.grant.context as Hex,
       delegate: plan.grant.delegateAddress as Address,
       token: source.usdc,
-      // Settlement, not the rail delegate. Same reasoning as the renewal pass:
-      // new grants pin `payee` here, old ones accept it.
-      recipient: getSettlementAddress(),
+      /**
+       * WHATEVER THIS GRANT PINS, not whatever settlement is today.
+       *
+       * This was getSettlementAddress() — the settlement EOA — and a grant
+       * that pins the MSCA reverts a redeem to anything else with
+       * AllowedCalldataEnforcer:invalid-calldata. Which is what happened on
+       * 2026-10-28: chg_03084c773515e9f30fe4 died on Arbitrum seconds after
+       * the payer had authorized on all three chains, with the grant pinning
+       * the MSCA and this asking for the EOA.
+       *
+       * cctp-activate.ts carries a comment saying the split "moved the other
+       * two redemption sites and left this one behind". It was describing
+       * itself being fixed. This is the one that was actually left: the rail
+       * is the last redeem reading an address off configuration rather than
+       * out of the signed context.
+       *
+       * settlementTargetFor reads the pin, so a grant that names the EOA keeps
+       * working and one that names the MSCA starts to — which matters because
+       * both generations are live at once and a mandate outlives the config
+       * that made it.
+       */
+      recipient: settlementTargetFor(plan.grant.chainId, plan.grant.context as Hex).address,
       // One redemption for the whole amount: splitting it would double the
       // redeem gas and the enforcer counts both halves against the same period
       // cap regardless. The fee moves on below.
