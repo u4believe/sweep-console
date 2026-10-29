@@ -358,16 +358,19 @@ const MODAL_STYLE_ID = "sweep-modal-styles";
 /** Breakpoint below which the panel becomes a sheet. Matches the design. */
 const SHEET_MAX_WIDTH = 560;
 
-export const MODAL_CSS = `.sweep-modal{position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(35,35,59,.55);opacity:0;transition:opacity .18s ease}
+// The panel pops in like a dialog: it grows from 92% with a slight spring past
+// full size while the backdrop dims and softens. On a phone it is a sheet that
+// slides up from the bottom instead (see the media query).
+export const MODAL_CSS = `.sweep-modal{position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(35,35,59,.55);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);opacity:0;transition:opacity .2s ease}
 .sweep-modal[data-open=true]{opacity:1}
-.sweep-modal__panel{position:relative;width:100%;max-width:520px;height:min(680px,calc(100vh - 48px));background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 0 0 1px rgba(35,35,80,.08),0 30px 60px -30px rgba(35,35,80,.45);transform:translateY(8px) scale(.99);transition:transform .18s ease}
-.sweep-modal[data-open=true] .sweep-modal__panel{transform:none}
+.sweep-modal__panel{position:relative;width:100%;max-width:520px;height:min(680px,calc(100vh - 48px));background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 0 0 1px rgba(35,35,80,.08),0 30px 60px -30px rgba(35,35,80,.45);opacity:0;transform:translateY(16px) scale(.92);transition:transform .34s cubic-bezier(.2,1.25,.4,1),opacity .2s ease}
+.sweep-modal[data-open=true] .sweep-modal__panel{opacity:1;transform:none}
 .sweep-modal__frame{display:block;width:100%;height:100%;border:0}
 .sweep-modal__close{position:absolute;top:10px;right:10px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:rgba(244,244,251,.9);color:#5D5E73;cursor:pointer;font:inherit;font-size:17px;line-height:1}
 .sweep-modal__close:hover{background:#ECECF3;color:#23233B}
 .sweep-modal__close:focus-visible{outline:2px solid #4447D6;outline-offset:2px}
-@media (max-width:${SHEET_MAX_WIDTH}px){.sweep-modal{padding:0}.sweep-modal__panel{max-width:none;height:100%;border-radius:0}.sweep-modal__close{top:8px;right:8px}}
-@media (prefers-reduced-motion:reduce){.sweep-modal,.sweep-modal__panel{transition:none}}`;
+@media (max-width:${SHEET_MAX_WIDTH}px){.sweep-modal{padding:0}.sweep-modal__panel{max-width:none;height:100%;border-radius:0;opacity:1;transform:translateY(100%);transition:transform .32s cubic-bezier(.2,.8,.2,1)}.sweep-modal__close{top:8px;right:8px}}
+@media (prefers-reduced-motion:reduce){.sweep-modal,.sweep-modal__panel{transition:none}.sweep-modal__panel{transform:none}}`;
 
 export interface AuthorizeResult {
   /** The mandate the payer signed, as the authorize page reported it. */

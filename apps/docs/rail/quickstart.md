@@ -116,7 +116,7 @@ they are — `@sweepconsole/js` opens the same `authorizationUrl` in a centred
 panel, about 520px wide, dimmed behind:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@sweepconsole/js@0.1.0/dist/sweep.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@sweepconsole/js@0.2.0/dist/sweep.js"></script>
 <button id="authorize">Authorize payments</button>
 <script>
   Sweep.authorize("#authorize", {
