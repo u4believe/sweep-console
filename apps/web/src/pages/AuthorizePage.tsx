@@ -281,7 +281,7 @@ export function AuthorizePage() {
         navigate the panel to the marketing site with no way back, stranding
         them inside a box on someone else's page.
       */}
-      <p className="mt-6 text-center text-[11px] uppercase tracking-[0.14em] text-gray-600">
+      <p className="mt-4 text-center text-[11px] uppercase tracking-[0.14em] text-gray-600">
         {embedded ? (
           <span>Secured by Sweep Console</span>
         ) : (
@@ -364,7 +364,7 @@ export function AuthorizePage() {
     return shell(
       <div className="border border-gray-200 bg-white shadow-sm">
         <div className="h-1.5 bg-gray-300" />
-        <div className="px-8 py-7 text-center">
+        <div className="px-7 py-5 text-center">
           <h1 className="text-xl font-bold text-gray-900">Nothing to authorize</h1>
           <p className="mt-2 text-sm text-gray-500">{why}</p>
           <p className="mt-4 text-sm text-gray-500">
@@ -381,7 +381,7 @@ export function AuthorizePage() {
           {embedded && (
             <button
               onClick={reportCancelled}
-              className="mt-6 w-full border border-gray-300 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
+              className="mt-4 w-full border border-gray-300 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
             >
               Close
             </button>
@@ -417,9 +417,9 @@ export function AuthorizePage() {
     return shell(
       <div className="border border-gray-200 bg-white shadow-sm">
         <div className="h-1.5 bg-brand-600" />
-        <div className="px-8 py-7">
+        <div className="px-7 py-5">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-700">Authorized</p>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight text-gray-900">You&rsquo;re set up</h1>
+          <h1 className="mt-2 text-xl font-bold tracking-tight text-gray-900">You&rsquo;re set up</h1>
         <p className="mt-2 text-sm text-gray-600">
           {view.merchant_name} can now charge up to <strong>{usdc(view.max_amount)}</strong> per {noun}.
         </p>
@@ -456,7 +456,7 @@ export function AuthorizePage() {
             platform they can do it. */}
         <a
           href="/manage"
-          className="mt-6 block w-full bg-brand-600 py-3 text-center font-semibold text-white transition hover:bg-brand-700"
+          className="mt-4 block w-full bg-brand-600 py-2.5 text-center font-semibold text-white transition hover:bg-brand-700"
         >
           Manage subscription
         </a>
@@ -483,19 +483,19 @@ export function AuthorizePage() {
           surface without a logo competing with the merchant's name. */}
       <div className="h-1.5 bg-brand-600" />
 
-      <div className="px-8 py-7">
+      <div className="px-7 py-5">
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-700">
           Recurring payment authorization
         </p>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight text-gray-900">{view.merchant_name}</h1>
+        <h1 className="mt-2 text-xl font-bold tracking-tight text-gray-900">{view.merchant_name}</h1>
 
-        <div className="mt-5 border-t border-gray-900" />
+        <div className="mt-4 border-t border-gray-900" />
 
         {/* The ceiling, as the largest thing on the page. It is the only
             consumer protection on this rail, so it outranks the button. */}
-        <div className="mt-6 flex items-baseline gap-2">
-          <span className="text-5xl font-bold leading-none tracking-tight text-gray-900">{heroAmount}</span>
-          <span className="text-lg font-bold text-gray-900">USDC</span>
+        <div className="mt-4 flex items-baseline gap-2">
+          <span className="text-4xl font-bold leading-none tracking-tight text-gray-900">{heroAmount}</span>
+          <span className="text-base font-bold text-gray-900">USDC</span>
           <span className="text-sm text-gray-500">per {noun}, maximum</span>
         </div>
 
@@ -503,8 +503,8 @@ export function AuthorizePage() {
           Pay up to this charge a {noun} from any of the chains below.
         </p>
 
-        <dl className="mt-6 text-sm">
-          <div className="flex justify-between gap-4 border-t border-gray-100 py-3">
+        <dl className="mt-4 text-sm">
+          <div className="flex justify-between gap-4 border-t border-gray-100 py-2.5">
             <dt className="text-gray-500">Paid in</dt>
             <dd className="text-right font-medium text-gray-900">USDC from {chainNames.join(", ")}</dd>
           </div>
@@ -515,7 +515,7 @@ export function AuthorizePage() {
             pays to redeem, and settlement's gas comes out of the platform's
             own fee — never the amount shown above.
           */}
-          <div className="flex justify-between gap-4 border-t border-gray-100 py-3">
+          <div className="flex justify-between gap-4 border-t border-gray-100 py-2.5">
             <dt className="text-gray-500">Network fee</dt>
             <dd className="text-right font-medium text-gray-900">Covered by Sweep Console</dd>
           </div>
@@ -525,7 +525,7 @@ export function AuthorizePage() {
             the date the standing permission stops, which is the one the payer
             is agreeing to.
           */}
-          <div className="flex justify-between gap-4 border-t border-gray-100 py-3">
+          <div className="flex justify-between gap-4 border-t border-gray-100 py-2.5">
             <dt className="text-gray-500">Expires</dt>
             <dd className="text-right font-medium text-gray-900">
               {new Date(view.expires_at).toLocaleDateString(undefined, {
@@ -539,7 +539,7 @@ export function AuthorizePage() {
         </dl>
 
         {error && (
-          <p className="mt-5 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
+          <p className="mt-4 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
         )}
 
         {/* Step one, and it has to be first: a signature proves a wallet, not a
@@ -554,7 +554,7 @@ export function AuthorizePage() {
             authorize at all. What they proved is reported back beside what was
             asked for, so a mismatch is the merchant's to reconcile. */}
         {!verified && (
-          <div className="mt-6">
+          <div className="mt-4">
             <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-gray-500">Your email</p>
             <div className="border-t border-gray-100 pt-3">
               <div className="flex flex-wrap gap-2">
@@ -631,7 +631,7 @@ export function AuthorizePage() {
         */}
         {verified && (
           <div
-            className="mt-6 flex items-center"
+            className="mt-4 flex items-center"
             style={{ gap: 10, padding: "12px 0", borderTop: "1px solid var(--color-divider)", fontSize: 13.5 }}
           >
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-accent)", width: 22, flex: "none" }}>
@@ -656,7 +656,7 @@ export function AuthorizePage() {
             chain at a time and this is the only thing on the page that says how
             far through they are. Rendered from `targets` rather than a fixed
             three, so a mandate offered on fewer chains shows fewer. */}
-        <div className="mt-6">
+        <div className="mt-4">
           <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-gray-500">
             {canPick ? "Choose chains" : "Approve chains"}
           </p>
@@ -751,7 +751,7 @@ export function AuthorizePage() {
           </div>
         </div>
 
-        <div className="mt-6">
+        <div className="mt-4">
           {!verified ? (
             <p className="border border-gray-200 bg-gray-50 px-4 py-3 text-center text-sm text-gray-500">
               Verify your email to continue.
@@ -813,7 +813,7 @@ export function AuthorizePage() {
             matters on this rail: the merchant sets the amount and the timing,
             and the platform they are trusting with a standing permission is not
             the one deciding how much to take. */}
-        <p className="mt-5 text-xs leading-relaxed text-gray-500">
+        <p className="mt-4 text-xs leading-relaxed text-gray-500">
           {view.merchant_name} decides when to charge, within the limit above. Sweep Console moves the money on their
           instruction and never holds it. Withdraw this permission anytime from your wallet.
         </p>
