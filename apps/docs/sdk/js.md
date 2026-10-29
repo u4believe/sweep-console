@@ -71,10 +71,51 @@ you did not choose.
 }
 ```
 
+## The rail: a panel over your page, not a new tab
+
+`mount()` navigates away, which is right for hosted checkout. The **payment
+rail** has `authorize()` instead, and it opens the authorization in a centred
+panel over your own page — about 520px wide, never full screen on a desktop.
+
+```html
+<button id="authorize">Authorize payments</button>
+
+<script>
+  Sweep.authorize("#authorize", {
+    session: "/api/sweep/mandate-link",   // your endpoint, returns { url }
+    onAuthorized: (mandateId) => location.reload(),
+    onCancelled:  () => {},
+  });
+</script>
+```
+
+`mode` picks how it opens, and `"modal"` is the default:
+
+| mode | what the payer sees |
+| --- | --- |
+| `"modal"` *(default)* | a centred panel over your page, dimmed behind |
+| `"popup"` | a 520x720 window, opened inside the click so it survives blockers |
+| `"redirect"` | navigates away, like `mount()` |
+
+On a phone the panel fills the screen, because 520px centred on a 390px
+viewport is a worse version of the same thing.
+
+**The wallet still works.** A cross-origin frame cannot rely on an injected
+provider, so the framed page checks whether one is reachable and, when it is
+not, hands the signature to a popup — a top-level window where every wallet
+behaves — and relays the result back to the panel. The payer sees one flow;
+the signature happens where it can.
+
+**`onAuthorized` is a UI signal, not fulfilment.** It tells you the panel
+closed successfully so you can refresh. Grant access on the
+`mandate.authorized` webhook, which arrives whether or not the payer stayed.
+
 ## What it deliberately does not do
 
-- **No iframe.** The hosted page needs a wallet, and injected providers are
-  unreliable in a cross-origin frame. It navigates the top level.
+- **No iframe for `mount()`.** The *hosted* checkout page needs a wallet, and
+  injected providers are unreliable in a cross-origin frame, so `mount()`
+  navigates the top level. `authorize()` is the exception and earns it with
+  the popup fallback above — it is the rail's page, built to be framed.
 - **No wallet detection.** It never probes for `window.ethereum` to decide
   whether to render — a mobile wallet browser fails that test.
 - **No fulfilment signal.** Returning to your site means the payer came back,

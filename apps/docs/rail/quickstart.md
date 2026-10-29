@@ -110,6 +110,27 @@ single charge or several — and not a cent more without asking again.
 Give it headroom. A mandate at exactly your current price leaves you no room for
 a plan change, and raising the ceiling needs a second signature.
 
+**Or open it over your own page.** `res.redirect` sends the payer away, which
+is right for a server-rendered flow. In a browser app you can keep them where
+they are — `@sweepconsole/js` opens the same `authorizationUrl` in a centred
+panel, about 520px wide, dimmed behind:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@sweepconsole/js@0.1.0/dist/sweep.js"></script>
+<button id="authorize">Authorize payments</button>
+<script>
+  Sweep.authorize("#authorize", {
+    session: "/subscribe/usdc",            // returns { url: mandate.authorizationUrl }
+    onAuthorized: () => location.reload(),
+  });
+</script>
+```
+
+A cross-origin frame cannot depend on an injected wallet, so when one is not
+reachable the panel hands the signature to a popup and relays the result back.
+Full width on a phone, a panel on a desktop. See
+[@sweepconsole/js](/sdk/js#the-rail-a-panel-over-your-page-not-a-new-tab).
+
 **And they choose the chains.** The page shows the ones you offered, all selected
 to begin with, and the payer can deselect any before signing — each one is a
 separate wallet signature. So `chains` is a maximum rather than a promise: offer
