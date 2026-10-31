@@ -75,6 +75,24 @@ function describeError(e: unknown): string {
   return friendlyError(e, "Something went wrong. Please try again.");
 }
 
+/**
+ * The card, matched to the hosted checkout's payment card.
+ *
+ * Those two surfaces were square with a drop shadow here and rounded with no
+ * shadow there, which is what reads as "slightly different" even though the
+ * palette is identical — tailwind.config maps gray-* onto the same neutral
+ * ramp the tokens use, so only the SHAPE ever diverged.
+ *
+ * rounded-xl is 12px against the hosted card's --radius-lg of 14; close
+ * enough that no payer sees a difference and it stays a Tailwind utility
+ * rather than an inline style in a file that has none.
+ *
+ * The shadow is dropped inside the panel: the modal already casts one, and
+ * two stacked shadows on the same rectangle is how a card starts looking
+ * like it is floating off the page.
+ */
+const CARD_BASE = "overflow-hidden rounded-xl border border-gray-200 bg-white";
+
 function shortAddress(a: string): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
@@ -105,6 +123,7 @@ export function AuthorizePage() {
    * page, and a value that flickers would move the layout under the payer.
    */
   const [embedded] = useState(isEmbedded);
+  const CARD = embedded ? CARD_BASE : `${CARD_BASE} shadow-sm`;
 
   // Knock on the host's door as soon as this mounts. Before the view loads —
   // otherwise the merchant watches an empty panel while we fetch.
@@ -275,7 +294,13 @@ export function AuthorizePage() {
       }
     >
       <div className={embedded ? "" : "fixed inset-x-0 top-0 z-50"}><TestModeBanner /></div>
-      <main className={embedded ? "w-full" : "w-full max-w-md"}>{children}</main>
+      {/*
+        540px, which is the hosted checkout's card width, so the two read as
+        one product. Embedded it was w-full and therefore as wide as whatever
+        panel it landed in — at a 600px panel that is a 600px column of text,
+        which is wider than anything else this product shows a payer.
+      */}
+      <main className={embedded ? "mx-auto w-full max-w-[540px]" : "w-full max-w-md"}>{children}</main>
       {/*
         The provenance line, and in a frame it is also the only thing telling
         the payer whose checkout this is. The link is dropped there: it would
@@ -381,7 +406,7 @@ export function AuthorizePage() {
           ? "This link has expired."
           : "This authorization is no longer available.");
     return shell(
-      <div className="border border-gray-200 bg-white shadow-sm">
+      <div className={CARD}>
         <div className="h-1 bg-gray-300" />
         <div className="px-6 py-4 text-center">
           <h1 className="text-xl font-bold text-gray-900">Nothing to authorize</h1>
@@ -434,7 +459,7 @@ export function AuthorizePage() {
 
   if (phase === "done") {
     return shell(
-      <div className="border border-gray-200 bg-white shadow-sm">
+      <div className={CARD}>
         <div className="h-1 bg-brand-600" />
         <div className="px-6 py-4">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-700">Authorized</p>
@@ -497,7 +522,7 @@ export function AuthorizePage() {
   const heroAmount = usdc(view.max_amount).replace(/\.00$/, "");
 
   return shell(
-    <div className="border border-gray-200 bg-white shadow-sm">
+    <div className={CARD}>
       {/* The accent rule is the only ornament: it marks this as a payment
           surface without a logo competing with the merchant's name. */}
       <div className="h-1 bg-brand-600" />
