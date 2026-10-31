@@ -626,27 +626,6 @@ export function AuthorizePage() {
             <dt className="text-gray-500">Network fee</dt>
             <dd className="text-right font-medium text-gray-900">Covered by Sweep Console</dd>
           </div>
-          {/*
-            The authorization's own expiry, not the link's. The link dying is
-            this page's problem and is handled by the "gone" state; this is
-            the date the standing permission stops, which is the one the payer
-            is agreeing to.
-          */}
-          <div className="flex justify-between gap-4 border-t border-[color:var(--color-divider)] py-2">
-            {/* "Expires" alone sat next to "per day, maximum" and read as the
-                  billing period — as though the subscription ended then. It is
-                  the PERMISSION's lifetime: how long this mandate may keep
-                  charging before the payer is asked again. Naming it that is
-                  cheaper than removing a fact the payer is entitled to. */}
-              <dt className="text-gray-500">Permission expires</dt>
-            <dd className="text-right font-medium text-gray-900">
-              {new Date(view.expires_at).toLocaleDateString(undefined, {
-                year: "numeric",
-                month: "short",
-                day: "numeric",
-              })}
-            </dd>
-          </div>
           <div className="border-t border-[color:var(--color-divider)]" />
         </dl>
 
@@ -769,7 +748,7 @@ export function AuthorizePage() {
             far through they are. Rendered from `targets` rather than a fixed
             three, so a mandate offered on fewer chains shows fewer. */}
         <div className="mt-3">
-          <StepLabel n="03">{canPick ? "Choose chains" : "Approve chains"}</StepLabel>
+          <StepLabel n="02">{canPick ? "Choose chains" : "Approve chains"}</StepLabel>
           {canPick && (
             <p className="mb-2 text-xs text-gray-500">
               Pick where {view.merchant_name} may charge you. Each one is a separate signature, and
@@ -901,7 +880,7 @@ export function AuthorizePage() {
                       flex: "none",
                     }}
                   >
-                    02
+                    03
                   </span>
                   <span className="min-w-0 truncate" style={{ fontFamily: "var(--font-mono)", fontSize: 12.5 }}>
                     {shortAddress(address)}
@@ -982,8 +961,9 @@ export function AuthorizePage() {
             and the platform they are trusting with a standing permission is not
             the one deciding how much to take. */}
         <p className="mt-3 text-xs leading-snug text-gray-500">
-          {view.merchant_name} decides when to charge, within the limit above. Sweep Console moves the money on their
-          instruction and never holds it. Withdraw this permission anytime from your wallet.
+          <strong className="font-semibold text-gray-900">
+            Withdraw this permission anytime from your wallet.
+          </strong>
         </p>
       </div>
     </div>
