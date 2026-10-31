@@ -1180,7 +1180,14 @@ function Pricing() {
  */
 function StartCta() {
   return (
-    <section id="start" style={{ background: "var(--color-bg)", padding: "clamp(56px,8vw,96px) 0" }}>
+    /* Tinted, because Pricing above it and the footer below it are both white
+       and three white bands in a row let the last call to action dissolve into
+       the page. The same --color-neutral-200 Section's `ground` uses, so the
+       page keeps one tint rather than gaining a second. */
+    <section
+      id="start"
+      style={{ background: "var(--color-neutral-200)", padding: "clamp(56px,8vw,96px) 0" }}
+    >
       <div className="mx-auto w-full" style={{ maxWidth: PAGE_W, paddingInline: "clamp(18px,4vw,40px)", textAlign: "center" }}>
         <span className="inline-flex" style={{ marginBottom: 22 }}>
           <SweepMark size={46} />
