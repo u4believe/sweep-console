@@ -1,6 +1,6 @@
 import { TestModeBanner } from "@/components/checkout/TestModeBanner";
 import { fetchConfig } from "@/lib/gateway";
-import { useCallback, useEffect, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useAccount, useDisconnect } from "wagmi";
 import {
@@ -91,7 +91,25 @@ function describeError(e: unknown): string {
  * two stacked shadows on the same rectangle is how a card starts looking
  * like it is floating off the page.
  */
-const CARD_BASE = "overflow-hidden rounded-[14px] border border-gray-200 bg-white shadow-sm";
+/**
+ * The card, copied from the hosted checkout rather than matched by eye.
+ *
+ * CheckoutShell's payment card is:
+ *   background   var(--color-bg)
+ *   borderRadius var(--radius-lg)
+ *   boxShadow    0 0 0 1px var(--color-neutral-400), var(--shadow-lg)
+ *
+ * That ring is the "lining" — a hairline drawn as a shadow rather than a
+ * border, so it sits outside the radius and stays even. A Tailwind
+ * `border border-gray-200` is a different colour AND a different geometry,
+ * which is most of why these two never looked like one product.
+ */
+const CARD_STYLE: CSSProperties = {
+  background: "var(--color-bg)",
+  borderRadius: "var(--radius-lg)",
+  boxShadow: "0 0 0 1px var(--color-neutral-400), var(--shadow-lg)",
+  overflow: "hidden",
+};
 
 function shortAddress(a: string): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -132,7 +150,7 @@ export function AuthorizePage() {
    * checkout's does, and without a shadow a white card on a tint is a flat
    * patch rather than a card.
    */
-  const CARD = CARD_BASE;
+
 
   // Knock on the host's door as soon as this mounts. Before the view loads —
   // otherwise the merchant watches an empty panel while we fetch.
@@ -309,7 +327,7 @@ export function AuthorizePage() {
         panel it landed in — at a 600px panel that is a 600px column of text,
         which is wider than anything else this product shows a payer.
       */}
-      <main className={embedded ? "mx-auto w-full max-w-[460px]" : "w-full max-w-md"}>{children}</main>
+      <main className={embedded ? "mx-auto w-full max-w-[420px]" : "w-full max-w-md"}>{children}</main>
       {/*
         The provenance line, and in a frame it is also the only thing telling
         the payer whose checkout this is. The link is dropped there: it would
@@ -415,9 +433,9 @@ export function AuthorizePage() {
           ? "This link has expired."
           : "This authorization is no longer available.");
     return shell(
-      <div className={CARD}>
+      <div style={CARD_STYLE}>
         <div className="h-1 bg-gray-300" />
-        <div className="px-6 py-4 text-center">
+        <div style={{ padding: "26px 22px 22px" }} className="text-center">
           <h1 className="text-xl font-bold text-gray-900">Nothing to authorize</h1>
           <p className="mt-2 text-sm text-gray-500">{why}</p>
           <p className="mt-2 text-sm text-gray-500">
@@ -468,10 +486,10 @@ export function AuthorizePage() {
 
   if (phase === "done") {
     return shell(
-      <div className={CARD}>
+      <div style={CARD_STYLE}>
         <div className="h-1 bg-brand-600" />
-        <div className="px-6 py-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-700">Authorized</p>
+        <div style={{ padding: "26px 22px 22px" }}>
+          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[color:var(--color-accent)]">Authorized</p>
           <h1 className="mt-2 text-xl font-bold tracking-tight text-gray-900">You&rsquo;re set up</h1>
         <p className="mt-2 text-sm text-gray-600">
           {view.merchant_name} can now charge up to <strong>{usdc(view.max_amount)}</strong> per {noun}.
@@ -531,18 +549,18 @@ export function AuthorizePage() {
   const heroAmount = usdc(view.max_amount).replace(/\.00$/, "");
 
   return shell(
-    <div className={CARD}>
+    <div style={CARD_STYLE}>
       {/* The accent rule is the only ornament: it marks this as a payment
           surface without a logo competing with the merchant's name. */}
       <div className="h-1 bg-brand-600" />
 
-      <div className="px-6 py-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-700">
+      <div style={{ padding: "26px 22px 22px" }}>
+        <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[color:var(--color-accent)]">
           Recurring payment authorization
         </p>
         <h1 className="mt-2 text-xl font-bold tracking-tight text-gray-900">{view.merchant_name}</h1>
 
-        <div className="mt-3 border-t border-gray-900" />
+        <div className="mt-3 border-t border-[color:var(--color-neutral-900)]" />
 
         {/* The ceiling, as the largest thing on the page. It is the only
             consumer protection on this rail, so it outranks the button. */}
@@ -557,7 +575,7 @@ export function AuthorizePage() {
         </p>
 
         <dl className="mt-3 text-sm">
-          <div className="flex justify-between gap-4 border-t border-gray-100 py-2">
+          <div className="flex justify-between gap-4 border-t border-[color:var(--color-divider)] py-2">
             <dt className="text-gray-500">Paid in</dt>
             <dd className="text-right font-medium text-gray-900">USDC from {chainNames.join(", ")}</dd>
           </div>
@@ -568,7 +586,7 @@ export function AuthorizePage() {
             pays to redeem, and settlement's gas comes out of the platform's
             own fee — never the amount shown above.
           */}
-          <div className="flex justify-between gap-4 border-t border-gray-100 py-2">
+          <div className="flex justify-between gap-4 border-t border-[color:var(--color-divider)] py-2">
             <dt className="text-gray-500">Network fee</dt>
             <dd className="text-right font-medium text-gray-900">Covered by Sweep Console</dd>
           </div>
@@ -578,7 +596,7 @@ export function AuthorizePage() {
             the date the standing permission stops, which is the one the payer
             is agreeing to.
           */}
-          <div className="flex justify-between gap-4 border-t border-gray-100 py-2">
+          <div className="flex justify-between gap-4 border-t border-[color:var(--color-divider)] py-2">
             <dt className="text-gray-500">Expires</dt>
             <dd className="text-right font-medium text-gray-900">
               {new Date(view.expires_at).toLocaleDateString(undefined, {
@@ -588,7 +606,7 @@ export function AuthorizePage() {
               })}
             </dd>
           </div>
-          <div className="border-t border-gray-100" />
+          <div className="border-t border-[color:var(--color-divider)]" />
         </dl>
 
         {error && (
@@ -608,8 +626,8 @@ export function AuthorizePage() {
             asked for, so a mismatch is the merchant's to reconcile. */}
         {!verified && (
           <div className="mt-3">
-            <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-gray-500">Your email</p>
-            <div className="border-t border-gray-100 pt-3">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[color:var(--color-neutral-700)]">Your email</p>
+            <div className="border-t border-[color:var(--color-divider)] pt-3">
               <div className="flex flex-wrap gap-2">
                 <input
                   type="email"
@@ -710,7 +728,7 @@ export function AuthorizePage() {
             far through they are. Rendered from `targets` rather than a fixed
             three, so a mandate offered on fewer chains shows fewer. */}
         <div className="mt-3">
-          <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-gray-500">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[color:var(--color-neutral-700)]">
             {canPick ? "Choose chains" : "Approve chains"}
           </p>
           {canPick && (
@@ -719,7 +737,7 @@ export function AuthorizePage() {
               you can add the others later from this link.
             </p>
           )}
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-gray-100 pt-3">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-[color:var(--color-divider)] pt-3">
             {view.targets.map((t) => {
                             const on = signedChains.includes(t.chain_id);
               const chosen = (picked ?? []).includes(t.chain_id);
