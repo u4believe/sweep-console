@@ -104,6 +104,47 @@ function describeError(e: unknown): string {
  * `border border-gray-200` is a different colour AND a different geometry,
  * which is most of why these two never looked like one product.
  */
+/**
+ * A numbered section header, the shape CheckoutShell uses.
+ *
+ * A mono number in the accent at a fixed 22px gutter, then the label at
+ * 11/600/0.1em in neutral-700. The rail had the label without the number, so
+ * its sections read as captions while the hosted checkout's read as steps —
+ * the same words doing a different job.
+ *
+ * The rail stops at 03. Hosted's 04 is AUTOMATIC RENEWAL, which this page has
+ * no equivalent for: a mandate IS the standing permission, so there is nothing
+ * to opt into afterwards.
+ */
+function StepLabel({ n, children }: { n: string; children: React.ReactNode }) {
+  return (
+    <p
+      className="m-0 mb-2 flex uppercase"
+      style={{
+        gap: 10,
+        fontSize: 11,
+        fontWeight: 600,
+        letterSpacing: "0.1em",
+        color: "var(--color-neutral-700)",
+      }}
+    >
+      <span
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          color: "var(--color-accent)",
+          width: 22,
+          flex: "none",
+          letterSpacing: 0,
+        }}
+      >
+        {n}
+      </span>
+      {children}
+    </p>
+  );
+}
+
 const CARD_STYLE: CSSProperties = {
   background: "var(--color-bg)",
   borderRadius: "var(--radius-lg)",
@@ -434,7 +475,6 @@ export function AuthorizePage() {
           : "This authorization is no longer available.");
     return shell(
       <div style={CARD_STYLE}>
-        <div className="h-1 bg-gray-300" />
         <div style={{ padding: "26px 22px 22px" }} className="text-center">
           <h1 className="text-xl font-bold text-gray-900">Nothing to authorize</h1>
           <p className="mt-2 text-sm text-gray-500">{why}</p>
@@ -487,7 +527,6 @@ export function AuthorizePage() {
   if (phase === "done") {
     return shell(
       <div style={CARD_STYLE}>
-        <div className="h-1 bg-brand-600" />
         <div style={{ padding: "26px 22px 22px" }}>
           <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[color:var(--color-accent)]">Authorized</p>
           <h1 className="mt-2 text-xl font-bold tracking-tight text-gray-900">You&rsquo;re set up</h1>
@@ -550,9 +589,6 @@ export function AuthorizePage() {
 
   return shell(
     <div style={CARD_STYLE}>
-      {/* The accent rule is the only ornament: it marks this as a payment
-          surface without a logo competing with the merchant's name. */}
-      <div className="h-1 bg-brand-600" />
 
       <div style={{ padding: "26px 22px 22px" }}>
         <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[color:var(--color-accent)]">
@@ -626,7 +662,7 @@ export function AuthorizePage() {
             asked for, so a mismatch is the merchant's to reconcile. */}
         {!verified && (
           <div className="mt-3">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[color:var(--color-neutral-700)]">Your email</p>
+            <StepLabel n="01">Your email</StepLabel>
             <div className="border-t border-[color:var(--color-divider)] pt-3">
               <div className="flex flex-wrap gap-2">
                 <input
@@ -728,9 +764,7 @@ export function AuthorizePage() {
             far through they are. Rendered from `targets` rather than a fixed
             three, so a mandate offered on fewer chains shows fewer. */}
         <div className="mt-3">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[color:var(--color-neutral-700)]">
-            {canPick ? "Choose chains" : "Approve chains"}
-          </p>
+          <StepLabel n="03">{canPick ? "Choose chains" : "Approve chains"}</StepLabel>
           {canPick && (
             <p className="mb-2 text-xs text-gray-500">
               Pick where {view.merchant_name} may charge you. Each one is a separate signature, and
@@ -846,17 +880,38 @@ export function AuthorizePage() {
                 account underneath it is how a mandate ends up half-signed.
               */}
               {phase !== "signing" && (
-                <div className="mb-2 flex items-center justify-between gap-3 border border-gray-200 bg-gray-50 px-3 py-2">
-                  <span className="min-w-0 truncate text-xs text-gray-600">
-                    Signing with <span className="font-medium text-gray-900">{shortAddress(address)}</span>
+                <div
+                  className="mb-3 flex items-center gap-2"
+                  style={{ fontSize: 13, borderBottom: "1px solid var(--color-divider)", paddingBottom: 10 }}
+                >
+                  {/* Step 02, the shape hosted uses for its wallet row: the
+                      number, the address, the way to change it, then the state
+                      on the right. */}
+                  <span
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 11,
+                      color: "var(--color-accent)",
+                      width: 22,
+                      flex: "none",
+                    }}
+                  >
+                    02
+                  </span>
+                  <span className="min-w-0 truncate" style={{ fontFamily: "var(--font-mono)", fontSize: 12.5 }}>
+                    {shortAddress(address)}
                   </span>
                   <button
                     type="button"
                     onClick={switchWallet}
-                    className="shrink-0 text-xs font-medium text-brand-700 underline underline-offset-2"
+                    className="shrink-0 underline underline-offset-2"
+                    style={{ fontSize: 12.5, color: "var(--color-accent)" }}
                   >
-                    Connect a different wallet
+                    Change
                   </button>
+                  <span className="ml-auto shrink-0" style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>
+                    Wallet connected
+                  </span>
                 </div>
               )}
               {/*
