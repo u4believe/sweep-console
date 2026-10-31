@@ -28,6 +28,15 @@ export interface GrantTarget {
   /// send a subscriber's USDC anywhere else. Absent on grants issued before the
   /// split, which carry no such constraint.
   payee?: `0x${string}`;
+  /**
+   * When this grant's permission should expire, in unix seconds.
+   *
+   * Set by the rail, where the developer chose expires_at and the authorize
+   * page displays it. Absent on the hosted paths, which have no fixed end —
+   * a subscription renews until it is cancelled — and fall back to the
+   * one-year lifetime below.
+   */
+  expiry_sec?: number;
 }
 
 export interface GrantPlan {

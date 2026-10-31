@@ -633,7 +633,12 @@ export function AuthorizePage() {
             is agreeing to.
           */}
           <div className="flex justify-between gap-4 border-t border-[color:var(--color-divider)] py-2">
-            <dt className="text-gray-500">Expires</dt>
+            {/* "Expires" alone sat next to "per day, maximum" and read as the
+                  billing period — as though the subscription ended then. It is
+                  the PERMISSION's lifetime: how long this mandate may keep
+                  charging before the payer is asked again. Naming it that is
+                  cheaper than removing a fact the payer is entitled to. */}
+              <dt className="text-gray-500">Permission expires</dt>
             <dd className="text-right font-medium text-gray-900">
               {new Date(view.expires_at).toLocaleDateString(undefined, {
                 year: "numeric",

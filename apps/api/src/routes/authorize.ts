@@ -150,6 +150,19 @@ function targetsFor(m: MandateForPage) {
     period_duration: number;
     delegate: string;
     payee?: string;
+    /**
+     * When this mandate's permission dies, in unix seconds.
+     *
+     * Sent so the wallet is asked for the SAME date the page shows. It was
+     * not: the client used a hardcoded one-year lifetime while the page
+     * displayed m.expiresAt, so a mandate created to expire in three months
+     * asked the payer's wallet for a year, and one created for two years
+     * asked for one. The row said one thing and the signature meant another.
+     *
+     * The developer sets expires_at on POST /v1/mandates and it is validated
+     * as future, so it is a real decision rather than a default to improve on.
+     */
+    expiry_sec: number;
   }[] = [];
   // A chain the developer asked for that this deployment can no longer offer.
   // Returned rather than quietly dropped: a mandate created for three chains and
@@ -168,6 +181,7 @@ function targetsFor(m: MandateForPage) {
       chain_key: c.key,
       name: c.chain.name,
       token: c.usdc,
+      expiry_sec: Math.floor(m.expiresAt.getTime() / 1000),
       period_amount: m.maxAmount.toString(),
       period_duration: m.periodDuration,
       delegate,

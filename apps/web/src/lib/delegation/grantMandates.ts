@@ -164,7 +164,18 @@ export async function grantRenewalMandates(
       periodAmountMicro: BigInt(t.period_amount),
       periodDurationSec: t.period_duration,
       startTimeSec: now,
-      expirySec: now + MANDATE_LIFETIME_SEC,
+      /**
+       * What the GRANT says, when the grant says anything.
+       *
+       * This was always now + MANDATE_LIFETIME_SEC, so the rail's authorize
+       * page displayed the mandate's expires_at while asking the wallet for a
+       * year — two different dates, one of them shown to the payer and the
+       * other one actually signed.
+       *
+       * The fallback stays for the hosted paths, which send no expiry because
+       * a subscription has no fixed end.
+       */
+      expirySec: t.expiry_sec ?? now + MANDATE_LIFETIME_SEC,
       justification: justificationFor(t, merchantName),
     });
 
