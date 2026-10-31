@@ -4,7 +4,7 @@ A **Subscribe with USDC** button for the browser. It asks *your* server for a
 URL and sends the payer there.
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@sweepconsole/js@0.2.1/dist/sweep.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@sweepconsole/js@0.2.2/dist/sweep.js"></script>
 <button id="pay-usdc">Subscribe with USDC</button>
 
 <script>
@@ -39,7 +39,7 @@ For a public link, where there is no identity to protect, a plain anchor is
 enough:
 
 ```html
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@sweepconsole/js@0.2.1/dist/button.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@sweepconsole/js@0.2.2/dist/button.css">
 <a class="sweep-pay" href="https://pay.sweepconsole.xyz/pay/plink_a1b2c3?ref=user_42">
   Subscribe with USDC
 </a>

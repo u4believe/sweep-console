@@ -91,7 +91,7 @@ function describeError(e: unknown): string {
  * two stacked shadows on the same rectangle is how a card starts looking
  * like it is floating off the page.
  */
-const CARD_BASE = "overflow-hidden rounded-xl border border-gray-200 bg-white";
+const CARD_BASE = "overflow-hidden rounded-[14px] border border-gray-200 bg-white shadow-sm";
 
 function shortAddress(a: string): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -123,7 +123,16 @@ export function AuthorizePage() {
    * page, and a value that flickers would move the layout under the payer.
    */
   const [embedded] = useState(isEmbedded);
-  const CARD = embedded ? CARD_BASE : `${CARD_BASE} shadow-sm`;
+  /**
+   * One card, shadowed either way.
+   *
+   * The shadow was dropped when embedded because the panel cast its own and
+   * two on one rectangle looked wrong. That reasoning died with the white
+   * panel: the card now sits on the #F4F4FB tint exactly as the hosted
+   * checkout's does, and without a shadow a white card on a tint is a flat
+   * patch rather than a card.
+   */
+  const CARD = CARD_BASE;
 
   // Knock on the host's door as soon as this mounts. Before the view loads —
   // otherwise the merchant watches an empty panel while we fetch.
@@ -289,7 +298,7 @@ export function AuthorizePage() {
     <div
       className={
         embedded
-          ? "flex min-h-full flex-col bg-white px-5 py-5"
+          ? "flex min-h-full flex-col bg-[#F4F4FB] px-7 py-7"
           : "flex min-h-screen flex-col items-center justify-center bg-ground px-4 py-10"
       }
     >
@@ -300,7 +309,7 @@ export function AuthorizePage() {
         panel it landed in — at a 600px panel that is a 600px column of text,
         which is wider than anything else this product shows a payer.
       */}
-      <main className={embedded ? "mx-auto w-full max-w-[540px]" : "w-full max-w-md"}>{children}</main>
+      <main className={embedded ? "mx-auto w-full max-w-[460px]" : "w-full max-w-md"}>{children}</main>
       {/*
         The provenance line, and in a frame it is also the only thing telling
         the payer whose checkout this is. The link is dropped there: it would

@@ -368,7 +368,7 @@ const MODAL_STYLE_ID = "sweep-modal-styles";
  * squeezed. Small enough to never be noticed, and it would have grown to 88px
  * wide the moment the panel did.
  */
-const PANEL_MAX_WIDTH = 600;
+const PANEL_MAX_WIDTH = 680;
 const SHEET_MAX_WIDTH = PANEL_MAX_WIDTH + 48;
 
 // The panel pops in like a dialog: it grows from 92% with a slight spring past
@@ -376,7 +376,7 @@ const SHEET_MAX_WIDTH = PANEL_MAX_WIDTH + 48;
 // slides up from the bottom instead (see the media query).
 export const MODAL_CSS = `.sweep-modal{position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(35,35,59,.55);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);opacity:0;transition:opacity .2s ease}
 .sweep-modal[data-open=true]{opacity:1}
-.sweep-modal__panel{position:relative;width:100%;max-width:${PANEL_MAX_WIDTH}px;height:min(680px,calc(100vh - 48px));background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 0 0 1px rgba(35,35,80,.08),0 30px 60px -30px rgba(35,35,80,.45);opacity:0;transform:translateY(16px) scale(.92);transition:transform .34s cubic-bezier(.2,1.25,.4,1),opacity .2s ease}
+.sweep-modal__panel{position:relative;width:100%;max-width:${PANEL_MAX_WIDTH}px;height:min(800px,calc(100vh - 48px));background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 0 0 1px rgba(35,35,80,.08),0 30px 60px -30px rgba(35,35,80,.45);opacity:0;transform:translateY(16px) scale(.92);transition:transform .34s cubic-bezier(.2,1.25,.4,1),opacity .2s ease}
 .sweep-modal[data-open=true] .sweep-modal__panel{opacity:1;transform:none}
 .sweep-modal__frame{display:block;width:100%;height:100%;border:0}
 .sweep-modal__close{position:absolute;top:10px;right:10px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:rgba(244,244,251,.9);color:#5D5E73;cursor:pointer;font:inherit;font-size:17px;line-height:1}
