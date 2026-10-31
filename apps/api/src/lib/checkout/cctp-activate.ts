@@ -33,7 +33,7 @@ import {
   getPublicClient,
   getUsdcAddress,
 } from "../chain/contract";
-import { redeemPeriodicTransfer, relayerBridgeToArc, rpcUrlForChain } from "../chain/delegation";
+import { assertAccountDeployed, redeemPeriodicTransfer, relayerBridgeToArc, rpcUrlForChain } from "../chain/delegation";
 import { settlementTargetFor } from "../chain/settlement-target";
 import { walletFor } from "../merchant-wallet";
 import { settleViaUserOp } from "../chain/settlement-userop";
@@ -239,6 +239,8 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
     // after the split moved the other two redemption sites and left this one
     // behind. Grants without a payee accept either, so both generations work.
     const settlementTarget = settlementTargetFor(mandate.chainId, mandate.context as Hex);
+
+    assertAccountDeployed(mandate);
 
     await setSweepStatus(sweepDbId, "depositing");
     await redeemPeriodicTransfer({

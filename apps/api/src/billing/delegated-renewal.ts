@@ -22,7 +22,7 @@ import type { Prisma, BridgeTransfer } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { selectPaymentChain } from "../lib/gateway/selector";
 import { chainKeyForId, getSourceChain } from "../lib/gateway/chains";
-import {
+import { assertAccountDeployed,
   redeemPeriodicTransfer,
   decodePeriodTransferTerms,
   mandateCovers,
@@ -464,6 +464,8 @@ async function redeemPrepared(prepared: PreparedRenewal[], outcomes: RenewalOutc
   /// not sign a delegation on Arc, so no Arc grant exists.
   for (const p of prepared.filter((x) => x.chosenKey === "arc")) {
     try {
+      // Guards both redeems below: they share one mandate.
+      assertAccountDeployed(p.chosenMandate);
       const settle = await redeemPeriodicTransfer({
         chainId: p.chosenMandate.chainId,
         delegationManager: p.chosenMandate.delegationManager as Address,
@@ -625,6 +627,7 @@ async function redeemPrepared(prepared: PreparedRenewal[], outcomes: RenewalOutc
     for (const p of items) {
       const source = getSourceChain(p.chosenKey);
       try {
+        assertAccountDeployed(p.chosenMandate);
         await redeemPeriodicTransfer({
           chainId: p.chosenMandate.chainId,
           delegationManager: p.chosenMandate.delegationManager as Address,

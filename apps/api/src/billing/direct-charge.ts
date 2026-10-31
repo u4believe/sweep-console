@@ -31,6 +31,7 @@ import { prisma } from "../lib/prisma";
 import { selectPaymentChain } from "../lib/gateway/selector";
 import { chainKeyForId, getSourceChain } from "../lib/gateway/chains";
 import {
+  assertAccountDeployed,
   redeemPeriodicTransfer,
   decodePeriodTransferTerms,
   isDelegationDisabled,
@@ -137,6 +138,9 @@ export async function planCharge(c: ChargeContext) {
       id: true, grantId: true, chainId: true, token: true, context: true,
       delegateAddress: true, delegationManager: true, delegationHash: true,
       periodAmount: true, periodDuration: true, lastRedeemedAt: true,
+      // Selected so assertAccountDeployed can see it. Without it the guard
+      // cannot tell "no dependencies" from "not loaded".
+      dependencies: true,
     },
   });
   if (grants.length === 0) {
@@ -349,6 +353,9 @@ export async function executeCharge(chargeDbId: string): Promise<void> {
   const source = getSourceChain(plan.chainKey);
 
   try {
+    // Before anything moves: this path cannot deploy a counterfactual account.
+    assertAccountDeployed(plan.grant);
+
     // Funds move here. Everything after this point resumes; nothing re-pulls.
     await redeemPeriodicTransfer({
       chainId: plan.grant.chainId,

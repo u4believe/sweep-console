@@ -304,6 +304,54 @@ async function redeemSingle(
   return { txHash, blockNumber: receipt.blockNumber };
 }
 
+/**
+ * Refuse a grant whose account still has to be deployed before it can be
+ * redeemed from.
+ *
+ * ERC-7715 returns `accountMeta` — a factory and its calldata — when the
+ * delegator account is counterfactual, and the redeemer is expected to carry
+ * it on the FIRST redeem. We store it as RenewalDelegation.dependencies and
+ * have never used it, because with MetaMask it is always empty: MetaMask
+ * performs the EIP-7702 upgrade in its own flow and refuses to let a dapp
+ * relay the authorization, so by the time a signed delegation exists the
+ * account is already deployed. Verified on chain — the payer EOA behind the
+ * live mandates carries 0xef0100-63c0c19a… (MetaMask's stateless delegator,
+ * 11,185 bytes) on Base, Arbitrum and Optimism alike.
+ *
+ * SO THIS IS NOT THE DEPLOYMENT CODE. Writing that would mean maintaining a
+ * path that cannot be triggered or tested against the only wallet in play.
+ * This makes the dead branch LOUD instead: the day a wallet with a genuinely
+ * counterfactual account appears — a passkey or embedded wallet that deploys
+ * on first use, which is exactly the shape of the deferred Circle
+ * user-wallets plan — the redeem refuses by name rather than reverting inside
+ * the DelegationManager, which is an afternoon of tracing.
+ *
+ * Takes the whole row so a caller cannot forget to select the column: an
+ * undefined `dependencies` means it was not loaded, and that is reported
+ * rather than read as "none".
+ */
+export function assertAccountDeployed(grant: {
+  grantId?: string | null;
+  chainId?: number;
+  dependencies?: unknown;
+}): void {
+  const deps = grant.dependencies;
+  if (deps === undefined) {
+    throw new Error(
+      `grant ${grant.grantId ?? "?"}: dependencies was not selected, so whether this account ` +
+        `still needs deploying is unknown. Select it before redeeming.`
+    );
+  }
+  if (Array.isArray(deps) && deps.length > 0) {
+    throw new Error(
+      `grant ${grant.grantId ?? "?"} on chain ${grant.chainId ?? "?"} carries ${deps.length} ` +
+        `ERC-7715 account dependency(ies): its delegator account is not deployed yet and this ` +
+        `path does not deploy it. The first redeem must carry the factory calldata. No funds ` +
+        `moved.`
+    );
+  }
+}
+
 export interface PeriodicTransferInput {
   chainId: number;
   delegationManager: Address;
