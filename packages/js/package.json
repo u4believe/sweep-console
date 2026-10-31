@@ -1,6 +1,6 @@
 {
   "name": "@sweepconsole/js",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Pay-with-USDC button for the browser \u2014 asks your server for a checkout URL and sends the payer there",
   "license": "MIT",
   "type": "module",
