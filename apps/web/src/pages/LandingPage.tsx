@@ -19,12 +19,12 @@
  * than it buys.
  */
 
-import type { FC, ReactNode } from "react";
+import type { CSSProperties, FC, ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/auth";
 import { DOCS_URL } from "@/lib/docs";
-import { feePercent } from "@/lib/fee";
+import { feeOn, feePercent, keepsOf } from "@/lib/fee";
 import { ChainMark, SweepMark, UsdcMark, METAMASK_LOGO, CIRCLE_LOGO, type ChainKey } from "@/components/ui/marks";
 
 const STEPS = [
@@ -164,12 +164,31 @@ function Kicker({ children, align = "center" }: { children: ReactNode; align?: "
  * those two white, which greyed most of the page and flattened the two
  * places that needed depth.
  */
-function Section({ id, ground, children }: { id?: string; ground?: boolean; children: ReactNode }) {
+function Section({
+  id,
+  ground,
+  background,
+  dark,
+  children,
+}: {
+  id?: string;
+  ground?: boolean;
+  /** An explicit ground, for a band the two-tone default cannot express. */
+  background?: string;
+  /**
+   * A dark band. Applies .on-dark, which redefines the colour tokens so the
+   * section's existing markup inverts instead of being rewritten — see the
+   * block in sweep.css for what cannot survive the flip.
+   */
+  dark?: boolean;
+  children: ReactNode;
+}) {
   return (
     <section
       id={id}
+      className={dark ? "on-dark" : undefined}
       style={{
-        background: ground ? "var(--color-neutral-200)" : "var(--color-bg)",
+        background: background ?? (ground ? "var(--color-neutral-200)" : "var(--color-bg)"),
         padding: "88px 0",
       }}
     >
@@ -223,16 +242,34 @@ function Card({ children, ground, reveal }: { children: ReactNode; ground?: bool
 
 function Header() {
   const { user, loading } = useAuth();
+  /**
+   * Transparent over the hero, navy once you leave it.
+   *
+   * The page ground is #121A5C now, so the old light bar with a divider
+   * underneath sat on the navy hero as a white slab. v4 floats the nav instead
+   * and only gives it a ground once there is content behind it to separate
+   * from — rgba(18,26,92,0.85) over the blur, with a white hairline rather
+   * than a dark one, because a #ECECF3 line on navy is a bright line.
+   */
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const on = () => setScrolled(window.scrollY > 8);
+    on();
+    window.addEventListener("scroll", on, { passive: true });
+    return () => window.removeEventListener("scroll", on);
+  }, []);
+
   return (
     <header
-      className="sticky top-0"
+      className="on-dark sticky top-0"
       style={{
         zIndex: 40,
-        background: "var(--color-header-bg)",
+        background: scrolled ? "rgba(18,26,92,0.85)" : "transparent",
         // 14px with no saturate — the design's value. The saturate was mine.
         backdropFilter: "blur(14px)",
         WebkitBackdropFilter: "blur(14px)",
-        borderBottom: "1px solid var(--color-divider)",
+        boxShadow: scrolled ? "0 1px 0 rgba(255,255,255,0.08)" : "none",
+        transition: "background 260ms ease, box-shadow 260ms ease",
       }}
     >
       <div className="mx-auto flex w-full items-center" style={{ maxWidth: PAGE_W, paddingInline: "clamp(18px,4vw,40px)", gap: 14, height: 62 }}>
@@ -291,7 +328,7 @@ function Hero() {
   // The design puts the hero's padding on the grid itself, and gives it NO
   // bottom padding — the strip below brings its own top space.
   return (
-    <section id="top" style={{ background: "var(--color-bg)" }}>
+    <section id="top" className="on-dark" style={{ background: "#121A5C" }}>
       <div
         className="mx-auto grid w-full items-center"
         style={{
@@ -706,8 +743,14 @@ function RailViz() {
 function Marks() {
   return (
     <section
-      className="mx-auto flex w-full flex-col"
-      style={{ maxWidth: PAGE_W, gap: 16, padding: "clamp(10px,2vw,22px) clamp(18px,4vw,40px) clamp(24px,4vw,44px)" }}
+      /* on-dark: this strip continues the hero's navy run, and its logos and
+         caption read against #121A5C, not white. */
+      className="on-dark mx-auto flex w-full flex-col"
+      style={{
+        maxWidth: PAGE_W,
+        gap: 16,
+        padding: "clamp(10px,2vw,22px) clamp(18px,4vw,40px) clamp(24px,4vw,44px)",
+      }}
     >
       <div
         className="flex flex-wrap items-center justify-center"
@@ -766,7 +809,7 @@ function Marks() {
  */
 function Statement() {
   return (
-    <section style={{ background: "var(--color-bg)", padding: "clamp(40px,7vw,86px) 0", position: "relative" }}>
+    <section className="on-dark" style={{ background: "#121A5C", padding: "clamp(40px,7vw,86px) 0", position: "relative" }}>
       <div
         aria-hidden="true"
         style={{
@@ -805,7 +848,7 @@ function Statement() {
 
 function HowItWorks() {
   return (
-    <Section id="how">
+    <Section id="how" dark background="#121A5C">
       <Kicker>How it works</Kicker>
       <H2>Three steps. Zero gas for your subscribers.</H2>
       <div className="mt-10 grid" style={{ gap: 18, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,260px),1fr))" }}>
@@ -832,7 +875,7 @@ function HowItWorks() {
 function Demo() {
   const [picked, setPicked] = useState("base");
   return (
-    <Section id="demo" ground>
+    <Section id="demo" background="#E9EEFF">
       <Kicker align="left">Hosted checkout</Kicker>
       <H2 align="left">Pick a chain. That&rsquo;s the payment.</H2>
       <div
@@ -915,7 +958,7 @@ function Demo() {
 
 function Features() {
   return (
-    <Section id="features">
+    <Section id="features" dark background="#121A5C">
       {/* Left, not centred. The design centres `how`, `console`, the
           statement and the close; features sits left above a grid of six,
           where a centred heading over left-aligned cards reads as a mistake.
@@ -943,113 +986,848 @@ function Features() {
   );
 }
 
-function ConsolePreview() {
+/**
+ * CHAIN FALLBACK — "Renewals don't fail. They find another chain."
+ *
+ * New in v4, and the one section that shows the thing this product actually
+ * does that a card cannot. The numbers are the design's and they are
+ * deliberately specific: Base holds 4.12 against 29.00 needed, so it is short
+ * by 24.88 and NOTHING IS CHARGED THERE — the balance is checked before a
+ * charge, not after a failure. Arbitrum has 38.00, pays, and drops to 9.00.
+ * Optimism is never touched.
+ *
+ * That ordering is the real behaviour: delegated-renewal picks a funded chain
+ * and the grant covers all three with one signature, which is why the copy can
+ * say "same signature" without an asterisk.
+ *
+ * Under prefers-reduced-motion the sequence does not run and the resolved
+ * state is rendered instead. A story told by animation alone is not told to
+ * everyone.
+ */
+const FB_NEED = 29;
+const FB_SCALE = 40; // the bar's full width in USDC, so 29 sits at 72.5%
+
+type FbState = "idle" | "check" | "short" | "paid" | "skip";
+
+const FB_TONE: Record<FbState, { tag: string; tagBg: string; tagInk: string; bg: string; ring: string; fill: string }> = {
+  idle:  { tag: "Ready",          tagBg: "rgba(255,255,255,0.06)",  tagInk: "#9490C2", bg: "transparent", ring: "#2A2A3C", fill: "#6E6F86" },
+  check: { tag: "Checking…",      tagBg: "rgba(124,127,255,0.18)",  tagInk: "#C9CAF6", bg: "#1C1C2E",     ring: "#7C7FFF", fill: "#7C7FFF" },
+  short: { tag: "Not enough",     tagBg: "rgba(229,72,77,0.18)",    tagInk: "#FF9BA0", bg: "#24161A",     ring: "#E5484D", fill: "#E5484D" },
+  paid:  { tag: "Charged $29.00", tagBg: "#4447D6",                 tagInk: "#fff",    bg: "#1C1C2E",     ring: "#7C7FFF", fill: "#7C7FFF" },
+  skip:  { tag: "Not needed",     tagBg: "rgba(255,255,255,0.06)",  tagInk: "#8F90A6", bg: "transparent", ring: "#2A2A3C", fill: "#4A4A5E" },
+};
+
+const FB_LINES: Array<[string, string, string]> = [
+  ["Renewal due — trying the subscriber's first chain", "#8F90A6", "rgba(110,111,134,0.25)"],
+  ["Checking Base balance…", "#7C7FFF", "rgba(124,127,255,0.25)"],
+  ["Base is short by $24.88 — no charge made", "#E5484D", "rgba(229,72,77,0.25)"],
+  ["Falling back to Arbitrum, same signature", "#7C7FFF", "rgba(124,127,255,0.25)"],
+  ["Charged $29.00 from Arbitrum — settled on Arc", "#7C7FFF", "rgba(124,127,255,0.25)"],
+  ["Renewal complete. Nothing for anyone to do.", "#2BA06B", "rgba(31,138,91,0.3)"],
+];
+
+/** Balances against FB_NEED. ChainMark is the page's own glyph, not a reach
+ *  into the checkout's components. */
+const FB_CHAINS: Array<{ key: ChainKey; name: string; balance: number }> = [
+  { key: "base", name: "Base", balance: 4.12 },
+  { key: "arbitrum", name: "Arbitrum", balance: 38 },
+  { key: "optimism", name: "Optimism", balance: 12.5 },
+];
+
+function fbStateFor(i: number, st: number): FbState {
+  if (i === 0) return st === 1 ? "check" : st >= 2 ? "short" : "idle";
+  if (i === 1) return st === 3 ? "check" : st >= 4 ? "paid" : "idle";
+  return st >= 4 ? "skip" : "idle";
+}
+
+function Fallback() {
+  const reduced = usePrefersReducedMotion();
+  // 4 is the resolved frame: Arbitrum paid, Optimism untouched. Stage 5 is
+  // only the closing line, so a still of 4 tells the whole story.
+  const [st, setSt] = useState(reduced ? 4 : 0);
+
+  useEffect(() => {
+    if (reduced) {
+      setSt(4);
+      return;
+    }
+    const id = window.setInterval(() => setSt((n) => (n + 1) % (FB_LINES.length + 1)), 1600);
+    return () => window.clearInterval(id);
+  }, [reduced]);
+
+  const stage = Math.min(st, FB_LINES.length - 1);
+  const [line, dot, halo] = FB_LINES[stage]!;
+
   return (
-    <Section id="console">
-      <Kicker>The console</Kicker>
-      <H2>Run it all from one place.</H2>
-      {/* Centred with its heading — the wrapper is centred in the design, so
-          a left-aligned lede under a centred h2 would be the odd one out. */}
-      <p
-        className="mt-4"
+    <section
+      id="fallback"
+      className="on-dark"
+      style={{ background: "#0D1446", position: "relative", overflow: "hidden" }}
+    >
+      {/* A faint grid, faded out at the edges so it reads as depth rather than
+          as a table. Decorative, hence aria-hidden. */}
+      <div
+        aria-hidden
         style={{
-          fontSize: "clamp(15px,1.3vw,16.5px)", lineHeight: 1.6,
-          color: "var(--color-neutral-900)", maxWidth: 620,
-          margin: "16px auto 0", textAlign: "center",
+          position: "absolute",
+          inset: 0,
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.04) 1px,transparent 1px)",
+          backgroundSize: "56px 56px",
+          WebkitMaskImage: "radial-gradient(ellipse 70% 70% at 70% 50%,#000 15%,transparent 80%)",
+          maskImage: "radial-gradient(ellipse 70% 70% at 70% 50%,#000 15%,transparent 80%)",
+          pointerEvents: "none",
+        }}
+      />
+      <div
+        className="mx-auto"
+        style={{
+          position: "relative",
+          maxWidth: PAGE_W,
+          padding: "clamp(72px,9vw,120px) clamp(18px,4vw,40px)",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,420px),1fr))",
+          gap: "clamp(40px,6vw,80px)",
+          alignItems: "center",
         }}
       >
-        Plans and tiers, subscribers, payments, withdrawals, webhooks and API keys — test mode
-        included.
-      </p>
+        <div data-reveal="">
+          <p
+            className="m-0"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              marginBottom: 14,
+              fontSize: 13,
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: "#FF9BA0",
+            }}
+          >
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--color-danger)" }} />
+            When a wallet runs dry
+          </p>
+          <h2
+            style={{
+              margin: "0 0 20px",
+              fontWeight: 800,
+              fontSize: "clamp(34px,4.4vw,56px)",
+              lineHeight: 1.04,
+              letterSpacing: "-0.04em",
+              textWrap: "balance",
+            }}
+          >
+            Renewals don&rsquo;t fail. They find another chain.
+          </h2>
+          <p
+            style={{
+              margin: "0 0 28px",
+              fontSize: 16.5,
+              lineHeight: 1.65,
+              color: "rgba(255,255,255,0.78)",
+              maxWidth: "44ch",
+            }}
+          >
+            A card renewal dies when the card does. With one signature covering Base, Arbitrum and Optimism, a short
+            balance on one chain just means the charge comes from the next.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, fontSize: 15, color: "rgba(255,255,255,0.88)" }}>
+            {[
+              ["var(--color-danger)", "Short balance detected before anything is charged"],
+              ["#CD94E6", "Charged from the next funded chain, same signature"],
+              ["#8F90A6", "Settled on Arc like any other renewal"],
+            ].map(([c, t]) => (
+              <span key={t} style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <span style={{ width: 18, height: 4, borderRadius: 2, background: c, flex: "none" }} />
+                {t}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* The renewal itself, mid-decision. */}
+        <div
+          data-reveal=""
+          style={{
+            background: "#172066",
+            borderRadius: 18,
+            padding: "clamp(18px,2.5vw,26px)",
+            boxShadow: "inset 0 0 0 1px #26307E, 0 40px 80px -40px rgba(0,0,0,0.8)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              gap: 12,
+              flexWrap: "wrap",
+              paddingBottom: 16,
+              borderBottom: "1px solid #26307E",
+            }}
+          >
+            <div>
+              <p
+                className="m-0"
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  color: "#9490C2",
+                }}
+              >
+                Renewal &middot; Nov 1
+              </p>
+              <p style={{ margin: "4px 0 0", fontWeight: 700, fontSize: 17 }}>jo@northwind.co &middot; Pro</p>
+            </div>
+            <p style={{ margin: "0 0 0 auto", fontWeight: 800, fontSize: 28, letterSpacing: "-0.03em" }}>
+              $29.00{" "}
+              <span style={{ fontSize: 13, fontWeight: 500, color: "#9490C2", letterSpacing: 0 }}>USDC</span>
+            </p>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "16px 0" }}>
+            {FB_CHAINS.map((c, i) => {
+              const state = fbStateFor(i, st);
+              const tone = FB_TONE[state];
+              const bal = state === "paid" ? c.balance - FB_NEED : c.balance;
+              return (
+                <div
+                  key={c.key}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "32px minmax(0,1fr) auto",
+                    gap: 12,
+                    alignItems: "center",
+                    padding: "12px 14px",
+                    borderRadius: 12,
+                    background: tone.bg,
+                    boxShadow: `inset 0 0 0 1px ${tone.ring}`,
+                    transition: "background 300ms ease, box-shadow 300ms ease",
+                  }}
+                >
+                  <span
+                    style={{
+                      display: "grid",
+                      placeItems: "center",
+                      width: 32,
+                      height: 32,
+                      borderRadius: "50%",
+                      background: "#fff",
+                    }}
+                  >
+                    <ChainMark chain={c.key} size={22} />
+                  </span>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13.5 }}>
+                      <span style={{ fontWeight: 700 }}>{c.name}</span>
+                      <span
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 12.5,
+                          color: state === "short" ? "#FF9BA0" : "#C3C4DE",
+                        }}
+                      >
+                        ${bal.toFixed(2)} USDC
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 8,
+                        height: 6,
+                        borderRadius: 3,
+                        background: "#26307E",
+                        position: "relative",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: "absolute",
+                          left: 0,
+                          top: 0,
+                          bottom: 0,
+                          borderRadius: 3,
+                          width: `${Math.min(100, (bal / FB_SCALE) * 100)}%`,
+                          background: tone.fill,
+                          transition: "width 600ms cubic-bezier(.23,1,.32,1), background 300ms ease",
+                        }}
+                      />
+                      {/* What 29.00 looks like on this scale — the whole point
+                          of the bars is that Base's fill stops short of it. */}
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: -2,
+                          bottom: -2,
+                          left: `${(FB_NEED / FB_SCALE) * 100}%`,
+                          width: 2,
+                          background: "#9490C2",
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      padding: "5px 10px",
+                      borderRadius: 999,
+                      whiteSpace: "nowrap",
+                      background: tone.tagBg,
+                      color: tone.tagInk,
+                      transition: "background 300ms ease",
+                    }}
+                  >
+                    {tone.tag}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              paddingTop: 14,
+              borderTop: "1px solid #26307E",
+              flexWrap: "wrap",
+            }}
+          >
+            <span
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: "50%",
+                flex: "none",
+                background: dot,
+                boxShadow: `0 0 0 4px ${halo}`,
+                transition: "background 300ms ease",
+              }}
+            />
+            {/* The running commentary is the status of a live renewal, so it is
+                announced rather than silently repainted. */}
+            <span role="status" style={{ flex: 1, minWidth: 180, fontSize: 13.5, fontWeight: 600 }}>
+              {line}
+            </span>
+            <span style={{ fontSize: 11.5, color: "#9490C2" }}>Line on each bar = $29.00 needed</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * FEES & PAYOUTS — "Same $29.00 plan. Two very different paths."
+ *
+ * New in v4, and the only section on this page that quotes a competitor's
+ * numbers, so both sides are sourced and the footnote says so: 2.9% + $0.30 is
+ * a common online card rate, not a claim about any particular processor.
+ *
+ * OUR side is computed, never typed. feeOn/keepsOf read the same
+ * VITE_PLATFORM_FEE_BPS as feePercent(), so this card cannot drift from the
+ * Pricing section below it the way five hardcoded literals once did. At 250
+ * bps that is "2.5% · −0.72" and "28.27".
+ *
+ * The second half answers the question the first half raises — a lower fee is
+ * not the point if the money sits pending for days.
+ */
+function Compare() {
+  const ROW: CSSProperties = {
+    display: "flex",
+    justifyContent: "space-between",
+    padding: "12px 0",
+    borderTop: "1px solid var(--color-divider)",
+    fontSize: 14.5,
+  };
+  const LABEL: CSSProperties = { color: "var(--color-neutral-600)" };
+  const TOTAL: CSSProperties = {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    padding: "16px 0 0",
+    marginTop: "auto",
+    borderTop: "2px solid var(--color-neutral-400)",
+  };
+  const BIG: CSSProperties = { fontWeight: 800, fontSize: 34, letterSpacing: "-0.035em" };
+
+  return (
+    <Section id="compare" dark background="#121A5C">
+      <div data-reveal="" style={{ textAlign: "center", marginBottom: 44 }}>
+        <Kicker>Keep more of every renewal</Kicker>
+        <h2
+          style={{
+            margin: "0 auto",
+            fontWeight: 800,
+            fontSize: "clamp(32px,4.2vw,54px)",
+            lineHeight: 1.06,
+            letterSpacing: "-0.04em",
+            maxWidth: "18ch",
+            textWrap: "balance",
+          }}
+        >
+          Same $29.00 plan. Two very different paths.
+        </h2>
+      </div>
+
       <div
-        className="mt-9"
         style={{
-          border: "1px solid var(--color-divider)", borderRadius: "var(--radius-lg)",
-          overflow: "hidden", boxShadow: "var(--shadow-lg)", background: "var(--color-bg)",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,380px),1fr))",
+          gap: 16,
+        }}
+      >
+        {/* The card processor, with its own arithmetic shown. */}
+        <article
+          data-reveal=""
+          style={{
+            borderRadius: 18,
+            background: "#1A2470",
+            padding: "clamp(22px,3vw,32px)",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <p
+            style={{
+              margin: "0 0 4px",
+              fontSize: 12,
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: "var(--color-neutral-600)",
+            }}
+          >
+            Card processor
+          </p>
+          <p style={{ margin: "0 0 20px", fontWeight: 700, fontSize: 20 }}>Typical online card rate</p>
+          <div style={ROW}>
+            <span style={LABEL}>Plan price</span>
+            <span style={{ fontWeight: 600 }}>$29.00</span>
+          </div>
+          <div style={ROW}>
+            <span style={LABEL}>Processing &middot; 2.9% + $0.30</span>
+            <span style={{ fontWeight: 600, color: "#FF9BA0" }}>&minus;$1.14</span>
+          </div>
+          <div style={ROW}>
+            <span style={LABEL}>Expired card at renewal</span>
+            <span style={{ fontWeight: 600, color: "#FF9BA0" }}>Renewal lost</span>
+          </div>
+          <div style={TOTAL}>
+            <span style={{ fontWeight: 700 }}>You keep</span>
+            <span style={BIG}>$27.86</span>
+          </div>
+        </article>
+
+        {/* Ours. Every figure here is derived from the configured fee. */}
+        <article
+          data-reveal=""
+          style={{
+            position: "relative",
+            overflow: "hidden",
+            borderRadius: 18,
+            background: "#4447D6",
+            color: "#fff",
+            padding: "clamp(22px,3vw,32px)",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              right: -50,
+              top: -50,
+              width: 150,
+              height: 150,
+              borderRadius: "50%",
+              background: "var(--color-danger)",
+            }}
+          />
+          <p
+            style={{
+              position: "relative",
+              margin: "0 0 4px",
+              fontSize: 12,
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: "rgba(255,255,255,0.78)",
+            }}
+          >
+            Sweep Console
+          </p>
+          <p style={{ position: "relative", margin: "0 0 20px", fontWeight: 700, fontSize: 20 }}>
+            USDC, one signature
+          </p>
+          {[
+            ["Plan price", "$29.00"],
+            ["Platform fee", `${feePercent()} · −$${feeOn(29)}`],
+            ["Network & bridge gas", "Covered"],
+          ].map(([k, v]) => (
+            <div key={k} style={{ ...ROW, position: "relative", borderTopColor: "rgba(255,255,255,0.2)" }}>
+              <span style={{ color: "rgba(255,255,255,0.8)" }}>{k}</span>
+              <span style={{ fontWeight: 600 }}>{v}</span>
+            </div>
+          ))}
+          <div style={{ ...TOTAL, position: "relative", borderTopColor: "rgba(255,255,255,0.42)" }}>
+            <span style={{ fontWeight: 700 }}>You keep</span>
+            <span style={{ ...BIG, textAlign: "right" }}>
+              ${keepsOf(29)}{" "}
+              <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: 0, color: "rgba(255,255,255,0.8)" }}>
+                USDC
+              </span>
+            </span>
+          </div>
+        </article>
+      </div>
+
+      {/* A lower fee is not the point if the money is not yours yet. */}
+      <div
+        data-reveal=""
+        style={{
+          marginTop: 16,
+          borderRadius: 18,
+          border: "1px solid var(--color-divider)",
+          padding: "clamp(22px,3vw,32px)",
         }}
       >
         <div
-          className="flex items-center"
           style={{
-            gap: 9, padding: "10px 14px", borderBottom: "1px solid var(--color-divider)",
-            background: "var(--color-neutral-100)",
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            gap: "8px 20px",
+            marginBottom: 24,
           }}
         >
-          <span style={{ display: "flex", gap: 6 }} aria-hidden="true">
-            {[0, 1, 2].map((i) => (
-              <span key={i} style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--color-neutral-400)" }} />
-            ))}
-          </span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--color-neutral-700)" }}>
-            console.sweep / dashboard
-          </span>
+          <p style={{ margin: 0, fontWeight: 800, fontSize: "clamp(22px,2.4vw,28px)", letterSpacing: "-0.025em" }}>
+            When the money is actually yours
+          </p>
+          <p style={{ margin: 0, fontSize: 13.5, color: "var(--color-neutral-600)" }}>
+            From charge to spendable balance
+          </p>
         </div>
-        {/* The shell's own shape, drawn rather than screenshotted: a rail and
-            a content area. A screenshot is stale the first time the console
-            changes, and this is the page people see first. */}
-        <div style={{ display: "flex", minHeight: 260 }}>
-          <div
-            className="hidden sm:block"
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(110px,160px) minmax(0,1fr)",
+            gap: "22px 20px",
+            alignItems: "center",
+          }}
+        >
+          <span style={{ fontWeight: 700, fontSize: 14.5, color: "var(--color-neutral-700)" }}>Card payout</span>
+          <div>
+            <div style={{ position: "relative", height: 12, borderRadius: 6, background: "rgba(255,255,255,0.08)" }}>
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  borderRadius: 6,
+                  background: "repeating-linear-gradient(90deg,#6E6AA6 0 10px,rgba(255,255,255,0.16) 10px 20px)",
+                }}
+              />
+              <span
+                style={{
+                  position: "absolute",
+                  right: -2,
+                  top: "50%",
+                  width: 16,
+                  height: 16,
+                  marginTop: -8,
+                  borderRadius: "50%",
+                  background: "#fff",
+                  boxShadow: "inset 0 0 0 3px var(--color-neutral-600)",
+                }}
+              />
+            </div>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginTop: 8,
+                fontSize: 12,
+                color: "var(--color-neutral-600)",
+              }}
+            >
+              <span>Charged</span>
+              <span>Pending</span>
+              <span style={{ fontWeight: 700, color: "var(--color-neutral-700)" }}>
+                Payout &middot; typically 2+ business days
+              </span>
+            </div>
+          </div>
+
+          <span style={{ fontWeight: 700, fontSize: 14.5, color: "var(--color-accent)" }}>Sweep Console</span>
+          <div>
+            <div
+              style={{ position: "relative", height: 12, borderRadius: 6, background: "rgba(205,148,230,0.16)" }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: "6%",
+                  minWidth: 28,
+                  borderRadius: 6,
+                  background: "#4447D6",
+                }}
+              />
+              <span
+                style={{
+                  position: "absolute",
+                  left: "max(6%,28px)",
+                  top: "50%",
+                  width: 16,
+                  height: 16,
+                  margin: "-8px 0 0 -8px",
+                  borderRadius: "50%",
+                  background: "#4447D6",
+                  boxShadow: "0 0 0 4px rgba(205,148,230,0.3)",
+                }}
+              />
+            </div>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginTop: 8,
+                fontSize: 12,
+                color: "var(--color-neutral-600)",
+              }}
+            >
+              <span style={{ fontWeight: 700, color: "var(--color-accent)" }}>Settled on Arc &middot; seconds</span>
+              <span>Already in your wallet</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Sourced, because the left-hand card is someone else's number. */}
+      <p style={{ margin: "14px 0 0", fontSize: 12, color: "var(--color-neutral-600)" }}>
+        Card figures use a common 2.9% + $0.30 online rate and standard payout timing; your processor may differ.
+      </p>
+    </Section>
+  );
+}
+
+/**
+ * TRUST & SAFETY — "Nobody holds your money. Not even us."
+ *
+ * New in v4. The four claims are the ones a developer actually checks before
+ * wiring a standing permission into their product, and each is load-bearing
+ * elsewhere in this repo: non-custodial is why there is no balance to withdraw,
+ * revocable is why ManageSubscriptionsPage exists, the period ceiling is the
+ * ERC20PeriodTransferEnforcer caveat, and the HMAC is X-Sweep-Signature.
+ *
+ * Its own ground (#E9EEFF), not Section's two-tone default: this lands between
+ * two white bands and would otherwise be invisible as a section at all.
+ */
+function Custody() {
+  const CARD: CSSProperties = {
+    borderRadius: 16,
+    padding: 24,
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+    minHeight: 280,
+  };
+  const TITLE: CSSProperties = { margin: "auto 0 0", fontWeight: 800, fontSize: 20, letterSpacing: "-0.02em" };
+  const BODY: CSSProperties = { margin: 0, fontSize: 14, lineHeight: 1.6 };
+
+  return (
+    <Section id="trust" background="#E9EEFF">
+      {/* Split header: heading left, the one-line promise right. v4 uses this
+          shape only here, and only because the claim and its qualifier are the
+          same sentence read twice. */}
+      <div
+        data-reveal=""
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "flex-end",
+          justifyContent: "space-between",
+          gap: 20,
+          marginBottom: 44,
+        }}
+      >
+        <div>
+          <Kicker align="left">Trust &amp; safety</Kicker>
+          <h2
             style={{
-              width: 150, flex: "none", background: "var(--color-neutral-100)",
-              borderRight: "1px solid var(--color-divider)", padding: 14,
+              margin: 0,
+              fontWeight: 800,
+              fontSize: "clamp(32px,4.2vw,54px)",
+              lineHeight: 1.06,
+              letterSpacing: "-0.04em",
+              maxWidth: "16ch",
+              textWrap: "balance",
             }}
           >
-            {["Dashboard", "Plans", "Subscriptions", "Payments", "Webhooks"].map((l, i) => (
-              <div
-                key={l}
-                style={{
-                  fontSize: 12.5, padding: "7px 9px", borderRadius: 7, marginBottom: 2,
-                  background: i === 0 ? "var(--color-accent-200)" : "transparent",
-                  color: i === 0 ? "var(--color-accent)" : "var(--color-neutral-800)",
-                  fontWeight: i === 0 ? 600 : 500,
-                }}
-              >
-                {l}
-              </div>
-            ))}
-          </div>
-          <div style={{ flex: 1, padding: 22, display: "grid", gap: 12, alignContent: "start" }}>
-            <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,130px),1fr))" }}>
-              {[
-                ["Collected", "12,480.00"],
-                ["Active", "318"],
-                ["Renewing", "47"],
-              ].map(([k, v]) => (
-                <div key={k} style={{ border: "1px solid var(--color-divider)", borderRadius: "var(--radius-md)", padding: 14 }}>
-                  <p className="m-0" style={{ fontSize: 11, color: "var(--color-neutral-700)" }}>{k}</p>
-                  <p className="m-0 mt-1" style={{ fontSize: 19, fontWeight: 700, letterSpacing: "-0.02em" }}>{v}</p>
-                </div>
-              ))}
-            </div>
-            {/* Rows loading, not fake data: inventing subscriber names and
-                amounts on a marketing page is a claim, and these are not
-                anyone's numbers. */}
-            {[0, 1, 2].map((i) => (
-              <div
-                key={i}
-                style={{ position: "relative", overflow: "hidden", height: 13, borderRadius: 6, background: "var(--color-neutral-200)" }}
-                aria-hidden="true"
-              >
-                <span
-                  className="swp-sweep"
-                  style={{
-                    position: "absolute", inset: 0,
-                    background: "linear-gradient(90deg,transparent,var(--color-neutral-100),transparent)",
-                  }}
-                />
-              </div>
-            ))}
-          </div>
+            Nobody holds your money. <span style={{ color: "var(--color-danger)" }}>Not even us.</span>
+          </h2>
         </div>
+        <p style={{ margin: 0, fontSize: 16, lineHeight: 1.6, color: "var(--color-neutral-700)", maxWidth: "40ch" }}>
+          Subscribers stay in control of their wallet, and you stay in control of your payouts.
+        </p>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,240px),1fr))",
+          gap: 14,
+        }}
+      >
+        {/* Non-custodial — the wallet-to-wallet hop, drawn. */}
+        <article data-reveal="" style={{ ...CARD, background: "#0D1446", color: "#fff" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, height: 64 }}>
+            <span style={CUSTODY_NODE}>Sub</span>
+            <span
+              style={{
+                flex: 1,
+                height: 2,
+                background: "repeating-linear-gradient(90deg,#CD94E6 0 6px,transparent 6px 12px)",
+              }}
+            />
+            <span style={{ ...CUSTODY_NODE, background: "var(--color-accent)", boxShadow: "none", color: "#fff" }}>
+              You
+            </span>
+          </div>
+          <h3 style={TITLE}>Non-custodial</h3>
+          <p style={{ ...BODY, color: "rgba(255,255,255,0.78)" }}>
+            USDC moves wallet to wallet. We never hold a balance you&rsquo;d have to withdraw.
+          </p>
+        </article>
+
+        {/* Revocable — a switch already thrown. */}
+        <article data-reveal="" style={{ ...CARD, background: "#F7F7FB" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, height: 64 }}>
+            <span
+              style={{
+                width: 52,
+                height: 30,
+                borderRadius: 999,
+                background: "var(--color-danger)",
+                position: "relative",
+                flex: "none",
+              }}
+            >
+              <span
+                style={{
+                  position: "absolute",
+                  left: 4,
+                  top: 4,
+                  width: 22,
+                  height: 22,
+                  borderRadius: "50%",
+                  background: "#fff",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
+                }}
+              />
+            </span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "var(--color-danger-text)" }}>Access revoked</span>
+          </div>
+          <h3 style={TITLE}>Revocable anytime</h3>
+          <p style={{ ...BODY, color: "var(--color-neutral-700)" }}>
+            Subscribers cancel from their wallet or the subscriber portal. No support ticket, no card to cancel.
+          </p>
+        </article>
+
+        {/* The period ceiling, at its limit and unable to pass it. */}
+        <article data-reveal="" style={{ ...CARD, background: "var(--color-accent)", color: "#fff" }}>
+          <div style={{ height: 64, display: "flex", flexDirection: "column", justifyContent: "center", gap: 8 }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                fontSize: 12,
+                fontWeight: 600,
+                color: "rgba(255,255,255,0.86)",
+              }}
+            >
+              <span>Used this month</span>
+              <span>29.00 / 29.00</span>
+            </div>
+            <div style={{ position: "relative", height: 10, borderRadius: 5, background: "rgba(255,255,255,0.24)" }}>
+              <div style={{ position: "absolute", inset: "0 0 0 0", borderRadius: 5, background: "#fff" }} />
+              <span
+                style={{
+                  position: "absolute",
+                  right: -1,
+                  top: -5,
+                  bottom: -5,
+                  width: 3,
+                  borderRadius: 2,
+                  background: "var(--color-danger)",
+                }}
+              />
+            </div>
+          </div>
+          <h3 style={TITLE}>Hard spending limits</h3>
+          <p style={{ ...BODY, color: "rgba(255,255,255,0.88)" }}>
+            The signature sets a ceiling per period. Nothing can ever be charged above it.
+          </p>
+        </article>
+
+        {/* The signature header, as a backend actually sees it. */}
+        <article data-reveal="" style={{ ...CARD, border: "1px solid var(--color-divider)" }}>
+          <div style={{ height: 64, display: "flex", alignItems: "center" }}>
+            <code
+              style={{
+                display: "block",
+                width: "100%",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11.5,
+                lineHeight: 1.6,
+                background: "#172066",
+                color: "#C8C9E4",
+                borderRadius: 9,
+                padding: "10px 12px",
+                overflow: "hidden",
+                whiteSpace: "nowrap",
+                textOverflow: "ellipsis",
+              }}
+            >
+              <span style={{ color: "#9FA2F5" }}>x-sweep-signature</span>: sha256=9f2c&hellip;
+            </code>
+          </div>
+          <h3 style={TITLE}>Signed webhooks</h3>
+          <p style={{ ...BODY, color: "var(--color-neutral-700)" }}>
+            Every event carries an HMAC signature, so your backend only trusts what really came from us.
+          </p>
+        </article>
       </div>
     </Section>
   );
 }
 
+const CUSTODY_NODE: CSSProperties = {
+  flex: "none",
+  width: 40,
+  height: 40,
+  borderRadius: 10,
+  background: "#172066",
+  boxShadow: "inset 0 0 0 1px #26307E",
+  display: "grid",
+  placeItems: "center",
+  fontSize: 11,
+  fontWeight: 700,
+  color: "#A9ABC6",
+};
+
 function Developers() {
   return (
-    <Section id="developers" ground>
+    <Section id="developers" background="var(--color-surface)">
       <Kicker align="left">For developers</Kicker>
       <H2 align="left">A checkout in one request.</H2>
       <p className="mt-4" style={{ fontSize: "clamp(15px,1.3vw,16.5px)", lineHeight: 1.6, color: "var(--color-neutral-900)", maxWidth: 640 }}>
@@ -1092,7 +1870,7 @@ function Developers() {
 
 function Pricing() {
   return (
-    <Section id="pricing">
+    <Section id="pricing" background="#ffffff">
       <Kicker>Pricing</Kicker>
       <H2>Pay when you get paid.</H2>
       <div
@@ -1180,20 +1958,21 @@ function Pricing() {
  */
 function StartCta() {
   return (
-    /* Tinted, because Pricing above it and the footer below it are both white
-       and three white bands in a row let the last call to action dissolve into
-       the page. The same --color-neutral-200 Section's `ground` uses, so the
-       page keeps one tint rather than gaining a second. */
+    /* v4 closes on navy (#16206A), a shade off the page ground so the last
+       call to action is a band rather than the page running out. It solves the
+       same problem the old tint did — Pricing above and the footer below are
+       both light — and solves it the way the rest of the page now works. */
     <section
       id="start"
-      style={{ background: "var(--color-neutral-200)", padding: "clamp(56px,8vw,96px) 0" }}
+      className="on-dark"
+      style={{ background: "#16206A", padding: "clamp(56px,8vw,96px) 0" }}
     >
       <div className="mx-auto w-full" style={{ maxWidth: PAGE_W, paddingInline: "clamp(18px,4vw,40px)", textAlign: "center" }}>
         <span className="inline-flex" style={{ marginBottom: 22 }}>
           <SweepMark size={46} />
         </span>
         <h2 style={{ fontSize: "clamp(38px,5.6vw,72px)", letterSpacing: "-0.04em", lineHeight: 1.02, margin: 0, fontWeight: 800 }}>
-          Start getting paid in <span style={{ color: "var(--color-accent)" }}>USDC</span> today.
+          Your first renewal is <span style={{ color: "var(--color-accent)" }}>one signature</span> away.
         </h2>
         <p
           style={{
@@ -1221,7 +2000,10 @@ function StartCta() {
 
 function Footer() {
   return (
-    <footer style={{ background: "var(--color-bg)", borderTop: "1px solid var(--color-divider)", padding: "26px 0" }}>
+    <footer
+      className="on-dark"
+      style={{ background: "#121A5C", borderTop: "1px solid rgba(255,255,255,0.18)", padding: "26px 0" }}
+    >
       <div
         className="mx-auto flex w-full flex-wrap items-center"
         style={{ maxWidth: PAGE_W, paddingInline: "clamp(18px,4vw,40px)", gap: "10px 26px", fontSize: 13.5, color: "var(--color-neutral-800)" }}
@@ -1246,13 +2028,38 @@ export function LandingPage() {
     <div style={{ background: "var(--color-bg)", color: "var(--color-text)" }}>
       <Header />
       <main className="swp-in">
+        {/*
+          v4's band order. The page is a navy ground with light bands cut into
+          it, so these alternate on purpose — two dark sections in a row read as
+          one long section, which is the complaint the Pricing/StartCta pair
+          drew before.
+
+            Hero       #121A5C   dark
+            Statement  #121A5C   dark
+            HowItWorks #121A5C   dark
+            Fallback   #0D1446   dark, deepest — it is the demo
+            Demo       #E9EEFF   light
+            Features   #121A5C   dark
+            Compare    #121A5C   dark
+            Custody    #E9EEFF   light
+            Developers #F4F4FB   light
+            Pricing    #fff      light — KEPT, see below
+            StartCta   #16206A   dark
+
+          ConsolePreview is dropped: v4 has no "Run it all from one place"
+          band. Pricing is kept against v4, which drops it too, because it is
+          where the platform fee is disclosed and a pricing page that does not
+          state the rate is worse than an ugly one.
+        */}
         <Hero />
         <Marks />
         <Statement />
         <HowItWorks />
+        <Fallback />
         <Demo />
         <Features />
-        <ConsolePreview />
+        <Compare />
+        <Custody />
         <Developers />
         <Pricing />
         <StartCta />

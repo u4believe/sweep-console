@@ -39,16 +39,24 @@
      #4447D6 measures 6.73:1 on white, so unlike the blue this replaced the
      BASE step is safe for body-size text and 600/700 are hover and pressed
      rather than the readable ones. */
-  --color-accent: #4447D6;
-  --color-accent-100: #F5F5FE;
-  --color-accent-200: #EEEEFC;
-  --color-accent-300: #DCDDFB;
-  --color-accent-400: #C9CAF6;
-  --color-accent-500: #8A8CE8;
-  --color-accent-600: #3639C4;
-  --color-accent-700: #2F32B8;
-  --color-accent-800: #262995;
-  --color-accent-900: #1C1E6E;
+  /* The console's hosted accent, from Console.dc.html's [data-flow]:
+     #2868F8 with hover #1838E8, tint #E6F0FF, soft #F2F7FF, line #B9D4FF,
+     bar #CFE2FF. 4.74:1 on white, so it carries body text and a white label
+     on a filled button equally.
+
+     NOTE this is the CONSOLE's accent. The landing page and the checkouts
+     keep the brand indigo #4447D6 — the design uses the blue only behind a
+     signed-in session, where the rail's purple is its counterpart. */
+  --color-accent: #2868F8;
+  --color-accent-100: #F2F7FF;
+  --color-accent-200: #E6F0FF;
+  --color-accent-300: #CFE2FF;
+  --color-accent-400: #B9D4FF;
+  --color-accent-500: #7FA8FB;
+  --color-accent-600: #1838E8;
+  --color-accent-700: #1430CC;
+  --color-accent-800: #1028A6;
+  --color-accent-900: #0B1C78;
 
   /* A mono scheme: accent-2 resolves to the same role so anything reading it
      stays coherent rather than picking up a colour nobody chose. */
@@ -525,17 +533,30 @@ textarea.input { min-height: 90px; resize: vertical; }
    dark for pressed — so contrast behaviour is unchanged; only the hue goes.
    ══════════════════════════════════════════════════════════════════════ */
 
+/**
+ * The rail's accent, from Console.dc.html's [data-flow="rail"].
+ *
+ * #9B5FC0 EXACTLY AS SPECIFIED, which is a deliberate choice and not an
+ * oversight: it measures 4.38:1 on white, below AA for body text, and the
+ * design's own button ink #121A5C on it is 3.61:1. Darkening it to pass was
+ * offered and declined in favour of matching the design.
+ *
+ * So DO NOT "fix" these values on contrast grounds without asking. What is
+ * fair game is keeping body copy off the accent — the ramp's 600/700/800 are
+ * darkened past the design for exactly that, so text that must be purple has
+ * somewhere legible to go.
+ */
 [data-scope="rail"] {
-  --color-accent: #23233B;
-  --color-accent-100: #FAFAFC;
-  --color-accent-200: #ECECF3;
-  --color-accent-300: #E2E2EC;
-  --color-accent-400: #D4D5E2;
-  --color-accent-500: #8A8BA0;
-  --color-accent-600: #16161F;
-  --color-accent-700: #0E0E14;
-  --color-accent-800: #0A0A0E;
-  --color-accent-900: #050507;
+  --color-accent: #9B5FC0;
+  --color-accent-100: #FBF6FD;
+  --color-accent-200: #F7EDFB;
+  --color-accent-300: #EBC7F3;
+  --color-accent-400: #E5CDF1;
+  --color-accent-500: #C08FD8;
+  --color-accent-600: #874AAE;
+  --color-accent-700: #703D91;
+  --color-accent-800: #5A3175;
+  --color-accent-900: #3F2252;
 }
 
 /* The mode pill's lift is tinted to whichever accent is in play. */
@@ -565,4 +586,56 @@ textarea.input { min-height: 90px; resize: vertical; }
   padding: 11px 24px;
   background: var(--color-neutral-100);
   border-bottom: 1px solid var(--color-divider);
+}
+
+/* ── dark bands ────────────────────────────────────────────────────────────
+   The v4 landing page is a navy page with light bands cut into it, rather
+   than a white page with tints. Rewriting every section's colours for that
+   would mean touching hundreds of literals and getting some wrong.
+
+   So a dark band REDEFINES THE TOKENS instead. Markup inside it goes on
+   reading var(--color-text) and var(--color-neutral-700) exactly as before
+   and comes out legible on navy, which is the whole reason the tokens exist.
+
+   Two things cannot survive the flip and are set deliberately:
+
+   --color-accent is #4447D6, which measures 2.35:1 on #121A5C and fails at
+   any size. On dark it becomes the lilac the design uses for kickers,
+   #CD94E6, at 6.76:1. Anything that needs the brand indigo on a dark band
+   needs a light chip under it, not this token.
+
+   --color-divider goes to a white alpha, because a #ECECF3 hairline on navy
+   is a bright line, not a quiet one. */
+.on-dark {
+  --color-bg: #121A5C;
+  --color-surface: #16206A;
+  --color-text: #ffffff;
+  --color-neutral-100: #16206A;
+  --color-neutral-200: #1A2470;
+  --color-neutral-400: rgba(255, 255, 255, 0.22);
+  /* The design's own dark tones, not a ramp of my choosing: #9490C2 is its
+     muted and #B4B0DA its label colour. Both clear AA on both navies
+     (5.29 and 7.65 on #121A5C), so fidelity costs no legibility here. */
+  --color-neutral-600: #9490C2;
+  --color-neutral-700: #B4B0DA;
+  --color-neutral-800: #DEDCEF;
+  --color-neutral-900: #ffffff;
+  --color-divider: rgba(255, 255, 255, 0.14);
+  --color-accent: #CD94E6;
+  color: var(--color-text);
+}
+
+/**
+ * A card on a dark band has to be LIGHTER than the band, not equal to it.
+ *
+ * Card's default fill is var(--color-bg), which on a dark band is the band's
+ * own colour — so the two cards on this page (the three steps, the feature
+ * grid) would have rendered as #121A5C on #121A5C: a hairline outline and no
+ * fill at all. The raised surface is what the design puts there.
+ *
+ * Scoped to articles so it cannot catch a section that happens to set
+ * --color-bg for its own reasons.
+ */
+.on-dark article {
+  background: var(--color-neutral-100);
 }

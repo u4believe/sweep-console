@@ -23,3 +23,20 @@ export function feePercent(): string {
 export function creatorKeepsPercent(): string {
   return `${Number(((10_000 - BPS) / 100).toFixed(2))}%`;
 }
+
+/**
+ * The fee taken off a given amount, and what is left, both to two decimals.
+ *
+ * The comparison on the landing page puts a real number beside a card
+ * processor's, and "2.5%" next to "−$1.14" is not a comparison — one is a rate
+ * and the other is money. Derived from the same BPS as feePercent() so the two
+ * can never disagree on the page they share.
+ */
+export function feeOn(amount: number): string {
+  return ((amount * BPS) / 10_000).toFixed(2);
+}
+
+/// What the creator banks on `amount` after the platform fee.
+export function keepsOf(amount: number): string {
+  return (amount - (amount * BPS) / 10_000).toFixed(2);
+}
