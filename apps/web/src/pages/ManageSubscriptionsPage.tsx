@@ -127,7 +127,7 @@ function Kpi({ label, value, unit, accent }: { label: string; value: string; uni
         }}
       >
         {value}
-        {unit && <span style={{ fontSize: 12, fontWeight: 400, color: "var(--color-neutral-700)" }}> {unit}</span>}
+        {unit && <span style={{ fontSize: 12, fontWeight: 500, color: "var(--color-neutral-700)" }}> {unit}</span>}
       </p>
     </div>
   );
@@ -798,7 +798,7 @@ export function ManageSubscriptionsPage() {
                           </span>
                           <span style={{ marginLeft: "auto", fontFamily: HEADING, fontWeight: 700, fontSize: 15, whiteSpace: "nowrap" }}>
                             {fmtUsdc(x.plan.amount)}
-                            <span style={{ fontSize: 11.5, fontWeight: 400, color: "var(--color-neutral-700)" }}>
+                            <span style={{ fontSize: 11.5, fontWeight: 500, color: "var(--color-neutral-700)" }}>
                               {" "}/{PER_NOUN[x.plan.interval] ?? x.plan.interval}
                             </span>
                           </span>
@@ -845,7 +845,7 @@ export function ManageSubscriptionsPage() {
                           </span>
                           <span style={{ marginLeft: "auto", fontFamily: HEADING, fontWeight: 700, fontSize: 15, whiteSpace: "nowrap" }}>
                             {fmtUsdc(m.max_amount)}
-                            <span style={{ fontSize: 11.5, fontWeight: 400, color: "var(--color-neutral-700)" }}>
+                            <span style={{ fontSize: 11.5, fontWeight: 500, color: "var(--color-neutral-700)" }}>
                               {" "}/{PER_NOUN[m.interval] ?? m.interval}
                             </span>
                           </span>

@@ -125,7 +125,7 @@ export function PaymentsPage() {
                       <tr key={payment.id}>
                         <td style={{ fontFamily: "var(--font-heading)", fontWeight: 700 }}>
                           {(payment.amount / 1_000_000).toFixed(2)}{" "}
-                          <span style={{ fontSize: 11, fontWeight: 400, color: "var(--color-neutral-600)" }}>
+                          <span style={{ fontSize: 11, fontWeight: 500, color: "var(--color-neutral-600)" }}>
                             {payment.currency}
                           </span>
                         </td>

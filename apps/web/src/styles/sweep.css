@@ -178,8 +178,18 @@ body {
   font-family: var(--font-body);
   font-size: 15px;
   line-height: 1.55;
-  font-weight: 400;
-  -webkit-font-smoothing: antialiased;
+  /* 500, not 400. Plus Jakarta Sans is a geometric face with thin strokes at
+     the sizes this UI actually uses — the landing page alone sets 10, 11, 12,
+     13 and 14px — and 400 reads as faint there however dark the ink is. Every
+     text token already passes AAA (neutral-700 is 8.50:1 on white), so the
+     complaint was never contrast. Headings are 700, so the hierarchy holds.
+
+     AND NO -webkit-font-smoothing: antialiased. That switches Blink and
+     WebKit from subpixel to grayscale antialiasing, which renders every
+     stroke visibly thinner; it is the single biggest reason this text looked
+     washed out. Removing it makes the whole app heavier without touching one
+     colour or one weight. */
+  font-weight: 500;
 }
 
 /* Tighter and smaller than Modernist's poster scale, which was set against a

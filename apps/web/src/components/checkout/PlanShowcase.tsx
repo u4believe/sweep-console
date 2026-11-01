@@ -115,7 +115,7 @@ export function PlanShowcase({
               >
                 {free ? "Free" : formatUnits(BigInt(t.amount), 6)}
                 {!free && (
-                  <span style={{ fontSize: 15, fontWeight: 400, color: "var(--color-neutral-700)" }}>
+                  <span style={{ fontSize: 15, fontWeight: 500, color: "var(--color-neutral-700)" }}>
                     {INTERVAL_LABELS[t.interval] ?? ""}
                   </span>
                 )}
