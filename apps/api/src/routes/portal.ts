@@ -1606,7 +1606,7 @@ portalRouter.get("/admin/rail", async (req, res) => {
         orderBy: { railRequestedAt: "asc" },
         select: {
           merchantId: true, name: true, email: true, walletAddress: true,
-          railRequestedAt: true, createdAt: true,
+          railRequestedAt: true, createdAt: true, isLive: true,
           _count: { select: { plans: true, subscriptions: true } },
         },
       }),
@@ -1636,6 +1636,11 @@ portalRouter.get("/admin/rail", async (req, res) => {
           account_age_days: Math.floor((Date.now() - m.createdAt.getTime()) / 86_400_000),
           plans: m._count.plans,
           subscriptions: m._count.subscriptions,
+          // Granting the rail activates live mode with it when the account is
+          // not live yet, which is the larger half of the decision. The
+          // operator is shown this so the confirmation can say so in words
+          // instead of the activation being discovered afterwards.
+          is_live: m.isLive,
         })),
         holders: holders.map((m) => ({
           merchant_id: m.merchantId,
@@ -1714,25 +1719,30 @@ portalRouter.post(
        * granted the rail, went to issue the key it needs, and was refused with
        * "this account is not activated for live mode yet".
        *
-       * Refused rather than activated silently. Activating is the larger
-       * decision of the two and belongs to whoever makes it deliberately, not
-       * to a side effect of the smaller one. The operator is told which order
-       * to do them in.
+       * This USED TO REFUSE, on the reasoning that activating is the larger
+       * decision and should not be a side effect of the smaller one. The
+       * principle was right and the mechanism was wrong: it made the creator
+       * ask twice, in order, waiting on an operator each time — Settings for
+       * live, wait, rail page, wait — and the rail page had to carry a "go live
+       * first" sign to explain a queue the creator could not see.
+       *
+       * Deliberateness belongs in the CONFIRMATION, not in a second round
+       * trip. Granting the rail now activates live mode with it, the admin
+       * confirm names that in words before the operator agrees, and the log
+       * records both halves. One decision, made once, with the larger half
+       * stated out loud.
+       *
+       * Still never silent on the way DOWN: withdrawing the rail leaves isLive
+       * alone. The account keeps the hosted path it may have had all along, and
+       * taking that away is its own decision on /admin/live.
        */
-      if (enabled && isMainnet() && !target.isLive) {
-        return err(
-          res,
-          `${target.merchantId} is not activated for live mode, and the rail cannot be used ` +
-            `without a live API key. Activate the account for live mode first, then grant the rail.`,
-          409,
-          "not_live"
-        );
-      }
+      const alsoActivatesLive = enabled && isMainnet() && !target.isLive;
 
       await prisma.merchant.update({
         where: { id: target.id },
         data: {
           externalRailEnabled: enabled,
+          ...(alsoActivatesLive ? { isLive: true } : {}),
           // Kept on a withdrawal too: the record of who granted it, and when, is
           // the history of the decision, not a description of today's state.
           ...(enabled
@@ -1742,7 +1752,8 @@ portalRouter.post(
       });
       console.log(
         `[admin/rail] ${actor} ${enabled ? "granted" : "withdrew"} the rail for ` +
-          `${target.merchantId} (${target.email})`
+          `${target.merchantId} (${target.email})` +
+          (alsoActivatesLive ? " — and activated it for live mode in the same decision" : "")
       );
 
       if (!enabled) {

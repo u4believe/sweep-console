@@ -29,6 +29,9 @@ interface Waiting {
   account_age_days: number;
   plans: number;
   subscriptions: number;
+  /// False means this grant also activates the account for live mode, which
+  /// the confirmation has to say before the operator agrees to it.
+  is_live: boolean;
 }
 
 interface Holder {
@@ -51,9 +54,10 @@ export function AdminRailPage() {
 
   const load = useCallback(async () => {
     try {
-      // The live queue first: the rail grant refuses an account that is not
-      // live, so an operator working top to bottom does them in an order that
-      // works rather than one that errors.
+      // The live queue first because it is the shorter decision, not because
+      // the order matters any more: the rail grant used to refuse an account
+      // that was not live and now activates it instead, so either queue can be
+      // worked on its own.
       const lr = await fetch(`${API_URL}/portal/admin/live`, { credentials: "include" });
       const ljson = (await lr.json()) as { data?: { waiting: LiveWaiting[] } };
       if (ljson.data) setLiveWaiting(ljson.data.waiting);
@@ -111,10 +115,20 @@ export function AdminRailPage() {
     let reason: string | undefined;
 
     if (enabled) {
+      // Two decisions in one click when the account is not live yet, so both
+      // are named. An operator who meant only to open the rail would otherwise
+      // activate live mode without reading that they had.
+      const row = waiting?.find((w) => w.merchant_id === merchantId);
+      const alsoLive = row ? !row.is_live : false;
       if (
         !confirm(
           `Grant the payment rail to ${name}?\n\nThey will be able to create mandates and collect USDC from ` +
-            `payers who authorize them. They'll be emailed.`
+            `payers who authorize them. They'll be emailed.` +
+            (alsoLive
+              ? `\n\nThis ALSO ACTIVATES ${name} FOR LIVE MODE, because the rail runs on a live ` +
+                `API key and one cannot be issued to an account that is not live. That means real ` +
+                `money on the hosted path too, not just the rail.`
+              : "")
         )
       ) {
         return;

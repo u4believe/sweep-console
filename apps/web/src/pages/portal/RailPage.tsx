@@ -1,4 +1,4 @@
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { EnrolmentGate, useEnrolmentRequired } from "@/components/portal/EnrolmentGate";
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
@@ -56,6 +56,9 @@ interface RailData {
   enabled: boolean;
   requestedAt: string | null;
   /// Whether the account may take real money at all. The rail needs it.
+  // Still sent by GET /portal/rail and still worth having on the wire: the
+  // rail grant activates live with it, so a client that wants to say so can.
+  // This page no longer branches on it — the ask stands on its own.
   isLive?: boolean;
   payoutWallet: string | null;
   totals: { collected: number; pendingCount: number; failedCount: number; activeMandates: number };
@@ -210,34 +213,30 @@ export function RailPage() {
             attempt is wasted on both sides.
           */}
           {/*
-            ONE ASK AT A TIME.
+            ONE ASK, ON THE PAGE IT BELONGS TO.
 
-            Two "request access" buttons — this one and Settings' live request
-            — look like being made to ask twice for the same thing. They are
-            not the same grant: live mode lets an account take real money at
-            all, this lets it additionally solicit a standing claim on a
-            payer's wallet, and most creators only ever want the first. But
-            live is a PREREQUISITE — the rail grant is refused for an account
-            that is not live, since every rail endpoint needs a live API key.
+            This page used to carry a "go live first" sign sending the creator
+            to Settings, because the rail grant refused an account that was not
+            live. That made two asks in a fixed order with an operator wait
+            after each, which read as being made to request the same thing
+            twice.
 
-            So rather than merging two different decisions into one button,
-            only the one that can succeed is shown. Not live: this points at
-            Settings. Live but unenrolled: the enrolment gate. Otherwise: ask.
+            They are still two grants, and deliberately: live mode lets an
+            account take real money at all, the rail lets it additionally
+            solicit a standing claim on a payer's wallet, and most creators
+            only ever want the first. requireExternalRail keeps the second shut
+            until it is asked for.
+
+            What changed is that each ask now stands on its own. Granting the
+            rail activates live mode along with it — see /admin/rail, where the
+            operator is told so before agreeing — so this button no longer
+            depends on a queue the creator cannot see. Settings asks for live
+            alone; this asks for the rail, live included.
           */}
-          {!data.requestedAt && data.isLive === false && (
-            <div style={{ padding: "0 32px 26px" }}>
-              <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-800)", lineHeight: 1.6 }}>
-                Go live first. The rail works through the API, and an API key can only be issued to
-                an account activated for live mode — so there is nothing to grant until that is
-                done. Ask under <Link to="/settings" style={{ color: "var(--color-accent)" }}>Settings</Link>,
-                and come back here once it is.
-              </p>
-            </div>
-          )}
-          {!data.requestedAt && data.isLive !== false && enrolmentRequired && (
+          {!data.requestedAt && enrolmentRequired && (
             <EnrolmentGate action="requesting rail access" />
           )}
-          {!data.requestedAt && data.isLive !== false && !enrolmentRequired && (
+          {!data.requestedAt && !enrolmentRequired && (
             <div style={{ padding: "0 32px 26px" }}>
               <button
                 type="button"
