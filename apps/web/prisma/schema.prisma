@@ -283,6 +283,8 @@ model CheckoutSession {
   externalRef  String // developer's user ID
   successUrl   String
   cancelUrl    String
+  // Read path only: returned by GET /v1/checkout/sessions/:id, never in a
+  // webhook payload. Use external_ref to key an event back to your user.
   metadata     Json?
   tierId       String? // chosen PlanTier (null = the plan's default tier)
   sessionToken String   @unique // for embedded checkout SDK
@@ -517,7 +519,16 @@ model RenewalDelegation {
   // takes an externalRef positionally and with no Subscription there is nowhere
   // else to read one from.
   externalRef    String?
-  metadata       Json? // developer passthrough, echoed on every charge event
+  // UNUSED. Nothing writes this column and nothing reads it — the rail's
+  // passthrough lives on Mandate.metadata and Charge.metadata, not here.
+  //
+  // It used to say "echoed on every charge event", which was false twice over:
+  // the column is never populated, and NO metadata of any kind appears in a
+  // webhook payload. The envelope is event_id, event_type, created_at,
+  // merchant_id, external_ref and data — see lib/webhooks/delivery.ts. A
+  // developer who trusted this comment would have built a handler reading a
+  // field that is never sent.
+  metadata       Json?
 
   walletAddress   String // delegator — the subscriber's connected (EOA) account
   accountAddress  String? // bound account the permission redeems from (== EOA under 7702)
@@ -834,6 +845,8 @@ model Mandate {
   // When the AUTHORIZATION stops being redeemable. Distinct from linkExpiresAt.
   expiresAt      DateTime
 
+  // Read path only: returned by GET /v1/rail/mandates, never in a webhook
+  // payload. Set from POST /v1/rail/mandates.
   metadata  Json?
   returnUrl String? // where to send the subscriber after they sign
 
@@ -920,6 +933,8 @@ model Charge {
   // so the event a developer receives reflects what they set when the charge was
   // made, even if the mandate is later updated.
   externalRef String?
+  // Read path only: returned by GET /v1/rail/charges, never in a webhook
+  // payload. Set from the charge request.
   metadata    Json?
   isTestMode  Boolean @default(false)
 

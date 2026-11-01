@@ -49,3 +49,24 @@ Do not trust a `?ref=` for anything that matters: the payer can edit a URL.
 :::
 
 Amounts are **USDC micro-units**, six decimals. `5000000` is 5.00 USDC.
+
+::: danger `metadata` is never sent on a webhook
+The envelope is exactly `event_id`, `event_type`, `created_at`, `merchant_id`,
+`external_ref` and `data`. Whatever you passed as `metadata` when creating a
+checkout session, a mandate or a charge is **not** in it, on either path.
+
+It is stored, and it comes back on the **read** endpoints:
+
+| You set it on | You read it back from |
+| --- | --- |
+| `checkout.sessions.create` | `GET /v1/checkout/sessions/:id` |
+| `rail.mandates.create` | `GET /v1/rail/mandates` |
+| `rail.charges.create` | `GET /v1/rail/charges` |
+
+So `metadata` is for your own later reference, not for routing an event. If a
+value has to reach your webhook handler, it belongs in **`external_ref`** —
+which is required on a checkout session and is a top-level envelope field.
+
+Build an entitlement check on `metadata` and it will read `undefined` every
+time.
+:::
