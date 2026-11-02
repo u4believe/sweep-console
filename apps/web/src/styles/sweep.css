@@ -47,16 +47,26 @@
      NOTE this is the CONSOLE's accent. The landing page and the checkouts
      keep the brand indigo #4447D6 — the design uses the blue only behind a
      signed-in session, where the rail's purple is its counterpart. */
-  --color-accent: #2868F8;
-  --color-accent-100: #F2F7FF;
-  --color-accent-200: #E6F0FF;
-  --color-accent-300: #CFE2FF;
-  --color-accent-400: #B9D4FF;
-  --color-accent-500: #7FA8FB;
-  --color-accent-600: #1838E8;
-  --color-accent-700: #1430CC;
-  --color-accent-800: #1028A6;
-  --color-accent-900: #0B1C78;
+  /* THE BRAND accent. Indigo, everywhere that is not the signed-in console:
+     the landing page, both checkouts, the authorize page, the emails. v4's
+     own demo section sets --accent:#4447D6 explicitly, which is the design
+     saying the same thing.
+
+     The console's blue lives on [data-scope="hosted"] below. It was briefly
+     put HERE, which turned the landing page and the checkouts blue — a
+     console colour in :root is a colour on every screen. */
+  --color-accent: #4447D6;
+  --color-accent-100: #F5F5FE;
+  --color-accent-200: #EEEEFC;
+  --color-accent-300: #DCDDFB;
+  --color-accent-400: #C9CAF6;
+  --color-accent-500: #8A8CE8;
+  --color-accent-600: #3639C4;
+  --color-accent-700: #2F32B8;
+  --color-accent-800: #262995;
+  --color-accent-900: #1C1E6E;
+  --color-accent-ink: #ffffff;
+  --color-accent-fill: linear-gradient(100deg, #3639C4 0%, #4447D6 50%, #6B6EEA 100%);
 
   /* A mono scheme: accent-2 resolves to the same role so anything reading it
      stays coherent rather than picking up a colour nobody chose. */
@@ -256,8 +266,9 @@ figcaption { font-size: 11px; margin-top: var(--space-1); color: var(--color-neu
 /* The 2% press is what makes a filled rectangle feel like a button. */
 .btn:active:not(:disabled) { transform: scale(0.98); }
 
-.btn-primary { background: var(--color-accent); color: #fff; }
-.btn-primary:hover { background: var(--color-accent-600); color: #fff; }
+/* --color-accent-ink, not #fff: the rail's accent takes dark navy text. */
+.btn-primary { background: var(--color-accent); color: var(--color-accent-ink, #fff); }
+.btn-primary:hover { background: var(--color-accent-600); color: var(--color-accent-ink, #fff); }
 .btn-primary:active { background: var(--color-accent-700); }
 
 .btn-secondary { border-color: var(--color-neutral-400); background: var(--color-bg); }
@@ -546,17 +557,58 @@ textarea.input { min-height: 90px; resize: vertical; }
  * darkened past the design for exactly that, so text that must be purple has
  * somewhere legible to go.
  */
+/**
+ * The console's HOSTED flow — Console.dc.html's [data-flow], verbatim.
+ *
+ * Scoped to the console because PortalLayout sets data-scope on its root and
+ * effectiveScope is never null: `canSwitch ? scope : "hosted"`. So every
+ * console page gets one of these two blocks and nothing outside the console
+ * gets either.
+ *
+ * The design names exactly eight values:
+ *   accent #2868F8  hover #1838E8  tint #E6F0FF  soft #F2F7FF
+ *   line   #B9D4FF  bar   #CFE2FF  ink  #fff     fill  gradient
+ * An earlier pass invented 500/700/800/900 by darkening, which is why the
+ * console did not match. Everything past `hover` now IS `hover`: a step the
+ * design does not define should not be a colour the design does not contain.
+ */
+[data-scope="hosted"] {
+  --color-accent: #2868F8;
+  --color-accent-100: #F2F7FF; /* soft */
+  --color-accent-200: #E6F0FF; /* tint */
+  --color-accent-300: #CFE2FF; /* bar  */
+  --color-accent-400: #B9D4FF; /* line */
+  --color-accent-500: #B9D4FF;
+  --color-accent-600: #1838E8; /* hover */
+  --color-accent-700: #1838E8;
+  --color-accent-800: #1838E8;
+  --color-accent-900: #1838E8;
+  --color-accent-ink: #ffffff;
+  --color-accent-fill: linear-gradient(100deg, #1838E8 0%, #2868F8 50%, #10A8F8 100%);
+}
+
 [data-scope="rail"] {
+  /* Console.dc.html's [data-flow="rail"], VERBATIM — including the two things
+     the previous version got wrong.
+
+     The invented dark steps are gone, as above. And --accent-ink on the rail
+     is #121A5C, NOT white: the design puts dark navy text on the purple,
+     because white on #9B5FC0 is 4.38:1 and navy on it is only a little
+     better at 3.61 — the design chose the one that looks right and accepted
+     both are large-text contrasts. That was declined for darkening once
+     already; it is recorded here so it is not "fixed" by a later pass. */
   --color-accent: #9B5FC0;
-  --color-accent-100: #FBF6FD;
-  --color-accent-200: #F7EDFB;
-  --color-accent-300: #EBC7F3;
-  --color-accent-400: #E5CDF1;
-  --color-accent-500: #C08FD8;
-  --color-accent-600: #874AAE;
-  --color-accent-700: #703D91;
-  --color-accent-800: #5A3175;
-  --color-accent-900: #3F2252;
+  --color-accent-100: #FBF6FD; /* soft */
+  --color-accent-200: #F7EDFB; /* tint */
+  --color-accent-300: #EBC7F3; /* bar  */
+  --color-accent-400: #E5CDF1; /* line */
+  --color-accent-500: #E5CDF1;
+  --color-accent-600: #874AAE; /* hover */
+  --color-accent-700: #874AAE;
+  --color-accent-800: #874AAE;
+  --color-accent-900: #874AAE;
+  --color-accent-ink: #121A5C;
+  --color-accent-fill: linear-gradient(100deg, #F6E7A9 0%, #EBC7F3 32%, #BCC5FF 58%, #A9F0EC 82%, #F3D2F0 100%);
 }
 
 /* The mode pill's lift is tinted to whichever accent is in play. */
@@ -651,6 +703,39 @@ textarea.input { min-height: 90px; resize: vertical; }
  * shortening its duration would not help.
  */
 @keyframes swp-marquee {
-  from { transform: translate3d(0, 0, 0); }
-  to   { transform: translate3d(-50%, 0, 0); }
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+/**
+ * The USDC coin in the headline, flipping on its Y axis.
+ *
+ * The design's own curve and timing: it rests flat for the first 12%, turns
+ * to show its back by 50%, rests again to 62%, then completes the turn. The
+ * pauses are what make it read as a coin being flipped rather than a spinning
+ * disc. Its span carries perspective:600px and the image transform-style:
+ * preserve-3d, or the rotation is a flat squash.
+ */
+@keyframes usdc-flip {
+  0%, 12%   { transform: rotateY(0deg); }
+  50%, 62%  { transform: rotateY(180deg); }
+  100%      { transform: rotateY(360deg); }
+}
+
+/**
+ * The checkout demo's two working animations, from the design.
+ *
+ * sc-spin is the chain row's spinner while a payment is in flight; sc-bar is
+ * the 40%-wide sliver that sweeps the row's bottom edge underneath it. Both
+ * only exist while the demo is mid-payment, and the component drops them
+ * under prefers-reduced-motion along with the whole timed sequence — a demo
+ * that advances on its own is motion, not just decoration.
+ */
+@keyframes sc-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes sc-bar {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
 }

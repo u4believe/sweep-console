@@ -15,9 +15,11 @@
  * The hero's subject is now <HoloScene> — an iridescent glass blob and arc in
  * three.js — not a coin travelling a rail.
  *
- * PRICING IS KEPT, though v4 drops it. It is where the platform fee is
- * disclosed, the header links to it, and a pricing page that does not state a
- * rate is worse than a mockup that forgot one.
+ * PRICING IS GONE. It was kept for one commit on the reasoning that the fee
+ * should be disclosed on the page; the instruction since is to follow v4
+ * exactly, and v4 has no pricing band. The rate is still stated — the fee
+ * comparison in #compare computes it from VITE_PLATFORM_FEE_BPS — so nothing
+ * about the fee went unsaid.
  *
  * THE WEBHOOK NAMES ARE THE REAL ONES. The design shows
  * `checkout.session.completed` and `grant.revoked`; neither is sent. EVENTS
@@ -26,13 +28,13 @@
  */
 
 import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/auth";
 import { DOCS_URL } from "@/lib/docs";
 import { feeOn, feePercent, keepsOf } from "@/lib/fee";
 import { HoloScene } from "@/components/landing/HoloScene";
-import { ChainMark, SweepMark, UsdcMark, METAMASK_LOGO, CIRCLE_LOGO, type ChainKey } from "@/components/ui/marks";
+import { ChainMark, SweepMark, UsdcMark, USDC_TOKEN, METAMASK_LOGO, CIRCLE_LOGO, type ChainKey } from "@/components/ui/marks";
 
 /** v4 lays every band out on a 1200px measure. */
 const PAGE_W = "min(1200px, 100%)";
@@ -150,19 +152,26 @@ function Kicker({ children, align = "center" }: { children: ReactNode; align?: "
 
 
 /**
- * A band of the page.
+ * A band.
  *
- * The page is WHITE. Only `demo` and `developers` sit on the surface tint —
- * the two sections built around a card, where the tint is what lifts the
- * card off the page. I had this inverted: `how` and `features` tinted and
- * those two white, which greyed most of the page and flattened the two
- * places that needed depth.
+ * `pad` is the section's VERTICAL padding and it is not uniform in v4 — most
+ * bands are clamp(72px,9vw,120px), the fee comparison opens tight at
+ * clamp(24px,4vw,40px) because it continues the section above it, and the
+ * closing call is clamp(88px,11vw,150px). A single fixed 88px, which is what
+ * this used to do, squeezed every band to the same height and made the page
+ * read as centred and cramped on a wide screen — up to 32px of breathing
+ * room was missing per edge.
+ *
+ * The measure is 1200px with clamp(18px,4vw,40px) gutters, from the design.
  */
+const BAND_PAD = "clamp(72px,9vw,120px)";
+
 function Section({
   id,
   ground,
   background,
   dark,
+  pad,
   children,
 }: {
   id?: string;
@@ -175,6 +184,8 @@ function Section({
    * block in sweep.css for what cannot survive the flip.
    */
   dark?: boolean;
+  /** Vertical padding; defaults to the design's standard band. */
+  pad?: string;
   children: ReactNode;
 }) {
   return (
@@ -183,16 +194,20 @@ function Section({
       className={dark ? "on-dark" : undefined}
       style={{
         background: background ?? (ground ? "var(--color-neutral-200)" : "var(--color-bg)"),
-        padding: "88px 0",
       }}
     >
-      {/* PAGE_W — see its definition. */}
-      <div className="mx-auto w-full" style={{ maxWidth: PAGE_W, paddingInline: "clamp(18px,4vw,40px)" }}>{children}</div>
+      <div
+        className="mx-auto w-full"
+        style={{
+          maxWidth: PAGE_W,
+          padding: `${pad ?? BAND_PAD} clamp(18px,4vw,40px)`,
+        }}
+      >
+        {children}
+      </div>
     </section>
   );
 }
-
-
 /**
  * Section headings are CENTRED, which the previous version of this file got
  * wrong by inheriting Modernist's "keep everything flush left" rule. The
@@ -330,24 +345,12 @@ const MARQUEE: Array<{ kind: "chain" | "token" | "logo"; key?: ChainKey; label: 
 
 function Marquee() {
   const reduced = usePrefersReducedMotion();
-  const half = (
-    <div style={{ display: "flex", alignItems: "center", gap: 56, paddingRight: 56, flex: "none" }}>
+  // Each entry is followed by a glowing lilac dot — the design's separator,
+  // and the reason the strip reads as a ticker rather than a logo wall.
+  const half = (k: string) => (
+    <div key={k} style={{ display: "flex", alignItems: "center", gap: 56, paddingRight: 56, flex: "none" }}>
       {MARQUEE.map((m) => (
-        <span
-          key={m.label}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 14,
-            fontSize: 24,
-            fontWeight: 500,
-            color: "#fff",
-            whiteSpace: "nowrap",
-            letterSpacing: "-0.01em",
-          }}
-        >
-          {m.kind === "chain" && m.key ? <ChainMark chain={m.key} size={44} /> : null}
-          {m.kind === "token" ? <UsdcMark size={44} /> : null}
+        <Fragment key={k + m.label}>
           {m.kind === "logo" ? (
             <img
               src={m.src}
@@ -356,14 +359,38 @@ function Marquee() {
                 height: m.h,
                 width: "auto",
                 display: "block",
-                // Circle's mark is dark; invert it onto navy.
+                // Circle's mark is dark artwork; invert it onto navy.
                 filter: m.label === "Circle" ? "brightness(0) invert(1)" : "none",
               }}
             />
           ) : (
-            m.label
+            <span
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 14,
+                fontSize: 24,
+                fontWeight: 500,
+                color: "#fff",
+                whiteSpace: "nowrap",
+                letterSpacing: "-0.01em",
+              }}
+            >
+              {m.kind === "token" ? <UsdcMark size={44} /> : <ChainMark chain={m.key!} size={44} />}
+              {m.label}
+            </span>
           )}
-        </span>
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: "#CD94E6",
+              boxShadow: "0 0 12px rgba(205,148,230,0.8)",
+              flex: "none",
+            }}
+          />
+        </Fragment>
       ))}
     </div>
   );
@@ -385,17 +412,16 @@ function Marquee() {
         style={{
           display: "flex",
           width: "max-content",
-          padding: "18px 0",
-          animation: reduced ? undefined : "swp-marquee 38s linear infinite",
+          padding: "20px 0",
+          animation: reduced ? undefined : "swp-marquee 32s linear infinite",
         }}
       >
-        {half}
-        {half}
+        {half("a")}
+        {half("b")}
       </div>
     </div>
   );
 }
-
 /* ── header ───────────────────────────────────────────────────────────── */
 
 /**
@@ -444,7 +470,6 @@ function Header() {
         >
           <a href="#how" style={link}>How it works</a>
           <a href="#features" style={link}>Features</a>
-          <a href="#pricing" style={link}>Pricing</a>
           <a href={DOCS_URL} style={link}>Documentation</a>
         </nav>
         <div className="ml-auto flex items-center md:ml-0" style={{ gap: 12 }}>
@@ -478,6 +503,7 @@ function Header() {
  * 700/800.
  */
 function Hero() {
+  const reducedCoin = usePrefersReducedMotion();
   return (
     <section
       id="top"
@@ -568,16 +594,29 @@ function Hero() {
             <br />
             in{" "}
             <span style={{ whiteSpace: "nowrap" }}>
+              {/* The coin flips. perspective on the span, preserve-3d on the
+                  image — without both the rotateY is a flat squash. */}
               <span
                 style={{
                   display: "inline-block",
                   width: "0.72em",
                   height: "0.72em",
                   marginRight: "0.12em",
+                  perspective: "600px",
                   verticalAlign: "baseline",
                 }}
               >
-                <UsdcMark />
+                <img
+                  src={USDC_TOKEN}
+                  alt=""
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    height: "100%",
+                    animation: reducedCoin ? undefined : "usdc-flip 5s cubic-bezier(.45,0,.55,1) infinite",
+                    transformStyle: "preserve-3d",
+                  }}
+                />
               </span>
               <em style={{ color: "#CD94E6", fontStyle: "italic" }}>USDC.</em>
             </span>
@@ -1085,25 +1124,81 @@ function Fallback() {
 /* ── the checkout demo ─────────────────────────────────────────────────── */
 
 /**
- * The hosted checkout, drawn as a subscriber sees it: email verified, wallet
- * connected, and the only decision left is which chain holds the funds.
+ * The hosted checkout, as the design draws it — and it is a WORKING demo, not
+ * a still. Picking a chain runs the real sequence: balance check, wallet
+ * confirmation, processing, then the confirmation screen with a receipt.
  *
- * The numbered steps match AuthorizePage's, because they are the same three
- * steps — this is a picture of the real screen, not an idealised one.
+ * The design's own timings (800ms / 1900ms / 3000ms) and its three-state
+ * renewal switch: off, one chain authorized, all three. The copy for each
+ * state is the design's, because "1 of 3 chains authorized — Base" is a
+ * different promise from "All three chains authorized" and the note has to
+ * say which.
+ *
+ * The step rail highlights 02 Payment details until it is done, then 03 —
+ * activeIdx = done ? 2 : 1. 01 is never the active step, since a plan has
+ * already been chosen by the time a payer is on this screen.
+ *
+ * Under prefers-reduced-motion the whole sequence is skipped: a chain tap
+ * goes straight to the confirmation, with no spinner and no sweeping bar.
  */
+const DEMO_CHAINS: Array<{ key: ChainKey; name: string }> = [
+  { key: "base", name: "USDC on Base" },
+  { key: "arbitrum", name: "USDC on Arbitrum" },
+  { key: "optimism", name: "USDC on Optimism" },
+];
+
+const DEMO_RAIL: Array<[string, string]> = [
+  ["01", "Choose a plan"],
+  ["02", "Payment details"],
+  ["03", "Confirmation"],
+];
+
+type DemoStage = null | "checking" | "wallet" | "processing";
+type RenewState = "off" | "partial" | "on";
+
+const RENEW_NOTE: Record<RenewState, string> = {
+  on: "All three chains authorized. Each renewal charges whichever one holds enough USDC.",
+  partial: "1 of 3 chains authorized — Base. Tap to authorize the rest.",
+  off: "One signature to let renewals fall back to any supported chain with enough USDC. Revoke anytime.",
+};
+
 function Demo() {
-  const [picked, setPicked] = useState<ChainKey>("base");
-  const row: CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    padding: "12px 14px",
-    borderRadius: 12,
-    width: "100%",
-    textAlign: "left",
-    cursor: "pointer",
-    transition: "background 160ms ease, box-shadow 160ms ease",
+  const reduced = usePrefersReducedMotion();
+  const [chain, setChain] = useState<ChainKey>("base");
+  const [stage, setStage] = useState<DemoStage>(null);
+  const [done, setDone] = useState(false);
+  const [paidFrom, setPaidFrom] = useState<ChainKey>("base");
+  const [renew, setRenew] = useState<RenewState>("off");
+
+  // Timers are owned here so a pick that is interrupted by unmount, or by the
+  // viewer hitting "Run it again", cannot land a setState on a dead component.
+  const [timers, setTimers] = useState<number[]>([]);
+  useEffect(() => () => timers.forEach(window.clearTimeout), [timers]);
+
+  const pick = (key: ChainKey) => {
+    if (stage) return;
+    setChain(key);
+    if (reduced) {
+      setPaidFrom(key);
+      setDone(true);
+      return;
+    }
+    setStage("checking");
+    const t = [
+      window.setTimeout(() => setStage("wallet"), 800),
+      window.setTimeout(() => setStage("processing"), 1900),
+      window.setTimeout(() => {
+        setStage(null);
+        setPaidFrom(key);
+        setDone(true);
+      }, 3000),
+    ];
+    setTimers(t);
   };
+
+  const activeIdx = done ? 2 : 1;
+  const prettyName: Record<string, string> = { base: "Base", arbitrum: "Arbitrum", optimism: "Optimism" };
+  const LINE = "1px solid var(--color-divider)";
 
   return (
     <Section id="demo" background="#E9EEFF">
@@ -1111,7 +1206,7 @@ function Demo() {
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,420px),1fr))",
-          gap: "clamp(36px,5vw,72px)",
+          gap: "clamp(40px,6vw,80px)",
           alignItems: "center",
         }}
       >
@@ -1119,7 +1214,7 @@ function Demo() {
           <Kicker align="left">Hosted checkout</Kicker>
           <h2
             style={{
-              margin: "0 0 18px",
+              margin: "0 0 20px",
               fontWeight: 700,
               fontSize: "clamp(32px,4vw,50px)",
               lineHeight: 1.12,
@@ -1129,8 +1224,9 @@ function Demo() {
           >
             Pick a chain. That&rsquo;s the payment.
           </h2>
-          <p style={{ margin: "0 0 26px", fontSize: 16, lineHeight: 1.65, color: "var(--color-neutral-700)", maxWidth: "44ch" }}>
-            Email verified, wallet connected, one tap on the chain that holds the funds.
+          <p style={{ margin: "0 0 26px", fontSize: 16, lineHeight: 1.65, color: "var(--color-neutral-700)", maxWidth: "42ch" }}>
+            Email verified, wallet connected, one tap on the chain that holds the funds. Turn on renewals across every
+            chain so a dry wallet on one never misses a period.
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 12, fontSize: 15, color: "var(--color-neutral-800)" }}>
             {[
@@ -1139,106 +1235,318 @@ function Demo() {
               "Cancel anytime by revoking from the wallet",
             ].map((t) => (
               <span key={t} style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                <span style={{ width: 18, height: 4, borderRadius: 2, background: "var(--color-accent)", flex: "none" }} />
+                {/* 8×8 rounded squares, not dashes. */}
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: "var(--color-accent)", flex: "none" }} />
                 {t}
               </span>
             ))}
           </div>
         </div>
 
-        <div
-          data-reveal=""
-          style={{
-            background: "var(--color-bg)",
-            borderRadius: "var(--radius-lg)",
-            boxShadow: "0 0 0 1px var(--color-neutral-400), var(--shadow-lg)",
-            overflow: "hidden",
-          }}
-        >
-          <div style={{ padding: "20px 22px", borderBottom: "1px solid var(--color-divider)" }}>
-            <p className="m-0" style={{ fontWeight: 700, fontSize: 15 }}>Northwind Studio</p>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 10 }}>
-              <span style={{ fontWeight: 800, fontSize: 30, letterSpacing: "-0.03em" }}>$29.00</span>
-              <span style={{ fontSize: 13, color: "var(--color-neutral-600)" }}>USDC / month</span>
+        <div data-reveal="">
+          <div
+            style={{
+              background: "var(--color-bg)",
+              borderRadius: 14,
+              overflow: "hidden",
+              boxShadow: "0 0 0 1px var(--color-neutral-400), 0 30px 60px -30px rgba(35,35,80,0.35)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 20px", borderBottom: LINE }}>
+              <span style={{ fontWeight: 700, fontSize: 15 }}>Northwind Studio</span>
             </div>
-            <p className="m-0" style={{ marginTop: 2, fontSize: 13, color: "var(--color-neutral-600)" }}>Pro</p>
-          </div>
 
-          <div style={{ padding: "16px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
-            {[
-              ["01", "jo@northwind.co", "Verified"],
-              ["02", "0x7a3f…91c2", "Wallet connected"],
-            ].map(([n, v, tag]) => (
-              <div key={n} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5 }}>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-accent)", width: 22, flex: "none" }}>
-                  {n}
-                </span>
-                <span style={{ fontWeight: 600 }}>{v}</span>
-                <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: "var(--color-ok-text)" }}>{tag}</span>
-              </div>
-            ))}
+            <div style={{ display: "flex", borderBottom: LINE, padding: "0 12px", overflowX: "auto" }}>
+              {DEMO_RAIL.map(([n, label], i) => (
+                <div
+                  key={n}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    whiteSpace: "nowrap",
+                    padding: "11px 12px 9px",
+                    fontSize: 12.5,
+                    fontWeight: 500,
+                    borderBottom: `2px solid ${i === activeIdx ? "var(--color-accent)" : "transparent"}`,
+                    color: i <= activeIdx ? "var(--color-text)" : "var(--color-neutral-500)",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10.5,
+                      color: i === activeIdx ? "var(--color-accent)" : "var(--color-neutral-500)",
+                    }}
+                  >
+                    {n}
+                  </span>
+                  {label}
+                </div>
+              ))}
+            </div>
 
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-accent)", width: 22, flex: "none" }}>
-                  03
-                </span>
-                <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--color-neutral-700)" }}>
-                  Pay from
-                </span>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {CHAINS.map((c) => {
-                  const on = picked === c.key;
-                  return (
+            {!done ? (
+              <div style={{ padding: "18px 20px 20px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    paddingBottom: 14,
+                    borderBottom: LINE,
+                  }}
+                >
+                  <div>
+                    <p className="m-0" style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--color-neutral-600)" }}>
+                      Your plan
+                    </p>
+                    <p style={{ margin: "4px 0 0", fontWeight: 700, fontSize: 18 }}>Pro</p>
+                  </div>
+                  <p className="m-0" style={{ fontWeight: 700, fontSize: 28, letterSpacing: "-0.03em" }}>
+                    $29.00{" "}
+                    <span style={{ fontSize: 13, fontWeight: 500, color: "var(--color-neutral-600)", letterSpacing: 0 }}>
+                      USDC / month
+                    </span>
+                  </p>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0", borderBottom: LINE, fontSize: 13.5 }}>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-accent)", width: 22 }}>01</span>
+                  <span>jo@northwind.co</span>
+                  <span
+                    style={{
+                      marginLeft: "auto",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: "var(--color-ok-text)",
+                      background: "var(--color-ok-bg)",
+                      padding: "3px 8px",
+                      borderRadius: 5,
+                    }}
+                  >
+                    Verified
+                  </span>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0", borderBottom: LINE, fontSize: 13.5 }}>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-accent)", width: 22 }}>02</span>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>0x7a3f&hellip;91c2</span>
+                  <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--color-neutral-600)" }}>Wallet connected</span>
+                </div>
+
+                <div style={{ padding: "12px 0 6px" }}>
+                  <p
+                    className="m-0"
+                    style={{
+                      marginBottom: 8,
+                      display: "flex",
+                      gap: 10,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      color: "var(--color-neutral-700)",
+                    }}
+                  >
+                    <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-accent)", width: 22, letterSpacing: 0 }}>03</span>
+                    Pay from
+                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {DEMO_CHAINS.map((c) => {
+                      const on = chain === c.key;
+                      const busy = on && !!stage;
+                      const sub = busy
+                        ? stage === "checking"
+                          ? "Checking your balance…"
+                          : stage === "wallet"
+                            ? "Confirm in your wallet…"
+                            : "Processing payment…"
+                        : renew === "on"
+                          ? "Authorized · renewals can charge from here"
+                          : "Settled on Arc";
+                      return (
+                        <button
+                          key={c.key}
+                          type="button"
+                          onClick={() => pick(c.key)}
+                          style={{
+                            position: "relative",
+                            overflow: "hidden",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 12,
+                            textAlign: "left",
+                            width: "100%",
+                            font: "inherit",
+                            color: "inherit",
+                            border: `1px solid ${on ? "var(--color-accent)" : "var(--color-divider)"}`,
+                            borderRadius: 9,
+                            background: on ? "var(--color-accent-200)" : "var(--color-bg)",
+                            padding: "10px 12px",
+                            cursor: stage ? "default" : "pointer",
+                            transition: "background 160ms ease, border-color 160ms ease",
+                          }}
+                        >
+                          <span style={{ display: "block", flex: "none", width: 24, height: 24 }}>
+                            <ChainMark chain={c.key} size={24} />
+                          </span>
+                          <span style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ display: "block", fontWeight: 700, fontSize: 14 }}>{c.name}</span>
+                            <span style={{ display: "block", marginTop: 2, fontSize: 11.5, color: "var(--color-neutral-600)" }}>
+                              {sub}
+                            </span>
+                          </span>
+                          <span style={{ flex: "none", fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center" }}>
+                            {busy ? (
+                              <span
+                                style={{
+                                  width: 15,
+                                  height: 15,
+                                  border: "2px solid var(--color-neutral-400)",
+                                  borderTopColor: "var(--color-accent)",
+                                  borderRadius: "50%",
+                                  display: "block",
+                                  animation: "sc-spin .7s linear infinite",
+                                }}
+                              />
+                            ) : (
+                              "$29.00"
+                            )}
+                          </span>
+                          {busy ? (
+                            <span style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 2, overflow: "hidden", display: "block" }}>
+                              <span
+                                style={{
+                                  display: "block",
+                                  width: "40%",
+                                  height: "100%",
+                                  background: "var(--color-accent)",
+                                  animation: "sc-bar 1.1s cubic-bezier(.4,0,.2,1) infinite",
+                                }}
+                              />
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div style={{ margin: "10px 0 12px", background: "var(--color-surface)", borderRadius: 9, padding: "12px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontWeight: 700, fontSize: 13.5 }}>Renew from any funded chain</span>
                     <button
-                      key={c.key}
                       type="button"
-                      onClick={() => setPicked(c.key)}
-                      aria-pressed={on}
+                      role="switch"
+                      aria-checked={renew === "on"}
+                      aria-label="Automatic renewal on all chains"
+                      onClick={() => setRenew((r) => (r === "off" ? "partial" : r === "partial" ? "on" : "off"))}
                       style={{
-                        ...row,
-                        background: on ? "var(--color-accent-200)" : "var(--color-neutral-100)",
-                        boxShadow: on ? "inset 0 0 0 1.5px var(--color-accent)" : "inset 0 0 0 1px var(--color-divider)",
+                        marginLeft: "auto",
+                        flex: "none",
+                        width: 44,
+                        height: 24,
+                        padding: 0,
+                        border: 0,
+                        borderRadius: 999,
+                        position: "relative",
+                        cursor: "pointer",
+                        background:
+                          renew === "on" ? "var(--color-accent)" : renew === "partial" ? "#AFB1F2" : "var(--color-neutral-400)",
+                        transition: "background 200ms ease",
                       }}
                     >
-                      <ChainMark chain={c.key} size={26} />
-                      <span style={{ display: "flex", flexDirection: "column" }}>
-                        <span style={{ fontWeight: 700, fontSize: 13.5 }}>{c.name}</span>
-                        <span style={{ fontSize: 11.5, color: "var(--color-neutral-600)" }}>{c.note}</span>
-                      </span>
-                      <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: on ? "var(--color-accent)" : "var(--color-neutral-600)" }}>
-                        {on ? "Selected" : ""}
-                      </span>
+                      <span
+                        style={{
+                          position: "absolute",
+                          top: 3,
+                          left: renew === "on" ? 23 : renew === "partial" ? 13 : 3,
+                          width: 18,
+                          height: 18,
+                          borderRadius: "50%",
+                          background: "var(--color-bg)",
+                          display: "block",
+                          boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
+                          transition: "left 220ms cubic-bezier(.23,1,.32,1)",
+                        }}
+                      />
                     </button>
-                  );
-                })}
-              </div>
-              <p className="m-0" style={{ marginTop: 10, fontSize: 12, color: "var(--color-neutral-600)" }}>
-                Renew from any funded chain — if {CHAINS.find((c) => c.key === picked)!.name} runs short, the next one pays.
-              </p>
-            </div>
-          </div>
+                  </div>
+                  <p style={{ margin: "6px 0 0", fontSize: 11.5, lineHeight: 1.5, color: "var(--color-neutral-700)" }}>
+                    {RENEW_NOTE[renew]}
+                  </p>
+                </div>
 
-          <div style={{ padding: "14px 22px", borderTop: "1px solid var(--color-divider)", fontSize: 13.5 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
-              <span style={{ color: "var(--color-neutral-600)" }}>Network fee</span>
-              <span style={{ fontWeight: 600, color: "var(--color-ok-text)" }}>Covered by Sweep Console</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "4px 0" }}>
-              <span style={{ fontWeight: 700 }}>Due today</span>
-              <span style={{ fontWeight: 800, fontSize: 20, letterSpacing: "-0.02em" }}>
-                $29.00 <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-neutral-600)" }}>USDC</span>
-              </span>
-            </div>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: LINE, fontSize: 13 }}>
+                  <span>Network fee</span>
+                  <span style={{ color: "var(--color-accent)", fontWeight: 600 }}>Covered by Sweep Console</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "10px 0 0" }}>
+                  <span style={{ fontWeight: 700, fontSize: 16 }}>Due today</span>
+                  <span style={{ fontWeight: 700, fontSize: 24, letterSpacing: "-0.03em" }}>
+                    $29.00 <span style={{ fontSize: 13, color: "var(--color-neutral-600)", fontWeight: 500 }}>USDC</span>
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div style={{ padding: "30px 22px 24px" }}>
+                <p className="m-0" style={{ marginBottom: 8, fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--color-accent)" }}>
+                  Confirmed on Arc
+                </p>
+                <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 32, lineHeight: 1.05, letterSpacing: "-0.03em" }}>
+                  You&rsquo;re subscribed to Pro.
+                </p>
+                <p style={{ margin: "0 0 20px", fontSize: 14, color: "var(--color-neutral-700)" }}>
+                  Renewals run automatically &mdash; nothing else to sign.
+                </p>
+                <div style={{ border: LINE, borderRadius: 10, overflow: "hidden" }}>
+                  {[
+                    ["Plan", "Pro"],
+                    ["Amount", "$29.00 USDC / month"],
+                    ["Network", `${prettyName[paidFrom]} → settled on Arc`],
+                    ["Wallet", "0x7a3f…91c2"],
+                  ].map(([k, v]) => (
+                    <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 16, padding: "11px 14px", borderBottom: LINE }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-neutral-600)" }}>{k}</span>
+                      <span style={{ fontSize: 13, textAlign: "right" }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    timers.forEach(window.clearTimeout);
+                    setDone(false);
+                    setStage(null);
+                  }}
+                  style={{
+                    marginTop: 18,
+                    font: "inherit",
+                    fontSize: 13.5,
+                    fontWeight: 600,
+                    background: "var(--color-accent)",
+                    color: "var(--color-accent-ink, #fff)",
+                    border: 0,
+                    borderRadius: 7,
+                    padding: "11px 18px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Run it again
+                </button>
+              </div>
+            )}
           </div>
+          <p style={{ margin: "14px 2px 0", fontSize: 12.5, color: "var(--color-neutral-600)", textAlign: "center" }}>
+            Live demo &mdash; pick a chain to pay.
+          </p>
         </div>
       </div>
     </Section>
   );
 }
-
-
 /* ── features ──────────────────────────────────────────────────────────── */
 
 function Features() {
@@ -1318,7 +1626,7 @@ function Features() {
  *
  * OUR side is computed, never typed. feeOn/keepsOf read the same
  * VITE_PLATFORM_FEE_BPS as feePercent(), so this card cannot drift from the
- * Pricing section below it the way five hardcoded literals once did. At 250
+ * docs the way five hardcoded literals once did. At 250
  * bps that is "2.5% · −0.72" and "28.27".
  *
  * The second half answers the question the first half raises — a lower fee is
@@ -1344,7 +1652,7 @@ function Compare() {
   const BIG: CSSProperties = { fontWeight: 800, fontSize: 34, letterSpacing: "-0.035em" };
 
   return (
-    <Section id="compare" dark background="#121A5C">
+    <Section id="compare" dark background="#121A5C" pad="clamp(24px,4vw,40px)">
       <div data-reveal="" style={{ textAlign: "center", marginBottom: 44 }}>
         <Kicker>Keep more of every renewal</Kicker>
         <h2
@@ -1901,123 +2209,6 @@ function Developers() {
 }
 
 
-/* ── pricing ───────────────────────────────────────────────────────────── */
-
-const PRICING = [
-  {
-    name: "Test",
-    price: "Free",
-    unit: "",
-    blurb: "Full API and dashboard in test mode. No wallet required.",
-    featured: false,
-    cta: "Start in test mode",
-    feats: ["Unlimited test plans", "All webhook events", "Hosted checkout preview"],
-  },
-  {
-    name: "Standard",
-    price: feePercent(),
-    unit: " per renewal",
-    blurb: "Pay only when a charge settles. Gas is on us.",
-    featured: true,
-    cta: "Choose Standard",
-    feats: [
-      "Unlimited plans & tiers",
-      "Gas covered on every renewal",
-      "Signed webhooks & API keys",
-      "Email receipts",
-    ],
-  },
-  {
-    name: "Scale",
-    price: "Custom",
-    unit: "",
-    blurb: "For high settled volume. Talk to us about your numbers.",
-    featured: false,
-    cta: "Talk to us",
-    feats: ["Volume pricing", "Dedicated settlement lane", "Account manager"],
-  },
-];
-
-
-function Pricing() {
-  return (
-    <Section id="pricing" background="#ffffff">
-      <Kicker>Pricing</Kicker>
-      <H2>Pay when you get paid.</H2>
-      <div
-        className="mt-10 grid"
-        style={{ gap: 18, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,270px),1fr))", alignItems: "start" }}
-      >
-        {PRICING.map((p) => (
-          <article
-            key={p.name}
-            style={{
-              background: p.featured ? "var(--color-text)" : "var(--color-bg)",
-              color: p.featured ? "#fff" : "inherit",
-              border: `1px solid ${p.featured ? "var(--color-text)" : "var(--color-divider)"}`,
-              borderRadius: "var(--radius-lg)",
-              padding: 26,
-              boxShadow: p.featured ? "var(--shadow-lg)" : "none",
-            }}
-          >
-            <div className="flex items-center" style={{ gap: 8 }}>
-              <h3 style={{ fontSize: 16, margin: 0 }}>{p.name}</h3>
-              {p.featured && (
-                <span
-                  style={{
-                    fontSize: 10.5, fontWeight: 600, padding: "3px 8px", borderRadius: 999,
-                    background: "var(--color-accent)", color: "#fff",
-                  }}
-                >
-                  Recommended
-                </span>
-              )}
-            </div>
-            <p className="m-0 mt-4" style={{ fontSize: 32, fontWeight: 700, letterSpacing: "-0.03em" }}>
-              {p.price}
-              <span style={{ fontSize: 13, fontWeight: 500, opacity: 0.85 }}>{p.unit}</span>
-            </p>
-            <p
-              className="mt-2"
-              style={{
-                fontSize: 13.5, lineHeight: 1.6,
-                color: p.featured ? "rgba(255,255,255,0.82)" : "var(--color-neutral-800)",
-              }}
-            >
-              {p.blurb}
-            </p>
-            <ul style={{ listStyle: "none", margin: "18px 0 0", padding: 0, display: "grid", gap: 8 }}>
-              {p.feats.map((f) => (
-                <li
-                  key={f}
-                  className="flex"
-                  style={{ gap: 9, fontSize: 13.5, color: p.featured ? "rgba(255,255,255,0.9)" : "inherit" }}
-                >
-                  <span style={{ color: p.featured ? "var(--color-accent-400)" : "var(--color-accent)" }} aria-hidden="true">✓</span>
-                  {f}
-                </li>
-              ))}
-            </ul>
-            <Link
-              to="/signup"
-              className="mt-6 block"
-              style={{
-                textAlign: "center", padding: "11px 18px", borderRadius: "var(--radius-sm)",
-                fontWeight: 600, fontSize: 14, textDecoration: "none",
-                background: p.featured ? "#fff" : "var(--color-accent)",
-                color: p.featured ? "var(--color-text)" : "#fff",
-              }}
-            >
-              {p.cta}
-            </Link>
-          </article>
-        ))}
-      </div>
-    </Section>
-  );
-}
-
-
 /* ── closing call ──────────────────────────────────────────────────────── */
 
 function StartCta() {
@@ -2182,7 +2373,6 @@ export function LandingPage() {
             compare     #121A5C
             trust       #E9EEFF
             developers  #F4F4FB
-            pricing     #ffffff   KEPT against v4 — it states the fee
             start       #16206A
         */}
         <Hero />
@@ -2193,7 +2383,6 @@ export function LandingPage() {
         <Compare />
         <Custody />
         <Developers />
-        <Pricing />
         <StartCta />
       </main>
       <Footer />
