@@ -639,3 +639,18 @@ textarea.input { min-height: 90px; resize: vertical; }
 .on-dark article {
   background: var(--color-neutral-100);
 }
+
+/**
+ * The hero marquee. Two identical halves scroll as one and the track is
+ * translated by exactly half its width, so the loop restarts on a frame
+ * identical to the one it left and there is no visible seam.
+ *
+ * The component drops the animation entirely under prefers-reduced-motion
+ * rather than relying on the global reduce block below — an endless
+ * horizontal scroll is the worst offender for motion sensitivity, and
+ * shortening its duration would not help.
+ */
+@keyframes swp-marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-50%, 0, 0); }
+}

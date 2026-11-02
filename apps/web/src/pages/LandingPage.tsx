@@ -1,81 +1,109 @@
 /**
- * The landing page, rebuilt to the v2 design.
+ * The landing page, built to the v4 design.
  *
- * The previous page was the Modernist one: flush-left blocks separated by 2px
- * rules, nothing rounded, nothing floating. Retinting it moved the colours and
- * left that skeleton, which is not what the design is — v2 organises with
- * surfaces, cards and alternating grounds, and its sections are a different
- * set: hero, how, a chain demo, features, a console preview, developers, and
- * a closing call on a field of accent.
+ * WHAT V4 IS. Not a restyle — v2, v3 and v4 all carry the tokens this app
+ * already ships. What v4 changes is that the page becomes a NAVY GROUND with
+ * light bands cut into it, and its section list is a different set:
  *
- * PRICING IS KEPT, though the design's section list omits it. Dropping a
- * pricing section because a mockup did not draw one would be following the
- * picture over the business, and the header already links to it.
+ *   top · how · fallback · demo · features · compare · trust · developers · start
+ *
+ * Things from the old page that v4 does not have are GONE, not re-coloured:
+ * the animated rail (RailViz, its orbit constants, Spin, MONTHS), the logo
+ * strip (Marks), the Statement band, and the console preview. Keeping them
+ * dark-tinted was the mistake in the first pass at this.
+ *
+ * The hero's subject is now <HoloScene> — an iridescent glass blob and arc in
+ * three.js — not a coin travelling a rail.
+ *
+ * PRICING IS KEPT, though v4 drops it. It is where the platform fee is
+ * disclosed, the header links to it, and a pricing page that does not state a
+ * rate is worse than a mockup that forgot one.
  *
  * THE WEBHOOK NAMES ARE THE REAL ONES. The design shows
- * `checkout.session.completed` and `grant.revoked`; neither is sent. The
- * events below are the names apps/api actually emits — a landing page
- * advertising an event a developer then cannot subscribe to costs more trust
- * than it buys.
+ * `checkout.session.completed` and `grant.revoked`; neither is sent. EVENTS
+ * below is what apps/api actually emits — advertising an event a developer
+ * cannot then subscribe to costs more trust than it buys.
  */
 
-import type { CSSProperties, FC, ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/auth";
 import { DOCS_URL } from "@/lib/docs";
 import { feeOn, feePercent, keepsOf } from "@/lib/fee";
+import { HoloScene } from "@/components/landing/HoloScene";
 import { ChainMark, SweepMark, UsdcMark, METAMASK_LOGO, CIRCLE_LOGO, type ChainKey } from "@/components/ui/marks";
 
+/** v4 lays every band out on a 1200px measure. */
+const PAGE_W = "min(1200px, 100%)";
+
+/** The CTA gradient, used by both call-to-action buttons. */
+const CTA_GRADIENT =
+  "linear-gradient(100deg,#F6E7A9 0%,#EBC7F3 32%,#BCC5FF 58%,#A9F0EC 82%,#F3D2F0 100%)";
+
+const CTA_STYLE: CSSProperties = {
+  background: CTA_GRADIENT,
+  color: "#121A5C",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.7), 0 12px 30px -12px rgba(205,148,230,0.7)",
+  fontWeight: 700,
+  borderRadius: 999,
+  display: "inline-block",
+};
+
+/** A ghost button on navy: a hairline ring, no fill until hover. */
+const GHOST_STYLE: CSSProperties = {
+  color: "#fff",
+  fontWeight: 500,
+  borderRadius: 999,
+  boxShadow: "inset 0 0 0 1.5px rgba(255,255,255,0.35)",
+  display: "inline-block",
+};
+
+/** v4's three steps. Each card carries its own ground. */
 const STEPS = [
   {
     n: "01",
     title: "Choose a plan",
     body: "Tiers, trials and a recommended pick, on a hosted checkout or a shareable payment link.",
+    bg: "#1A2470",
+    ink: "#F3F1FF",
+    sub: "#B4B0DA",
+    tileBg: "rgba(255,255,255,0.1)",
+    chains: [] as ChainKey[],
+    usdc: true,
   },
   {
     n: "02",
     title: "Pay from any chain",
     body: "Subscribers verify their email, connect a wallet and pick Base, Arbitrum or Optimism. One signature, no gas.",
+    bg: "#4447D6",
+    ink: "#fff",
+    sub: "rgba(255,255,255,0.84)",
+    tileBg: "rgba(255,255,255,0.18)",
+    chains: ["base", "arbitrum", "optimism"] as ChainKey[],
+    usdc: false,
   },
   {
     n: "03",
     title: "Settled on Arc",
-    body: "USDC is swept over CCTP straight to your payout wallet. Renewals repeat it automatically.",
+    body: "USDC is swept over CCTP straight to your payout wallet. Renewals repeat on their own.",
+    bg: "#0D1446",
+    ink: "#fff",
+    sub: "rgba(255,255,255,0.76)",
+    tileBg: "#E5484D",
+    chains: ["arc"] as ChainKey[],
+    usdc: false,
   },
 ];
 
+/** v4's feature rules. The colour is the little bar beside the number. */
 const FEATURES = [
-  {
-    n: "01",
-    title: "Gasless by default",
-    body: "We submit every transaction and cover network and bridge costs. Subscribers pay the exact plan amount.",
-  },
-  {
-    n: "02",
-    title: "Renewals with a fallback",
-    body: "Authorize every chain once. If Base runs dry, the renewal charges whichever chain holds a full period.",
-  },
-  {
-    n: "03",
-    title: "Email-anchored customers",
-    body: "A 6-digit code verifies each subscriber. Returning customers are recognised with the wallet they paid with.",
-  },
-  {
-    n: "04",
-    title: "Plans, tiers and trials",
-    body: "Daily to yearly intervals, free trials, feature lists and a recommended tier — previewed as subscribers see it.",
-  },
-  {
-    n: "05",
-    title: "A portal subscribers can use",
-    body: "Customers sign in with email to see what they pay for, which wallet backs it, and revoke grants themselves.",
-  },
-  {
-    n: "06",
-    title: "Webhooks, keys, test mode",
-    body: "Signed webhooks, scoped API keys and a full test environment where no real USDC moves.",
-  },
+  { n: "01", color: "#CD94E6", title: "Gasless by default", body: "We submit every transaction and cover network and bridge costs. Subscribers pay the exact plan amount." },
+  { n: "02", color: "#FF7A90", title: "Renewals with a fallback", body: "Authorize every chain once. If Base runs dry, the renewal charges whichever chain holds a full period." },
+  { n: "03", color: "#9EE8F0", title: "Email-anchored customers", body: "A 6-digit code verifies each subscriber. Returning customers are recognised with the wallet they paid with." },
+  { n: "04", color: "#CD94E6", title: "Plans, tiers and trials", body: "Daily to yearly intervals, free trials, feature lists and a recommended tier — previewed as subscribers see it." },
+  { n: "05", color: "#9EE8F0", title: "A portal subscribers can use", body: "Customers sign in with email to see what they pay for, which wallet backs it, and revoke grants themselves." },
+  { n: "06", color: "#FF7A90", title: "Webhooks, keys, test mode", body: "Signed webhooks, scoped API keys and a full test environment where no real USDC moves." },
 ];
 
 const CHAINS: Array<{ key: ChainKey; name: string; note: string }> = [
@@ -100,42 +128,7 @@ const CODE = `const session = await sweep.checkout.sessions.create({
 
 res.redirect(session.url);`;
 
-const PRICING = [
-  {
-    name: "Test",
-    price: "Free",
-    unit: "",
-    blurb: "Full API and dashboard in test mode. No wallet required.",
-    featured: false,
-    cta: "Start in test mode",
-    feats: ["Unlimited test plans", "All webhook events", "Hosted checkout preview"],
-  },
-  {
-    name: "Standard",
-    price: feePercent(),
-    unit: " per renewal",
-    blurb: "Pay only when a charge settles. Gas is on us.",
-    featured: true,
-    cta: "Choose Standard",
-    feats: [
-      "Unlimited plans & tiers",
-      "Gas covered on every renewal",
-      "Signed webhooks & API keys",
-      "Email receipts",
-    ],
-  },
-  {
-    name: "Scale",
-    price: "Custom",
-    unit: "",
-    blurb: "For high settled volume. Talk to us about your numbers.",
-    featured: false,
-    cta: "Talk to us",
-    feats: ["Volume pricing", "Dedicated settlement lane", "Account manager"],
-  },
-];
-
-/* ── small parts ──────────────────────────────────────────────────────── */
+/* ── shared primitives ─────────────────────────────────────────────────── */
 
 function Kicker({ children, align = "center" }: { children: ReactNode; align?: "center" | "left" }) {
   return (
@@ -154,6 +147,7 @@ function Kicker({ children, align = "center" }: { children: ReactNode; align?: "
     </p>
   );
 }
+
 
 /**
  * A band of the page.
@@ -198,6 +192,7 @@ function Section({
   );
 }
 
+
 /**
  * Section headings are CENTRED, which the previous version of this file got
  * wrong by inheriting Modernist's "keep everything flush left" rule. The
@@ -238,232 +233,6 @@ function Card({ children, ground, reveal }: { children: ReactNode; ground?: bool
   );
 }
 
-/* ── header ───────────────────────────────────────────────────────────── */
-
-function Header() {
-  const { user, loading } = useAuth();
-  /**
-   * Transparent over the hero, navy once you leave it.
-   *
-   * The page ground is #121A5C now, so the old light bar with a divider
-   * underneath sat on the navy hero as a white slab. v4 floats the nav instead
-   * and only gives it a ground once there is content behind it to separate
-   * from — rgba(18,26,92,0.85) over the blur, with a white hairline rather
-   * than a dark one, because a #ECECF3 line on navy is a bright line.
-   */
-  const [scrolled, setScrolled] = useState(false);
-  useEffect(() => {
-    const on = () => setScrolled(window.scrollY > 8);
-    on();
-    window.addEventListener("scroll", on, { passive: true });
-    return () => window.removeEventListener("scroll", on);
-  }, []);
-
-  return (
-    <header
-      className="on-dark sticky top-0"
-      style={{
-        zIndex: 40,
-        background: scrolled ? "rgba(18,26,92,0.85)" : "transparent",
-        // 14px with no saturate — the design's value. The saturate was mine.
-        backdropFilter: "blur(14px)",
-        WebkitBackdropFilter: "blur(14px)",
-        boxShadow: scrolled ? "0 1px 0 rgba(255,255,255,0.08)" : "none",
-        transition: "background 260ms ease, box-shadow 260ms ease",
-      }}
-    >
-      <div className="mx-auto flex w-full items-center" style={{ maxWidth: PAGE_W, paddingInline: "clamp(18px,4vw,40px)", gap: 14, height: 62 }}>
-        <Link to="/" className="mr-auto flex items-center gap-2.5" style={{ color: "var(--color-text)" }}>
-          <SweepMark size={22} />
-          <span
-            style={{
-              fontFamily: "var(--font-heading)",
-              fontWeight: 800,
-              fontSize: 15,
-              letterSpacing: "-0.02em",
-            }}
-          >
-            Sweep Console
-          </span>
-        </Link>
-
-        <nav className="hidden items-center md:flex" style={{ gap: 22, fontSize: 13.5 }}>
-          <a href="#how" style={{ color: "var(--color-neutral-800)" }}>How it works</a>
-          <a href="#features" style={{ color: "var(--color-neutral-800)" }}>Features</a>
-          <a href="#pricing" style={{ color: "var(--color-neutral-800)" }}>Pricing</a>
-          {/* Spelled out. "Docs" is what a nav says when it is short of room,
-              and this one is not — and the page it opens calls itself
-              Documentation. */}
-          <a href={DOCS_URL} style={{ color: "var(--color-neutral-800)" }}>Documentation</a>
-        </nav>
-
-        {/* Nothing until the session resolves: /auth/me settles quickly, and a
-            flash of "Log in" to someone already signed in is the exact thing
-            this is here to stop. */}
-        <div className="flex items-center" style={{ gap: 10, marginLeft: 22 }}>
-          {loading ? null : user ? (
-            <Link to="/dashboard" className="btn btn-primary" style={{ fontSize: 13 }}>
-              Enter Console
-            </Link>
-          ) : (
-            <>
-              <Link to="/login" className="btn btn-ghost" style={{ color: "var(--color-text)", fontSize: 13 }}>
-                Log in
-              </Link>
-              <Link to="/signup" className="btn btn-primary" style={{ fontSize: 13 }}>
-                Get started
-              </Link>
-            </>
-          )}
-        </div>
-      </div>
-    </header>
-  );
-}
-
-/* ── hero ─────────────────────────────────────────────────────────────── */
-
-function Hero() {
-  const { user, loading } = useAuth();
-  // The design puts the hero's padding on the grid itself, and gives it NO
-  // bottom padding — the strip below brings its own top space.
-  return (
-    <section id="top" className="on-dark" style={{ background: "#121A5C" }}>
-      <div
-        className="mx-auto grid w-full items-center"
-        style={{
-          maxWidth: PAGE_W,
-          padding: "clamp(28px,5vw,56px) clamp(18px,4vw,40px) 0",
-          gap: "clamp(36px,5vw,72px)",
-          gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,440px),1fr))",
-        }}
-      >
-        <div>
-          {/*
-            The design's h1, to the value. Six things here were guesses before:
-            weight 700 not 800, line-height 1.08 not 0.98, tracking -0.035em
-            not -0.045em, and the coin sized in `em` so it scales with the
-            heading rather than sitting at a fixed 54px that is right at one
-            breakpoint only.
-
-            The full stop is OUTSIDE the nowrap span and inherits the ink. It
-            belongs to the sentence, so it must not join the accent — and it
-            must not be pulled back with a negative margin either, which left
-            a gap at some sizes and overlapped at others.
-          */}
-          <h1
-            style={{
-              margin: 0,
-              fontWeight: 700,
-              fontSize: "clamp(46px,6.6vw,86px)",
-              lineHeight: 1.08,
-              letterSpacing: "-0.035em",
-            }}
-          >
-            Recurring revenue in{" "}
-            <span style={{ whiteSpace: "nowrap" }}>
-              <span
-                className="usdc-flip"
-                aria-hidden="true"
-                style={{
-                  display: "inline-block",
-                  width: "0.73em",
-                  height: "0.73em",
-                  marginRight: "0.14em",
-                  perspective: 600,
-                  verticalAlign: "baseline",
-                }}
-              >
-                <UsdcMark />
-              </span>
-              <span style={{ color: "var(--color-accent)" }}>USDC</span>
-            </span>
-            .
-          </h1>
-          <p style={{ margin: "26px 0 0", fontSize: "clamp(16px,1.4vw,18px)", lineHeight: 1.6, color: "var(--color-neutral-800)", maxWidth: 540 }}>
-            Subscribers pay from Base, Arbitrum or Optimism with one signature. Every charge
-            settles to you on Arc — and renewals run themselves.
-          </p>
-          <div className="mt-7 flex flex-wrap" style={{ gap: 12 }}>
-            {loading ? null : (
-              <Link to={user ? "/plans/new" : "/signup"} className="btn btn-primary" style={{ padding: "13px 22px", fontSize: 14.5 }}>
-                Create your first plan
-              </Link>
-            )}
-            {/* The demo below, which IS the checkout — the comparison page
-                this used to open said what the demo shows. */}
-            <a href="#demo" className="btn btn-secondary" style={{ padding: "13px 22px", fontSize: 14.5 }}>
-              Try the checkout
-            </a>
-          </div>
-        </div>
-
-        <RailViz />
-      </div>
-    </section>
-  );
-}
-
-/**
- * The rail, animated — a carriage running a beaded track, stations lighting
- * as it passes.
- *
- * This is the design's hero and it is in motion, which two earlier versions
- * of this file missed: the first drew three chain rows with an arrow, the
- * second a static ring. Neither says the thing the movement says — that the
- * loop runs on its own, which is the whole product.
- *
- * Built from the design's own buildRail(): viewBox 560x420, centre 280/210,
- * r 150, one lap every 8s. The track is a thick dashed stroke rather than
- * drawn beads, the comet is three arcs of decreasing length and increasing
- * opacity, and each station's pulse `begin` is its angle as a fraction of
- * the lap — so a station lights exactly as the carriage reaches it rather
- * than on a timer that drifts out of step with it.
- *
- * SMIL rather than CSS keyframes because the pulses must be offset per
- * station and stay locked to one clock; `begin` does that in one attribute,
- * where CSS would need four animations with negative delays kept in sync by
- * hand. Supported everywhere this app runs.
- */
-/**
- * How wide the page's bands run.
- *
- * The design fixes this at 1200px at all ten of its container sites, and on
- * a 1280 or 1366 laptop that is right — it is the width the hero's two
- * columns, the rail and the type were all proportioned against.
- *
- * It is a fixed pixel value though, so every pixel a display has beyond
- * 1200 becomes margin: 192px a side at 1585, 360px at 1920. The page stops
- * looking centred and starts looking stranded, which is what was reported.
- *
- * So: the design's 1200 up to ~1428px wide, then growth with the viewport,
- * stopping at 1320. The ceiling matters as much as the floor — past it the
- * hero's columns get wide enough that the h1 stops holding its three lines
- * and the rail outgrows the text beside it.
- *
- * A DELIBERATE divergence from the package, not a drift from it. Anything
- * proportioned against the band (the rail's 560x420 viewBox, the coin's
- * 0.73em) scales with it rather than being re-measured.
- */
-const PAGE_W = "clamp(1200px,84vw,1320px)";
-
-const LAP = 8; // seconds, the design's D
-const RAIL_CX = 280;
-const RAIL_CY = 210;
-const RAIL_R = 150;
-const RAIL_C = 2 * Math.PI * RAIL_R;
-
-const STATIONS = [
-  { a: 0, n: "01", t: "Charge", s: "on schedule", lx: RAIL_CX + RAIL_R + 26, ly: RAIL_CY, anchor: "start" },
-  { a: 90, n: "02", t: "Settle", s: "in seconds", lx: RAIL_CX, ly: RAIL_CY + RAIL_R + 34, anchor: "middle" },
-  { a: 180, n: "03", t: "Receipt", s: "sent automatically", lx: RAIL_CX - RAIL_R - 26, ly: RAIL_CY, anchor: "end" },
-  { a: 270, n: "04", t: "Next period", s: "no new signature", lx: RAIL_CX, ly: RAIL_CY - RAIL_R - 40, anchor: "middle" },
-] as const;
-
-const at = (a: number): [number, number] => [
-  RAIL_CX + RAIL_R * Math.cos((a * Math.PI) / 180),
-  RAIL_CY + RAIL_R * Math.sin((a * Math.PI) / 180),
-];
 
 /**
  * Whether the viewer asked for less movement.
@@ -485,6 +254,7 @@ function usePrefersReducedMotion(): boolean {
   }, []);
   return reduced;
 }
+
 
 /**
  * The scroll reveal: content arrives from 14px below as it enters view.
@@ -536,455 +306,443 @@ function useScrollReveal(disabled: boolean) {
   }, [disabled]);
 }
 
+
+/* ── the marquee under the hero ───────────────────────────────────────── */
+
 /**
- * One full turn about the ring's centre, used by the carriage and the dust.
+ * The logo strip v4 runs along the bottom of the hero.
  *
- * `onRepeat` is how the cycle counter stays in step with the carriage. SMIL
- * fires `repeatEvent` at the end of each repetition — which for the carriage
- * is the moment it comes back round to where it started, 01 Charge.
+ * Two identical halves scrolling as one, so the loop has no seam, and the
+ * whole thing is aria-hidden: it is a row of logos, not information, and a
+ * screen reader reading "Base Arbitrum Optimism USDC Arc MetaMask Circle"
+ * twice is noise. It stops dead under prefers-reduced-motion — an infinite
+ * horizontal scroll is the single worst offender for motion sensitivity.
  */
-function Spin({ dur, onRepeat }: { dur: string; onRepeat?: () => void }) {
-  const ref = useRef<SVGAnimateTransformElement | null>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || !onRepeat) return;
-    el.addEventListener("repeatEvent", onRepeat);
-    return () => el.removeEventListener("repeatEvent", onRepeat);
-  }, [onRepeat]);
-  return (
-    <animateTransform
-      ref={ref}
-      attributeName="transform"
-      type="rotate"
-      from={`0 ${RAIL_CX} ${RAIL_CY}`}
-      to={`360 ${RAIL_CX} ${RAIL_CY}`}
-      dur={dur}
-      repeatCount="indefinite"
-    />
+const MARQUEE: Array<{ kind: "chain" | "token" | "logo"; key?: ChainKey; label: string; src?: string; h?: number }> = [
+  { kind: "chain", key: "base", label: "Base" },
+  { kind: "chain", key: "arbitrum", label: "Arbitrum" },
+  { kind: "chain", key: "optimism", label: "Optimism" },
+  { kind: "token", label: "USDC" },
+  { kind: "chain", key: "arc", label: "Arc" },
+  { kind: "logo", label: "MetaMask", src: METAMASK_LOGO, h: 30 },
+  { kind: "logo", label: "Circle", src: CIRCLE_LOGO, h: 32 },
+];
+
+function Marquee() {
+  const reduced = usePrefersReducedMotion();
+  const half = (
+    <div style={{ display: "flex", alignItems: "center", gap: 56, paddingRight: 56, flex: "none" }}>
+      {MARQUEE.map((m) => (
+        <span
+          key={m.label}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+            fontSize: 24,
+            fontWeight: 500,
+            color: "#fff",
+            whiteSpace: "nowrap",
+            letterSpacing: "-0.01em",
+          }}
+        >
+          {m.kind === "chain" && m.key ? <ChainMark chain={m.key} size={44} /> : null}
+          {m.kind === "token" ? <UsdcMark size={44} /> : null}
+          {m.kind === "logo" ? (
+            <img
+              src={m.src}
+              alt=""
+              style={{
+                height: m.h,
+                width: "auto",
+                display: "block",
+                // Circle's mark is dark; invert it onto navy.
+                filter: m.label === "Circle" ? "brightness(0) invert(1)" : "none",
+              }}
+            />
+          ) : (
+            m.label
+          )}
+        </span>
+      ))}
+    </div>
   );
-}
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-function RailViz() {
-  const still = usePrefersReducedMotion();
-
-  /**
-   * The cycle advances once per lap, ON THE ANIMATION'S OWN CLOCK.
-   *
-   * The design uses setInterval(8000), matching the lap duration, and so did
-   * this. That is not the same clock: SMIL starts timing when the SVG is
-   * parsed, the interval when React's effect runs, and the gap between them
-   * is however long hydration took. It is invisible on a fast load and
-   * obvious on a slow one — the count ticking somewhere past 01 Charge
-   * rather than on it, by a different amount on each deployment.
-   *
-   * `repeatEvent` fires when the carriage's rotation completes a turn, which
-   * is exactly when it returns to where it began. No drift, because there is
-   * only one clock.
-   *
-   * Frozen under reduced motion: a number changing beside a parked carriage
-   * is stranger than one that does not.
-   */
-  const [tick, setTick] = useState(0);
-  const onLap = useCallback(() => setTick((t) => t + 1), []);
-
-  // Starts at 10 and at October 2026, as the design does, so the first thing
-  // a visitor sees is a subscription already well into its life.
-  const cycle = String(10 + tick).padStart(2, "0");
-  const month = MONTHS[(9 + tick) % 12];
-  const year = 2026 + Math.floor((9 + tick) / 12);
-  const pulse = (a: number) => ({
-    dur: `${LAP}s`,
-    begin: `${((a / 360) * LAP).toFixed(2)}s`,
-    repeatCount: "indefinite" as const,
-    keyTimes: "0;0.04;0.3;1",
-  });
 
   return (
     <div
+      aria-hidden
       style={{
         position: "relative",
-        /**
-         * The design's own height, restored.
-         *
-         * This was cut to clamp(330px,33vw,430px) to keep the "Pay from" and
-         * "Built with" strips above the fold on a laptop. That reasoning was
-         * sound and the result was still wrong: the panel is the first thing
-         * on the page and shrinking it by a fifth made the whole hero read as
-         * compressed, which is what a reader notices before they notice a
-         * logo strip they have to scroll for.
-         *
-         * If the strips do fall below the fold on a short window, the space
-         * to take back is the section's vertical padding, not this.
-         */
-        height: "clamp(440px,46vw,540px)",
-        borderRadius: 20,
-        background: "var(--color-neutral-200)",
+        background: "rgba(8,14,58,0.55)",
+        borderTop: "1px solid rgba(255,255,255,0.08)",
+        borderBottom: "1px solid rgba(255,255,255,0.06)",
         overflow: "hidden",
+        WebkitMaskImage: "linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent)",
+        maskImage: "linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent)",
       }}
     >
-      {/* The dotted field behind it, masked to an ellipse so it fades out
-          rather than ending at an edge. */}
       <div
-        aria-hidden="true"
         style={{
-          position: "absolute",
-          inset: 0,
-          backgroundImage: "radial-gradient(var(--color-neutral-500) 1.2px, transparent 1.4px)",
-          backgroundSize: "10px 10px",
-          maskImage: "radial-gradient(ellipse 75% 70% at 55% 50%, #000 25%, transparent 80%)",
-          WebkitMaskImage: "radial-gradient(ellipse 75% 70% at 55% 50%, #000 25%, transparent 80%)",
+          display: "flex",
+          width: "max-content",
+          padding: "18px 0",
+          animation: reduced ? undefined : "swp-marquee 38s linear infinite",
         }}
-      />
-
-      <div style={{ position: "absolute", inset: 12 }}>
-        <svg
-          viewBox="0 0 560 420"
-          width="100%"
-          height="100%"
-          preserveAspectRatio="xMidYMid meet"
-          style={{ display: "block", overflow: "visible" }}
-          aria-hidden="true"
-        >
-          <defs>
-            <filter id="sc-glow" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation={5} />
-            </filter>
-          </defs>
-
-          {/* The track: beads, then a rail either side of them. */}
-          <circle cx={RAIL_CX} cy={RAIL_CY} r={RAIL_R} fill="none" stroke="#E4E4EF" strokeWidth={18} strokeDasharray="2.5 9" />
-          <circle cx={RAIL_CX} cy={RAIL_CY} r={RAIL_R + 9} fill="none" stroke="#D6D7EC" strokeWidth={2} />
-          <circle cx={RAIL_CX} cy={RAIL_CY} r={RAIL_R - 9} fill="none" stroke="#D6D7EC" strokeWidth={2} />
-          {/* Dust inside, turning far slower — it gives the whole thing a
-              sense of depth without competing with the carriage. */}
-          <circle cx={RAIL_CX} cy={RAIL_CY} r={RAIL_R - 46} fill="none" stroke="#E4E4EF" strokeWidth={1.5} strokeDasharray="1 7">
-            {!still && <Spin dur="60s" />}
-          </circle>
-
-          {/* The carriage and its tail, one group turning once a lap. */}
-          <g>
-            {!still && <Spin dur={`${LAP}s`} onRepeat={onLap} />}
-            <circle cx={RAIL_CX} cy={RAIL_CY} r={RAIL_R} fill="none" stroke="var(--color-accent)" strokeWidth={10}
-                    strokeLinecap="round" strokeDasharray={`170 ${RAIL_C - 170}`} strokeDashoffset={170} opacity={0.1} />
-            <circle cx={RAIL_CX} cy={RAIL_CY} r={RAIL_R} fill="none" stroke="var(--color-accent)" strokeWidth={6}
-                    strokeLinecap="round" strokeDasharray={`90 ${RAIL_C - 90}`} strokeDashoffset={90} opacity={0.28} />
-            <circle cx={RAIL_CX} cy={RAIL_CY} r={RAIL_R} fill="none" stroke="var(--color-accent)" strokeWidth={4}
-                    strokeLinecap="round" strokeDasharray={`36 ${RAIL_C - 36}`} strokeDashoffset={36} opacity={0.6} />
-            <rect x={RAIL_CX + RAIL_R - 9} y={RAIL_CY - 22} width={18} height={30} rx={9}
-                  fill="var(--color-accent)" filter="url(#sc-glow)" opacity={0.6} />
-            <rect x={RAIL_CX + RAIL_R - 8} y={RAIL_CY - 20} width={16} height={28} rx={8} fill="var(--color-accent)" />
-            <rect x={RAIL_CX + RAIL_R - 3} y={RAIL_CY - 2} width={6} height={6} rx={3} fill="#fff" />
-          </g>
-
-          {STATIONS.map((st) => {
-            const [x, y] = at(st.a);
-            const p = pulse(st.a);
-            return (
-              <g key={st.n}>
-                {!still && (
-                  <circle cx={x} cy={y} r={13} fill="var(--color-accent)" opacity={0}>
-                    <animate attributeName="r" values="13;13;30;30" {...p} />
-                    <animate attributeName="opacity" values="0;0.35;0;0" {...p} />
-                  </circle>
-                )}
-                <circle cx={x} cy={y} r={12} fill="#fff" stroke="#C9CAF6" strokeWidth={2}>
-                  {!still && <animate attributeName="fill" values="#fff;#4447D6;#fff;#fff" {...p} />}
-                  {!still && <animate attributeName="stroke" values="#C9CAF6;#4447D6;#C9CAF6;#C9CAF6" {...p} />}
-                </circle>
-                <text x={st.lx} y={st.ly - 4} textAnchor={st.anchor}
-                      fontFamily="Plus Jakarta Sans, sans-serif" fontSize={14} fontWeight={700} fill="#23233B">
-                  <tspan fill="#4447D6" fontFamily="JetBrains Mono, monospace" fontSize={11} fontWeight={500}>
-                    {st.n}{" "}
-                  </tspan>
-                  {st.t}
-                  {!still && <animate attributeName="fill" values="#23233B;#4447D6;#23233B;#23233B" {...p} />}
-                </text>
-                <text x={st.lx} y={st.ly + 13} textAnchor={st.anchor}
-                      fontFamily="Plus Jakarta Sans, sans-serif" fontSize={12} fill="#8A8BA0">
-                  {st.s}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-
-      {/* The centre, in page type rather than SVG text. */}
-      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column",
-                    alignItems: "center", justifyContent: "center", textAlign: "center", pointerEvents: "none" }}>
-        <p className="m-0" style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.14em",
-                                    textTransform: "uppercase", color: "var(--color-neutral-700)", marginBottom: 6 }}>
-          Signed once
-        </p>
-        <p className="m-0" style={{ fontSize: "clamp(30px,3.4vw,42px)", fontWeight: 800,
-                                    letterSpacing: "-0.035em", fontVariantNumeric: "tabular-nums" }}>
-          Cycle {cycle}
-        </p>
-        <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-800)", marginTop: 6 }}>
-          Renewed {month} 1, {year}
-        </p>
+      >
+        {half}
+        {half}
       </div>
     </div>
   );
 }
 
-/* ── sections ─────────────────────────────────────────────────────────── */
+/* ── header ───────────────────────────────────────────────────────────── */
 
 /**
- * The two strips under the hero, both in the design and both missing until
- * now: which chains a subscriber can pay from, and what the rail is built on.
- *
- * They use the package's own artwork rather than drawn approximations — on a
- * row whose whole job is recognition, a near-miss of Base's mark is worse
- * than no mark.
+ * v4's nav floats over the hero and only takes a ground once there is
+ * something behind it — rgba(18,26,92,0.85) over a blur, with a white
+ * hairline rather than a dark one, because a light rule on navy is a BRIGHT
+ * line, not a quiet one.
  */
-function Marks() {
+function Header() {
+  const { user, loading } = useAuth();
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const on = () => setScrolled(window.scrollY > 8);
+    on();
+    window.addEventListener("scroll", on, { passive: true });
+    return () => window.removeEventListener("scroll", on);
+  }, []);
+
+  const link: CSSProperties = { color: "#fff", fontSize: 15.5, fontWeight: 400, whiteSpace: "nowrap" };
+
   return (
-    <section
-      /* on-dark: this strip continues the hero's navy run, and its logos and
-         caption read against #121A5C, not white. */
-      className="on-dark mx-auto flex w-full flex-col"
+    <header
+      className="on-dark sticky top-0"
       style={{
-        maxWidth: PAGE_W,
-        gap: 16,
-        padding: "clamp(10px,2vw,22px) clamp(18px,4vw,40px) clamp(24px,4vw,44px)",
+        zIndex: 50,
+        background: scrolled ? "rgba(18,26,92,0.85)" : "transparent",
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
+        boxShadow: scrolled ? "0 1px 0 rgba(255,255,255,0.08)" : "none",
+        transition: "background 260ms ease, box-shadow 260ms ease",
       }}
     >
       <div
-        className="flex flex-wrap items-center justify-center"
-        style={{ gap: "16px clamp(24px,4vw,48px)", fontWeight: 700, fontSize: "clamp(15px,1.5vw,18px)", letterSpacing: "-0.01em" }}
+        className="mx-auto flex items-center"
+        style={{ maxWidth: PAGE_W, padding: "18px clamp(18px,4vw,40px)", gap: 32 }}
       >
-        <span
-          style={{
-            fontSize: 12, fontWeight: 700, letterSpacing: "0.12em",
-            textTransform: "uppercase", color: "var(--color-neutral-700)",
-          }}
-        >
-          Pay from
-        </span>
-        {CHAINS.map(({ key, name }) => (
-          <span key={key} className="flex items-center" style={{ gap: 9 }}>
-            <ChainMark chain={key} size={24} />
-            {name}
+        <Link to="/" className="flex items-center" style={{ gap: 10, color: "#fff" }}>
+          <SweepMark size={26} />
+          <span style={{ fontSize: 20, fontWeight: 400, letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>
+            Sweep <span style={{ fontWeight: 700, color: "#CD94E6" }}>Console</span>
           </span>
-        ))}
-        <span className="flex items-center" style={{ gap: 9 }}>
-          <ChainMark chain="arc" size={24} />
-          Arc
-        </span>
-        <span className="flex items-center" style={{ gap: 9 }}>
-          <UsdcMark size={24} />
-          USDC
-        </span>
-      </div>
-
-      <div
-        className="flex flex-wrap items-center justify-center"
-        style={{ gap: "14px clamp(22px,4vw,40px)" }}
-      >
-        <span
-          style={{
-            fontSize: 12, fontWeight: 700, letterSpacing: "0.12em",
-            textTransform: "uppercase", color: "var(--color-neutral-700)",
-          }}
+        </Link>
+        <nav
+          className="ml-auto hidden items-center md:flex"
+          style={{ gap: 30 }}
         >
-          Built with
-        </span>
-        <img src={METAMASK_LOGO} alt="MetaMask" style={{ height: 26, width: "auto" }} />
-        <img src={CIRCLE_LOGO} alt="Circle" style={{ height: 28, width: "auto" }} />
+          <a href="#how" style={link}>How it works</a>
+          <a href="#features" style={link}>Features</a>
+          <a href="#pricing" style={link}>Pricing</a>
+          <a href={DOCS_URL} style={link}>Documentation</a>
+        </nav>
+        <div className="ml-auto flex items-center md:ml-0" style={{ gap: 12 }}>
+          {loading ? null : user ? (
+            <Link to="/dashboard" style={{ ...CTA_STYLE, padding: "11px 22px", fontSize: 14 }}>
+              Dashboard
+            </Link>
+          ) : (
+            <>
+              <Link to="/login" style={{ ...link, fontWeight: 500 }}>Log in</Link>
+              <Link to="/signup" style={{ ...CTA_STYLE, padding: "11px 22px", fontSize: 14 }}>
+                Get started
+              </Link>
+            </>
+          )}
+        </div>
       </div>
-    </section>
+    </header>
   );
 }
 
+/* ── hero ─────────────────────────────────────────────────────────────── */
+
 /**
- * The statement: what this is, in one sentence, with the load-bearing
- * phrases in accent.
+ * 100svh of navy, two blurred colour fields, the holo scene on the right and
+ * the marquee pinned under it.
  *
- * It sits on a dotted grid that fades at the edges — the design's only
- * texture, and the reason the rest of the page can be plain. Decorative, so
- * it is a background on an aria-hidden layer rather than content.
+ * The h1 is WEIGHT 400, not 800. v4's display type is light and large with
+ * italic accents, which is the clearest single signal that this is a
+ * different design from the one that was here — that page set everything in
+ * 700/800.
  */
-function Statement() {
+function Hero() {
   return (
-    <section className="on-dark" style={{ background: "#121A5C", padding: "clamp(40px,7vw,86px) 0", position: "relative" }}>
+    <section
+      id="top"
+      className="on-dark"
+      style={{
+        position: "relative",
+        background: "#121A5C",
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+        minHeight: "100svh",
+      }}
+    >
       <div
-        aria-hidden="true"
+        aria-hidden
         style={{
           position: "absolute",
-          inset: 0,
-          backgroundImage: "radial-gradient(var(--color-neutral-500) 1px, transparent 1px)",
-          backgroundSize: "16px 16px",
-          // Fades to nothing at the edges so the grid reads as texture under
-          // the words rather than a panel with a hard border.
-          maskImage: "radial-gradient(ellipse 60% 70% at 50% 50%, #000 35%, transparent 75%)",
-          WebkitMaskImage: "radial-gradient(ellipse 60% 70% at 50% 50%, #000 35%, transparent 75%)",
-          opacity: 0.55,
+          right: "-8%",
+          top: "-18%",
+          width: "48%",
+          height: "60%",
+          borderRadius: "50%",
+          background:
+            "radial-gradient(closest-side,rgba(205,148,230,0.35),rgba(107,92,255,0.15) 60%,transparent)",
+          filter: "blur(30px)",
+          pointerEvents: "none",
         }}
       />
-      <p
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          left: "-12%",
+          top: "-10%",
+          width: "40%",
+          height: "50%",
+          borderRadius: "50%",
+          background: "radial-gradient(closest-side,rgba(64,224,255,0.12),transparent)",
+          filter: "blur(30px)",
+          pointerEvents: "none",
+        }}
+      />
+
+      <div
         className="mx-auto"
         style={{
           position: "relative",
-          maxWidth: 860,
-          margin: "0 auto",
-          padding: "0 clamp(18px,4vw,40px)",
-          textAlign: "center",
-          fontSize: "clamp(24px,3vw,38px)",
-          fontWeight: 500,
-          lineHeight: 1.34,
-          letterSpacing: "-0.02em",
+          maxWidth: PAGE_W,
+          width: "100%",
+          boxSizing: "border-box",
+          padding: "clamp(88px,9vw,104px) clamp(18px,4vw,40px) clamp(16px,2vw,28px)",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,360px),1fr))",
+          gap: "clamp(20px,4vw,48px)",
+          alignItems: "center",
+          flex: 1,
         }}
       >
-        Sweep Console brings <span style={{ color: "var(--color-accent)" }}>stablecoin payments</span> to
-        every subscription business, collecting from{" "}
-        <span style={{ color: "var(--color-accent)" }}>three major chains</span> and settling in one place.
-      </p>
+        <div data-reveal="" style={{ position: "relative", zIndex: 2 }}>
+          {/* The tilted ring that crosses behind the first word. */}
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              left: -46,
+              top: -8,
+              width: 120,
+              height: 76,
+              borderRadius: "50%",
+              border: "1.5px solid rgba(205,148,230,0.55)",
+              transform: "rotate(-24deg)",
+              boxShadow: "0 0 18px rgba(205,148,230,0.35), inset 0 0 12px rgba(205,148,230,0.25)",
+              pointerEvents: "none",
+            }}
+          />
+          <h1
+            style={{
+              position: "relative",
+              margin: 0,
+              fontWeight: 400,
+              fontSize: "clamp(46px,min(6.2vw,9.5svh),88px)",
+              lineHeight: 1.1,
+              letterSpacing: "-0.025em",
+              color: "#fff",
+            }}
+          >
+            Recurring <span style={{ color: "#CD94E6" }}>revenue</span>
+            <br />
+            in{" "}
+            <span style={{ whiteSpace: "nowrap" }}>
+              <span
+                style={{
+                  display: "inline-block",
+                  width: "0.72em",
+                  height: "0.72em",
+                  marginRight: "0.12em",
+                  verticalAlign: "baseline",
+                }}
+              >
+                <UsdcMark />
+              </span>
+              <em style={{ color: "#CD94E6", fontStyle: "italic" }}>USDC.</em>
+            </span>
+          </h1>
+          <p
+            style={{
+              margin: "22px 0 0",
+              fontSize: "clamp(15.5px,1.3vw,17.5px)",
+              lineHeight: 1.65,
+              color: "rgba(255,255,255,0.82)",
+              maxWidth: "42ch",
+              fontWeight: 300,
+            }}
+          >
+            Subscribers approve a USDC spending limit with one wallet signature. Renewals charge themselves from
+            Base, Arbitrum or Optimism, and settle to you on Arc. Gas is on us.
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 28 }}>
+            <Link
+              to="/signup"
+              style={{
+                ...CTA_STYLE,
+                fontSize: 14.5,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                padding: "15px 30px",
+              }}
+            >
+              Create your first plan
+            </Link>
+            <a
+              href="#demo"
+              style={{
+                ...GHOST_STYLE,
+                fontSize: 14.5,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                padding: "15px 26px",
+              }}
+            >
+              Try the checkout
+            </a>
+          </div>
+        </div>
+
+        {/* The subject. Hidden below the two-column breakpoint, where it would
+            be a 300px-tall smear behind the copy rather than an object. */}
+        <div
+          aria-hidden
+          className="hidden md:block"
+          style={{
+            position: "relative",
+            height: "min(clamp(300px,40vw,560px), calc(100svh - 230px))",
+            minHeight: 260,
+            marginRight: "calc(-1 * clamp(18px,4vw,40px))",
+          }}
+        >
+          <div style={{ position: "absolute", inset: "-8% -14% -14% -10%" }}>
+            <HoloScene />
+          </div>
+        </div>
+      </div>
+
+      <Marquee />
     </section>
   );
 }
+
+/* ── how it works ─────────────────────────────────────────────────────── */
 
 function HowItWorks() {
   return (
     <Section id="how" dark background="#121A5C">
-      <Kicker>How it works</Kicker>
-      <H2>Three steps. Zero gas for your subscribers.</H2>
-      <div className="mt-10 grid" style={{ gap: 18, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,260px),1fr))" }}>
-        {STEPS.map((s) => (
-          <Card key={s.n} reveal>
-            <span
-              style={{
-                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--color-accent)",
-                background: "var(--color-accent-200)", borderRadius: 6, padding: "4px 7px",
-              }}
-            >
-              {s.n}
-            </span>
-            <h3 style={{ fontSize: 18, margin: "10px 0 0", letterSpacing: "-0.015em" }}>{s.title}</h3>
-            <p className="mt-2 mb-0" style={{ fontSize: 14.5, lineHeight: 1.62, color: "var(--color-neutral-900)" }}>{s.body}</p>
-          </Card>
-        ))}
-      </div>
-    </Section>
-  );
-}
-
-function Demo() {
-  const [picked, setPicked] = useState("base");
-  return (
-    <Section id="demo" background="#E9EEFF">
-      <Kicker align="left">Hosted checkout</Kicker>
-      <H2 align="left">Pick a chain. That&rsquo;s the payment.</H2>
-      <div
-        className="mt-10 grid"
-        style={{ gap: 40, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,320px),1fr))", alignItems: "center" }}
-      >
-        <div
+      <div data-reveal="" style={{ textAlign: "center", marginBottom: 52 }}>
+        <Kicker>How it works</Kicker>
+        <h2
           style={{
-            background: "var(--color-bg)", border: "1px solid var(--color-divider)",
-            borderRadius: "var(--radius-lg)", padding: 24,
-            boxShadow: "var(--shadow-md)", maxWidth: 420,
+            margin: "0 auto",
+            fontWeight: 700,
+            fontSize: "clamp(32px,4vw,50px)",
+            lineHeight: 1.12,
+            letterSpacing: "-0.03em",
+            maxWidth: "18ch",
+            textWrap: "balance",
           }}
         >
-          <p className="m-0" style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>Pro plan</p>
-          <p className="m-0 mt-1" style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-0.03em" }}>
-            25.00{" "}
-            <span style={{ fontSize: 14, fontWeight: 500, color: "var(--color-neutral-700)" }}>USDC / month</span>
-          </p>
-          <p
-            className="mt-5 mb-2"
-            style={{
-              fontSize: 11.5, fontWeight: 600, letterSpacing: "0.08em",
-              textTransform: "uppercase", color: "var(--color-neutral-800)",
-            }}
-          >
-            Pay from
-          </p>
-          <div style={{ display: "grid", gap: 8 }}>
-            {CHAINS.map(({ key, name }) => {
-              const on = picked === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setPicked(key)}
-                  aria-pressed={on}
-                  className="flex cursor-pointer items-center"
-                  style={{
-                    gap: 11, padding: "12px 14px", font: "inherit", textAlign: "left",
-                    borderRadius: "var(--radius-md)",
-                    border: `1px solid ${on ? "var(--color-accent)" : "var(--color-divider)"}`,
-                    background: on ? "var(--color-accent-200)" : "var(--color-bg)",
-                    transition: "background var(--dur) ease, border-color var(--dur) ease",
-                  }}
-                >
-                  <ChainMark chain={key} size={22} />
-                  <span style={{ fontSize: 14, fontWeight: 600 }}>{name}</span>
-                  {on && <span className="ml-auto" style={{ fontSize: 12, color: "var(--color-accent)" }}>Selected</span>}
-                </button>
-              );
-            })}
-          </div>
-          <div
-            className="mt-5"
-            style={{
-              padding: "13px 16px", textAlign: "center", borderRadius: "var(--radius-sm)",
-              background: "var(--color-accent)", color: "#fff", fontWeight: 600, fontSize: 14.5,
-            }}
-          >
-            Subscribe — 25.00 USDC
-          </div>
-        </div>
-
-        <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 14 }}>
-          {[
-            "Network and bridge fees covered by Sweep Console",
-            "Each charge goes straight to the creator",
-            "Cancel anytime by revoking from the wallet",
-          ].map((t) => (
-            <li key={t} className="flex" style={{ gap: 11, fontSize: 15, color: "var(--color-neutral-900)" }}>
-              <span style={{ color: "var(--color-accent)", fontWeight: 700 }} aria-hidden="true">✓</span>
-              {t}
-            </li>
-          ))}
-        </ul>
+          Three steps. Zero gas for your subscribers.
+        </h2>
       </div>
-    </Section>
-  );
-}
-
-function Features() {
-  return (
-    <Section id="features" dark background="#121A5C">
-      {/* Left, not centred. The design centres `how`, `console`, the
-          statement and the close; features sits left above a grid of six,
-          where a centred heading over left-aligned cards reads as a mistake.
-          I had this and `console` the wrong way round. */}
-      <Kicker align="left">Features</Kicker>
-      <H2 align="left">Everything a subscription business needs, on-chain.</H2>
-      <div className="mt-10 grid" style={{ gap: 18, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,290px),1fr))" }}>
-        {FEATURES.map((f) => (
-          <Card key={f.n} reveal>
-            <span
-              style={{
-                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--color-accent)",
-                background: "var(--color-accent-200)", borderRadius: 6, padding: "4px 7px",
-              }}
-            >
-              {f.n}
-            </span>
-            <h3 style={{ fontSize: 17, margin: "10px 0 0", letterSpacing: "-0.015em" }}>{f.title}</h3>
-            <p className="mt-2 mb-0" style={{ fontSize: 14.5, lineHeight: 1.62, color: "var(--color-neutral-900)" }}>{f.body}</p>
-          </Card>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,280px),1fr))",
+          gap: 20,
+        }}
+      >
+        {STEPS.map((s) => (
+          <div
+            key={s.n}
+            data-reveal=""
+            style={{
+              padding: "30px 28px 34px",
+              borderRadius: 16,
+              background: s.bg,
+              color: s.ink,
+              display: "flex",
+              flexDirection: "column",
+              gap: 14,
+              minHeight: 260,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <span
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 10,
+                  background: s.tileBg,
+                  color: s.ink,
+                  fontWeight: 800,
+                  fontSize: 14,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {s.n}
+              </span>
+              {/* Overlapped marks, each ringed in the card's own ground so the
+                  stack reads as a stack. */}
+              <div style={{ display: "flex" }}>
+                {s.usdc ? (
+                  <span style={{ display: "block", borderRadius: "50%", background: "#fff", padding: 4, boxShadow: `0 0 0 2px ${s.bg}` }}>
+                    <UsdcMark size={22} />
+                  </span>
+                ) : null}
+                {s.chains.map((c, i) => (
+                  <span
+                    key={c}
+                    style={{
+                      display: "block",
+                      borderRadius: "50%",
+                      background: "#fff",
+                      padding: 4,
+                      marginLeft: i === 0 && !s.usdc ? 0 : -8,
+                      boxShadow: `0 0 0 2px ${s.bg}`,
+                    }}
+                  >
+                    <ChainMark chain={c} size={22} />
+                  </span>
+                ))}
+              </div>
+            </div>
+            <h3 style={{ margin: "auto 0 0", fontWeight: 800, fontSize: 24, letterSpacing: "-0.025em" }}>
+              {s.title}
+            </h3>
+            <p style={{ margin: 0, fontSize: 15, lineHeight: 1.6, color: s.sub, textWrap: "pretty" }}>{s.body}</p>
+          </div>
         ))}
       </div>
     </Section>
   );
 }
+
+/* ── chain fallback ────────────────────────────────────────────────────── */
 
 /**
  * CHAIN FALLBACK — "Renewals don't fail. They find another chain."
@@ -1039,6 +797,7 @@ function fbStateFor(i: number, st: number): FbState {
   if (i === 1) return st === 3 ? "check" : st >= 4 ? "paid" : "idle";
   return st >= 4 ? "skip" : "idle";
 }
+
 
 function Fallback() {
   const reduced = usePrefersReducedMotion();
@@ -1321,6 +1080,234 @@ function Fallback() {
     </section>
   );
 }
+
+
+/* ── the checkout demo ─────────────────────────────────────────────────── */
+
+/**
+ * The hosted checkout, drawn as a subscriber sees it: email verified, wallet
+ * connected, and the only decision left is which chain holds the funds.
+ *
+ * The numbered steps match AuthorizePage's, because they are the same three
+ * steps — this is a picture of the real screen, not an idealised one.
+ */
+function Demo() {
+  const [picked, setPicked] = useState<ChainKey>("base");
+  const row: CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "12px 14px",
+    borderRadius: 12,
+    width: "100%",
+    textAlign: "left",
+    cursor: "pointer",
+    transition: "background 160ms ease, box-shadow 160ms ease",
+  };
+
+  return (
+    <Section id="demo" background="#E9EEFF">
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,420px),1fr))",
+          gap: "clamp(36px,5vw,72px)",
+          alignItems: "center",
+        }}
+      >
+        <div data-reveal="">
+          <Kicker align="left">Hosted checkout</Kicker>
+          <h2
+            style={{
+              margin: "0 0 18px",
+              fontWeight: 700,
+              fontSize: "clamp(32px,4vw,50px)",
+              lineHeight: 1.12,
+              letterSpacing: "-0.03em",
+              textWrap: "balance",
+            }}
+          >
+            Pick a chain. That&rsquo;s the payment.
+          </h2>
+          <p style={{ margin: "0 0 26px", fontSize: 16, lineHeight: 1.65, color: "var(--color-neutral-700)", maxWidth: "44ch" }}>
+            Email verified, wallet connected, one tap on the chain that holds the funds.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, fontSize: 15, color: "var(--color-neutral-800)" }}>
+            {[
+              "Network and bridge fees covered by Sweep Console",
+              "Each charge goes straight to the creator",
+              "Cancel anytime by revoking from the wallet",
+            ].map((t) => (
+              <span key={t} style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <span style={{ width: 18, height: 4, borderRadius: 2, background: "var(--color-accent)", flex: "none" }} />
+                {t}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div
+          data-reveal=""
+          style={{
+            background: "var(--color-bg)",
+            borderRadius: "var(--radius-lg)",
+            boxShadow: "0 0 0 1px var(--color-neutral-400), var(--shadow-lg)",
+            overflow: "hidden",
+          }}
+        >
+          <div style={{ padding: "20px 22px", borderBottom: "1px solid var(--color-divider)" }}>
+            <p className="m-0" style={{ fontWeight: 700, fontSize: 15 }}>Northwind Studio</p>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 10 }}>
+              <span style={{ fontWeight: 800, fontSize: 30, letterSpacing: "-0.03em" }}>$29.00</span>
+              <span style={{ fontSize: 13, color: "var(--color-neutral-600)" }}>USDC / month</span>
+            </div>
+            <p className="m-0" style={{ marginTop: 2, fontSize: 13, color: "var(--color-neutral-600)" }}>Pro</p>
+          </div>
+
+          <div style={{ padding: "16px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+            {[
+              ["01", "jo@northwind.co", "Verified"],
+              ["02", "0x7a3f…91c2", "Wallet connected"],
+            ].map(([n, v, tag]) => (
+              <div key={n} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5 }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-accent)", width: 22, flex: "none" }}>
+                  {n}
+                </span>
+                <span style={{ fontWeight: 600 }}>{v}</span>
+                <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: "var(--color-ok-text)" }}>{tag}</span>
+              </div>
+            ))}
+
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-accent)", width: 22, flex: "none" }}>
+                  03
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--color-neutral-700)" }}>
+                  Pay from
+                </span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {CHAINS.map((c) => {
+                  const on = picked === c.key;
+                  return (
+                    <button
+                      key={c.key}
+                      type="button"
+                      onClick={() => setPicked(c.key)}
+                      aria-pressed={on}
+                      style={{
+                        ...row,
+                        background: on ? "var(--color-accent-200)" : "var(--color-neutral-100)",
+                        boxShadow: on ? "inset 0 0 0 1.5px var(--color-accent)" : "inset 0 0 0 1px var(--color-divider)",
+                      }}
+                    >
+                      <ChainMark chain={c.key} size={26} />
+                      <span style={{ display: "flex", flexDirection: "column" }}>
+                        <span style={{ fontWeight: 700, fontSize: 13.5 }}>{c.name}</span>
+                        <span style={{ fontSize: 11.5, color: "var(--color-neutral-600)" }}>{c.note}</span>
+                      </span>
+                      <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: on ? "var(--color-accent)" : "var(--color-neutral-600)" }}>
+                        {on ? "Selected" : ""}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="m-0" style={{ marginTop: 10, fontSize: 12, color: "var(--color-neutral-600)" }}>
+                Renew from any funded chain — if {CHAINS.find((c) => c.key === picked)!.name} runs short, the next one pays.
+              </p>
+            </div>
+          </div>
+
+          <div style={{ padding: "14px 22px", borderTop: "1px solid var(--color-divider)", fontSize: 13.5 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+              <span style={{ color: "var(--color-neutral-600)" }}>Network fee</span>
+              <span style={{ fontWeight: 600, color: "var(--color-ok-text)" }}>Covered by Sweep Console</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "4px 0" }}>
+              <span style={{ fontWeight: 700 }}>Due today</span>
+              <span style={{ fontWeight: 800, fontSize: 20, letterSpacing: "-0.02em" }}>
+                $29.00 <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-neutral-600)" }}>USDC</span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+
+/* ── features ──────────────────────────────────────────────────────────── */
+
+function Features() {
+  return (
+    <Section id="features" dark background="#121A5C">
+      <div
+        data-reveal=""
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "flex-end",
+          justifyContent: "space-between",
+          gap: 20,
+          marginBottom: 48,
+        }}
+      >
+        <h2
+          style={{
+            margin: 0,
+            fontWeight: 700,
+            fontSize: "clamp(32px,4vw,50px)",
+            lineHeight: 1.12,
+            letterSpacing: "-0.03em",
+            maxWidth: "17ch",
+            textWrap: "balance",
+          }}
+        >
+          Everything a subscription business needs, <span style={{ color: "var(--color-accent)" }}>on-chain</span>.
+        </h2>
+        <p style={{ margin: 0, fontSize: 16, lineHeight: 1.6, color: "var(--color-neutral-600)", maxWidth: "38ch" }}>
+          From the first checkout to the fortieth renewal, one rail handles it.
+        </p>
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,320px),1fr))",
+          gap: "0 40px",
+        }}
+      >
+        {FEATURES.map((f) => (
+          <div
+            key={f.n}
+            data-reveal=""
+            style={{
+              padding: "28px 0 32px",
+              borderTop: "1px solid var(--color-divider)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+            }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, fontWeight: 800, color: f.color }}>
+              <span style={{ width: 28, height: 4, borderRadius: 2, background: f.color }} />
+              {f.n}
+            </span>
+            <h3 style={{ margin: 0, fontWeight: 700, fontSize: 20, letterSpacing: "-0.015em" }}>{f.title}</h3>
+            <p style={{ margin: 0, fontSize: 15, lineHeight: 1.65, color: "var(--color-neutral-600)", textWrap: "pretty" }}>
+              {f.body}
+            </p>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+
+/* ── fees and payouts ──────────────────────────────────────────────────── */
 
 /**
  * FEES & PAYOUTS — "Same $29.00 plan. Two very different paths."
@@ -1620,6 +1607,24 @@ function Compare() {
   );
 }
 
+
+/* ── trust and safety ──────────────────────────────────────────────────── */
+
+const CUSTODY_NODE: CSSProperties = {
+  flex: "none",
+  width: 40,
+  height: 40,
+  borderRadius: 10,
+  background: "#172066",
+  boxShadow: "inset 0 0 0 1px #26307E",
+  display: "grid",
+  placeItems: "center",
+  fontSize: 11,
+  fontWeight: 700,
+  color: "#A9ABC6",
+};
+
+
 /**
  * TRUST & SAFETY — "Nobody holds your money. Not even us."
  *
@@ -1811,62 +1816,128 @@ function Custody() {
   );
 }
 
-const CUSTODY_NODE: CSSProperties = {
-  flex: "none",
-  width: 40,
-  height: 40,
-  borderRadius: 10,
-  background: "#172066",
-  boxShadow: "inset 0 0 0 1px #26307E",
-  display: "grid",
-  placeItems: "center",
-  fontSize: 11,
-  fontWeight: 700,
-  color: "#A9ABC6",
-};
+
+/* ── developers ────────────────────────────────────────────────────────── */
 
 function Developers() {
   return (
     <Section id="developers" background="var(--color-surface)">
-      <Kicker align="left">For developers</Kicker>
-      <H2 align="left">A checkout in one request.</H2>
-      <p className="mt-4" style={{ fontSize: "clamp(15px,1.3vw,16.5px)", lineHeight: 1.6, color: "var(--color-neutral-900)", maxWidth: 640 }}>
-        Create a session, redirect, and listen for webhooks. Or skip code entirely with a shareable
-        payment link.
-      </p>
-      <div className="mt-9 grid" style={{ gap: 18, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,320px),1fr))" }}>
-        <pre
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,420px),1fr))",
+          gap: "clamp(36px,5vw,72px)",
+          alignItems: "center",
+        }}
+      >
+        <div data-reveal="">
+          <Kicker align="left">For developers</Kicker>
+          <h2
+            style={{
+              margin: "0 0 18px",
+              fontWeight: 700,
+              fontSize: "clamp(32px,4vw,50px)",
+              lineHeight: 1.12,
+              letterSpacing: "-0.03em",
+              textWrap: "balance",
+            }}
+          >
+            A checkout in one request.
+          </h2>
+          <p style={{ margin: "0 0 26px", fontSize: 16, lineHeight: 1.65, color: "var(--color-neutral-700)", maxWidth: "44ch" }}>
+            Create a session, redirect, and listen for webhooks. Or skip code entirely with a shareable payment link.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {EVENTS.map((e) => (
+              <div
+                key={e.name}
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  gap: "6px 14px",
+                  padding: "12px 0",
+                  borderBottom: "1px solid var(--color-divider)",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--color-text)" }}>{e.name}</span>
+                <span style={{ marginLeft: "auto", fontSize: 13, color: "var(--color-neutral-600)" }}>{e.desc}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div
+          data-reveal=""
           style={{
-            margin: 0, padding: "20px 22px", overflowX: "auto",
-            background: "var(--color-bg)", border: "1px solid var(--color-divider)",
-            borderRadius: "var(--radius-lg)", fontFamily: "var(--font-mono)",
-            fontSize: 12.5, lineHeight: 1.75, color: "var(--color-neutral-900)",
+            background: "#0D1446",
+            borderRadius: 14,
+            overflow: "hidden",
+            boxShadow: "0 30px 60px -30px rgba(35,35,80,0.5)",
           }}
         >
-          <code>{CODE}</code>
-        </pre>
-        <div style={{ display: "grid", gap: 10, alignContent: "start" }}>
-          {EVENTS.map((e) => (
-            <div
-              key={e.name}
-              className="flex items-baseline"
-              style={{
-                gap: 12, padding: "13px 15px", background: "var(--color-bg)",
-                border: "1px solid var(--color-divider)", borderRadius: "var(--radius-md)",
-              }}
-            >
-              <code style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--color-accent)" }}>{e.name}</code>
-              <span className="ml-auto" style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>{e.desc}</span>
-            </div>
-          ))}
-          <a href={DOCS_URL} style={{ fontSize: 14, fontWeight: 600, color: "var(--color-accent)", marginTop: 4 }}>
-            Read the documentation →
-          </a>
+          <div style={{ display: "flex", gap: 8, padding: "14px 18px", borderBottom: "1px solid #2C2C47" }}>
+            {[0, 1, 2].map((i) => (
+              <span key={i} style={{ width: 10, height: 10, borderRadius: "50%", background: "#3A3A5A" }} />
+            ))}
+          </div>
+          <pre
+            style={{
+              margin: 0,
+              padding: "20px 22px",
+              overflowX: "auto",
+              fontFamily: "var(--font-mono)",
+              fontSize: 13,
+              lineHeight: 1.75,
+              color: "#C8C9E4",
+            }}
+          >
+            {CODE}
+          </pre>
         </div>
       </div>
     </Section>
   );
 }
+
+
+/* ── pricing ───────────────────────────────────────────────────────────── */
+
+const PRICING = [
+  {
+    name: "Test",
+    price: "Free",
+    unit: "",
+    blurb: "Full API and dashboard in test mode. No wallet required.",
+    featured: false,
+    cta: "Start in test mode",
+    feats: ["Unlimited test plans", "All webhook events", "Hosted checkout preview"],
+  },
+  {
+    name: "Standard",
+    price: feePercent(),
+    unit: " per renewal",
+    blurb: "Pay only when a charge settles. Gas is on us.",
+    featured: true,
+    cta: "Choose Standard",
+    feats: [
+      "Unlimited plans & tiers",
+      "Gas covered on every renewal",
+      "Signed webhooks & API keys",
+      "Email receipts",
+    ],
+  },
+  {
+    name: "Scale",
+    price: "Custom",
+    unit: "",
+    blurb: "For high settled volume. Talk to us about your numbers.",
+    featured: false,
+    cta: "Talk to us",
+    feats: ["Volume pricing", "Dedicated settlement lane", "Account manager"],
+  },
+];
+
 
 function Pricing() {
   return (
@@ -1946,50 +2017,111 @@ function Pricing() {
   );
 }
 
-/**
- * The closing call: white, centred, under the mark.
- *
- * I had this as a solid field of accent, reasoning that a design using its
- * colour sparingly earns one poster moment. That is true of the system this
- * replaced and not of this one — the design ends on white, and the accent
- * appears only in the word USDC and the button. A full-bleed indigo band
- * here would be the loudest thing on a page that deliberately never raises
- * its voice.
- */
+
+/* ── closing call ──────────────────────────────────────────────────────── */
+
 function StartCta() {
   return (
-    /* v4 closes on navy (#16206A), a shade off the page ground so the last
-       call to action is a band rather than the page running out. It solves the
-       same problem the old tint did — Pricing above and the footer below are
-       both light — and solves it the way the rest of the page now works. */
     <section
       id="start"
       className="on-dark"
-      style={{ background: "#16206A", padding: "clamp(56px,8vw,96px) 0" }}
+      style={{ position: "relative", background: "#16206A", overflow: "hidden" }}
     >
-      <div className="mx-auto w-full" style={{ maxWidth: PAGE_W, paddingInline: "clamp(18px,4vw,40px)", textAlign: "center" }}>
-        <span className="inline-flex" style={{ marginBottom: 22 }}>
-          <SweepMark size={46} />
-        </span>
-        <h2 style={{ fontSize: "clamp(38px,5.6vw,72px)", letterSpacing: "-0.04em", lineHeight: 1.02, margin: 0, fontWeight: 800 }}>
-          Your first renewal is <span style={{ color: "var(--color-accent)" }}>one signature</span> away.
-        </h2>
-        <p
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.05) 1px,transparent 1px)",
+          backgroundSize: "56px 56px",
+          WebkitMaskImage: "radial-gradient(ellipse 70% 80% at 50% 40%,#000 20%,transparent 80%)",
+          maskImage: "radial-gradient(ellipse 70% 80% at 50% 40%,#000 20%,transparent 80%)",
+          pointerEvents: "none",
+        }}
+      />
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          left: "50%",
+          top: "10%",
+          width: "70%",
+          height: "80%",
+          transform: "translateX(-50%)",
+          background: "radial-gradient(closest-side,rgba(205,148,230,0.35),transparent)",
+          pointerEvents: "none",
+        }}
+      />
+      <div
+        className="mx-auto"
+        style={{
+          position: "relative",
+          maxWidth: PAGE_W,
+          padding: "clamp(88px,11vw,150px) clamp(18px,4vw,40px) clamp(64px,8vw,104px)",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          textAlign: "center",
+        }}
+      >
+        <div
+          data-reveal=""
           style={{
-            fontSize: "clamp(15px,1.3vw,16.5px)",
-            color: "var(--color-neutral-900)",
-            margin: "14px auto 0",
-            maxWidth: 520,
-            lineHeight: 1.6,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "7px 14px 7px 10px",
+            borderRadius: 999,
+            background: "rgba(255,255,255,0.14)",
+            boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.22)",
+            fontSize: 13,
+            fontWeight: 600,
           }}
         >
-          Set up a plan in minutes. Try everything in test mode — no real USDC is charged.
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: "var(--color-danger)",
+              boxShadow: "0 0 0 4px rgba(229,72,77,0.25)",
+            }}
+          />
+          Test mode included &middot; no real USDC charged
+        </div>
+        <h2
+          data-reveal=""
+          style={{
+            margin: "26px 0 0",
+            fontWeight: 800,
+            fontSize: "clamp(44px,7vw,96px)",
+            lineHeight: 0.98,
+            letterSpacing: "-0.05em",
+            maxWidth: "14ch",
+            textWrap: "balance",
+          }}
+        >
+          Your first renewal is{" "}
+          <span style={{ color: "#CD94E6", fontStyle: "italic", paddingRight: "0.08em" }}>one signature</span> away.
+        </h2>
+        <p
+          data-reveal=""
+          style={{
+            margin: "24px 0 0",
+            fontSize: "clamp(16px,1.4vw,18.5px)",
+            lineHeight: 1.6,
+            color: "rgba(255,255,255,0.88)",
+            maxWidth: "44ch",
+          }}
+        >
+          Create a plan, share the checkout, and let renewals settle themselves on Arc.
         </p>
-        <div className="mt-8 flex flex-wrap justify-center" style={{ gap: 12 }}>
-          <Link to="/signup" className="btn btn-primary" style={{ padding: "13px 22px", fontSize: 14.5 }}>
-            Create an account
+        <div data-reveal="" style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 12, marginTop: 34 }}>
+          <Link to="/signup" style={{ ...CTA_STYLE, fontSize: 15, padding: "14px 28px" }}>
+            Create your first plan
           </Link>
-          <a href={DOCS_URL} className="btn btn-secondary" style={{ padding: "13px 22px", fontSize: 14.5 }}>
+          <a href={DOCS_URL} style={{ ...GHOST_STYLE, fontSize: 15, fontWeight: 600, padding: "14px 22px", borderRadius: 9 }}>
             Read the docs
           </a>
         </div>
@@ -1998,7 +2130,11 @@ function StartCta() {
   );
 }
 
+
+/* ── footer ────────────────────────────────────────────────────────────── */
+
 function Footer() {
+  const link: CSSProperties = { color: "var(--color-neutral-700)" };
   return (
     <footer
       className="on-dark"
@@ -2006,54 +2142,50 @@ function Footer() {
     >
       <div
         className="mx-auto flex w-full flex-wrap items-center"
-        style={{ maxWidth: PAGE_W, paddingInline: "clamp(18px,4vw,40px)", gap: "10px 26px", fontSize: 13.5, color: "var(--color-neutral-800)" }}
+        style={{ maxWidth: PAGE_W, paddingInline: "clamp(18px,4vw,40px)", gap: "10px 26px", fontSize: 13.5 }}
       >
         <span className="flex items-center" style={{ gap: 9, color: "var(--color-text)", fontWeight: 700 }}>
           <SweepMark size={20} />
           Sweep Console
         </span>
-        <a href={DOCS_URL} style={{ color: "var(--color-neutral-800)" }}>Documentation</a>
-        <Link to="/login" style={{ color: "var(--color-neutral-800)" }}>Log in</Link>
-        <span style={{ marginLeft: "auto", color: "var(--color-neutral-700)" }}>
-          © {new Date().getFullYear()} Sweep Console
+        <span style={{ marginLeft: "auto", display: "flex", flexWrap: "wrap", gap: "10px 22px" }}>
+          <a href={DOCS_URL} style={link}>Documentation</a>
+          <Link to="/login" style={link}>Log in</Link>
+          <Link to="/signup" style={link}>Get started</Link>
         </span>
       </div>
     </footer>
   );
 }
 
+
+/* ── the page ──────────────────────────────────────────────────────────── */
+
 export function LandingPage() {
-  useScrollReveal(usePrefersReducedMotion());
+  const reduced = usePrefersReducedMotion();
+  useScrollReveal(reduced);
+
   return (
-    <div style={{ background: "var(--color-bg)", color: "var(--color-text)" }}>
+    <div style={{ background: "#121A5C" }}>
       <Header />
       <main className="swp-in">
         {/*
-          v4's band order. The page is a navy ground with light bands cut into
-          it, so these alternate on purpose — two dark sections in a row read as
-          one long section, which is the complaint the Pricing/StartCta pair
-          drew before.
+          v4's band order. Navy is the page; the light bands are cut into it,
+          and they alternate on purpose — two light sections in a row read as
+          one long section.
 
-            Hero       #121A5C   dark
-            Statement  #121A5C   dark
-            HowItWorks #121A5C   dark
-            Fallback   #0D1446   dark, deepest — it is the demo
-            Demo       #E9EEFF   light
-            Features   #121A5C   dark
-            Compare    #121A5C   dark
-            Custody    #E9EEFF   light
-            Developers #F4F4FB   light
-            Pricing    #fff      light — KEPT, see below
-            StartCta   #16206A   dark
-
-          ConsolePreview is dropped: v4 has no "Run it all from one place"
-          band. Pricing is kept against v4, which drops it too, because it is
-          where the platform fee is disclosed and a pricing page that does not
-          state the rate is worse than an ugly one.
+            top         #121A5C
+            how         #121A5C
+            fallback    #0D1446   deepest, it is the demo
+            demo        #E9EEFF
+            features    #121A5C
+            compare     #121A5C
+            trust       #E9EEFF
+            developers  #F4F4FB
+            pricing     #ffffff   KEPT against v4 — it states the fee
+            start       #16206A
         */}
         <Hero />
-        <Marks />
-        <Statement />
         <HowItWorks />
         <Fallback />
         <Demo />
