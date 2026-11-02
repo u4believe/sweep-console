@@ -43,6 +43,7 @@ import { advanceBridge } from "./bridge";
 import { payFeeToTreasury } from "../lib/chain/fee-payout";
 import { fireWebhook } from "../lib/webhooks/delivery";
 import { sendRailChargeReceipt } from "../lib/email/rail-receipt";
+import { chargeFailureReason } from "./charge-failure";
 
 
 /// Why a charge could not be attempted. These map onto the documented API codes,
@@ -344,7 +345,7 @@ export async function executeCharge(chargeDbId: string): Promise<void> {
       return;
     }
     console.error(`[charge] ${c.chargeId} planning failed:`, e);
-    await failCharge(c, "internal_error", e instanceof Error ? e.message : String(e));
+    await failCharge(c, "internal_error", chargeFailureReason(e instanceof Error ? e.message : String(e)));
     return;
   }
 
@@ -394,7 +395,9 @@ export async function executeCharge(chargeDbId: string): Promise<void> {
     // Nothing moved, so this is safe to record as a plain failure and safe for the
     // developer to retry with a new Idempotency-Key.
     console.error(`[charge] ${c.chargeId} redeem failed on ${plan.chainKey}:`, e);
-    await failCharge(c, "redeem_failed", e instanceof Error ? e.message : String(e));
+    // The log above keeps the full revert, hex and all. What the developer
+    // sees is a sentence they can act on — see charge-failure.ts.
+    await failCharge(c, "redeem_failed", chargeFailureReason(e instanceof Error ? e.message : String(e)));
     return;
   }
 

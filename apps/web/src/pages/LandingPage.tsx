@@ -32,7 +32,7 @@ import { Fragment, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/auth";
 import { DOCS_URL } from "@/lib/docs";
-import { feeOn, feePercent, keepsOf } from "@/lib/fee";
+import { feeOnAmount, formatFeePercent, keepsOfAmount, useSweepConfig } from "@/lib/useSweepConfig";
 import { isSandboxBuild, keyPrefix, sessionPrefix } from "@/lib/mode";
 import { HoloScene } from "@/components/landing/HoloScene";
 import {
@@ -1309,6 +1309,8 @@ const RENEW_NOTE: Record<RenewState, string> = {
 
 function Demo() {
   const reduced = usePrefersReducedMotion();
+  // The API's mode when it has answered, the build-time guess until then.
+  const { isTest } = useSweepConfig();
   const [chain, setChain] = useState<ChainKey>("base");
   const [stage, setStage] = useState<DemoStage>(null);
   const [done, setDone] = useState(false);
@@ -1404,7 +1406,7 @@ function Demo() {
                   depicts the checkout this deployment actually serves. Live
                   shows nothing, which is the point: a live checkout must
                   never imply no money moves. */}
-              {isSandboxBuild() && (
+              {isTest && (
                 <span
                   style={{
                     fontSize: 11,
@@ -1788,15 +1790,24 @@ function Features() {
  * numbers, so both sides are sourced and the footnote says so: 2.9% + $0.30 is
  * a common online card rate, not a claim about any particular processor.
  *
- * OUR side is computed, never typed. feeOn/keepsOf read the same
- * VITE_PLATFORM_FEE_BPS as feePercent(), so this card cannot drift from the
- * docs the way five hardcoded literals once did. At 250
- * bps that is "2.5% · −0.72" and "28.27".
+ * OUR side is computed, never typed, and READ FROM THE API rather than baked
+ * in. useSweepConfig asks GET /config, which serves platform_fee_bps from the
+ * very reader the charging paths use. The build-time VITE_PLATFORM_FEE_BPS is
+ * only the first paint.
+ *
+ * That is the fix for a live page that said 2% while the API charged 2.5%:
+ * the variable was set on Vercel and the bundle predated it, and nobody
+ * rebuilds a marketing page to correct a number they cannot see is wrong. The
+ * rate and both amounts now come from one number that cannot go stale.
  *
  * The second half answers the question the first half raises — a lower fee is
  * not the point if the money sits pending for days.
  */
 function Compare() {
+  // The deployment's own fee, not the one baked into this bundle — see
+  // useSweepConfig. Both the rate and the two amounts come from one number,
+  // so the card cannot quote a rate it does not then apply.
+  const { platformFeeBps: bps } = useSweepConfig();
   const ROW: CSSProperties = {
     display: "flex",
     justifyContent: "space-between",
@@ -1927,7 +1938,7 @@ function Compare() {
           </p>
           {[
             ["Plan price", "$29.00"],
-            ["Platform fee", `${feePercent()} · −$${feeOn(29)}`],
+            ["Platform fee", `${formatFeePercent(bps)} · −$${feeOnAmount(29, bps)}`],
             ["Network & bridge gas", "Covered"],
           ].map(([k, v]) => (
             <div key={k} style={{ ...ROW, position: "relative", borderTopColor: "rgba(255,255,255,0.2)" }}>
@@ -1938,7 +1949,7 @@ function Compare() {
           <div style={{ ...TOTAL, position: "relative", borderTopColor: "rgba(255,255,255,0.42)" }}>
             <span style={{ fontWeight: 700 }}>You keep</span>
             <span style={{ ...BIG, textAlign: "right" }}>
-              ${keepsOf(29)}{" "}
+              ${keepsOfAmount(29, bps)}{" "}
               <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: 0, color: "rgba(255,255,255,0.8)" }}>
                 USDC
               </span>

@@ -15,6 +15,7 @@
 import { prisma } from "../prisma";
 import { sendEmail, receiptEmailHtml, type ReceiptEmailData } from "../email";
 import { supportedSourceChains } from "../gateway/chains";
+import { explorerTxUrl } from "./explorer";
 
 /// Payment.type values that represent money moving FROM a subscriber TO a
 /// merchant. "refund" and "settlement" are not receipts to the subscriber.
@@ -27,11 +28,6 @@ const CHAIN_NAMES: Record<string, string> = {
   arbitrum: "Arbitrum",
   optimism: "Optimism",
 };
-
-function explorerTxUrl(txHash: string): string | null {
-  const base = process.env.ARC_EXPLORER_URL ?? "https://testnet.arcscan.app";
-  return base ? `${base.replace(/\/+$/, "")}/tx/${txHash}` : null;
-}
 
 /**
  * Supported source chains this wallet has no active renewal mandate on, at this

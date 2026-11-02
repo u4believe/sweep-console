@@ -12,6 +12,7 @@
 import { prisma } from "../prisma";
 import { sendEmail, railChargeReceiptEmailHtml, type RailChargeReceiptData } from "../email";
 import { manageUrl } from "../email-shell";
+import { explorerTxUrl } from "./explorer";
 
 /// Display names for Charge.chain, which stores the gateway's own chain keys.
 const CHAIN_NAMES: Record<string, string> = {
@@ -20,11 +21,6 @@ const CHAIN_NAMES: Record<string, string> = {
   arbitrum: "Arbitrum",
   optimism: "Optimism",
 };
-
-function explorerTxUrl(txHash: string): string | null {
-  const base = process.env.ARC_EXPLORER_URL ?? "https://testnet.arcscan.app";
-  return base ? `${base.replace(/\/+$/, "")}/tx/${txHash}` : null;
-}
 
 const usdc = (v: bigint) => (Number(v) / 1_000_000).toFixed(2);
 
