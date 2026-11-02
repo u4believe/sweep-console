@@ -22,10 +22,23 @@
  */
 import { isMainnet } from "../gateway/chains";
 
-/** ArcScan, per network. The web app's chain config names the same pair. */
+/**
+ * Arc's Blockscout explorers, per network.
+ *
+ * These were "https://arcscan.app" and "https://testnet.arcscan.app", copied
+ * from apps/web/src/lib/chain/config.ts, which had the same pair. Checked
+ * rather than trusted, and both were wrong:
+ *
+ *   arcscan.app                 does not resolve at all — a dead domain, so
+ *                               the mainnet link was broken twice over
+ *   testnet.arcscan.app         302s to explorer.testnet.arc.io
+ *
+ * So the canonical hosts are the arc.io ones, and the /tx/<hash> path is
+ * right because both are Blockscout.
+ */
 const DEFAULT_EXPLORER = {
-  mainnet: "https://arcscan.app",
-  testnet: "https://testnet.arcscan.app",
+  mainnet: "https://explorer.arc.io",
+  testnet: "https://explorer.testnet.arc.io",
 } as const;
 
 export function explorerBase(): string {

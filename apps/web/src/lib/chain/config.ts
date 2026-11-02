@@ -10,7 +10,10 @@ export const arcTestnet = defineChain({
     },
   },
   blockExplorers: {
-    default: { name: "ArcScan", url: "https://testnet.arcscan.app" },
+    // Checked, not assumed: arcscan.app does not resolve and
+    // testnet.arcscan.app 302s here. Both Arc explorers are Blockscout at
+    // arc.io, which is also where the RPCs live.
+    default: { name: "Arc Explorer", url: "https://explorer.testnet.arc.io" },
   },
   testnet: true,
 });
@@ -25,6 +28,6 @@ export const arcMainnet = defineChain({
     },
   },
   blockExplorers: {
-    default: { name: "ArcScan", url: "https://arcscan.app" },
+    default: { name: "Arc Explorer", url: "https://explorer.arc.io" },
   },
 });
