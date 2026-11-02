@@ -425,10 +425,24 @@ function Marquee() {
 /* ── header ───────────────────────────────────────────────────────────── */
 
 /**
- * v4's nav floats over the hero and only takes a ground once there is
- * something behind it — rgba(18,26,92,0.85) over a blur, with a white
- * hairline rather than a dark one, because a light rule on navy is a BRIGHT
- * line, not a quiet one.
+ * v4's nav, to the letter.
+ *
+ * POSITION: FIXED, not sticky. This is not cosmetic. A sticky header occupies
+ * flow space, so the hero's min-height:100svh starts BELOW it and the page is
+ * taller than the viewport by the header's height — which pushed the logo
+ * marquee off the bottom of the screen, so the chain and protocol marks could
+ * not be seen until you scrolled. Fixed takes the header out of flow, the
+ * hero fills exactly one viewport, and the marquee sits on the fold where the
+ * design puts it. The hero's own padding-top (clamp(88px,9vw,104px)) is what
+ * clears the nav.
+ *
+ * The mark is INVERTED TO WHITE — SweepMark's onDark, which is the design's
+ * filter:brightness(0) invert(1). Unfiltered it is the coloured mark, which
+ * is wrong on navy.
+ *
+ * "Get started" is FLAT LILAC #CD94E6 with #121A5C navy text. The multi-stop
+ * gradient belongs to the hero and closing CTAs, not here — using it in the
+ * nav made three different buttons out of two.
  */
 function Header() {
   const { user, loading } = useAuth();
@@ -440,12 +454,16 @@ function Header() {
     return () => window.removeEventListener("scroll", on);
   }, []);
 
-  const link: CSSProperties = { color: "#fff", fontSize: 15.5, fontWeight: 400, whiteSpace: "nowrap" };
+  const item: CSSProperties = { color: "#fff", fontSize: 15.5, fontWeight: 400, whiteSpace: "nowrap" };
 
   return (
     <header
-      className="on-dark sticky top-0"
+      className="on-dark"
       style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
         zIndex: 50,
         background: scrolled ? "rgba(18,26,92,0.85)" : "transparent",
         backdropFilter: "blur(16px)",
@@ -459,30 +477,46 @@ function Header() {
         style={{ maxWidth: PAGE_W, padding: "18px clamp(18px,4vw,40px)", gap: 32 }}
       >
         <Link to="/" className="flex items-center" style={{ gap: 10, color: "#fff" }}>
-          <SweepMark size={26} />
+          <SweepMark size={26} onDark />
           <span style={{ fontSize: 20, fontWeight: 400, letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>
             Sweep <span style={{ fontWeight: 700, color: "#CD94E6" }}>Console</span>
           </span>
         </Link>
+
         <nav
-          className="ml-auto hidden items-center md:flex"
-          style={{ gap: 30 }}
+          className="hidden lg:flex"
+          style={{ marginLeft: "auto", gap: 30, fontSize: 15.5, fontWeight: 400, whiteSpace: "nowrap" }}
         >
-          <a href="#how" style={link}>How it works</a>
-          <a href="#features" style={link}>Features</a>
-          <a href={DOCS_URL} style={link}>Documentation</a>
+          {/* Home carries the current-section marker: a 14×2 lilac bar under it. */}
+          <a
+            href="#top"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 6,
+              color: "#CD94E6",
+              fontWeight: 600,
+            }}
+          >
+            Home
+            <span style={{ width: 14, height: 2, borderRadius: 1, background: "#CD94E6" }} />
+          </a>
+          <a href="#how" style={item}>How it works</a>
+          <a href="#features" style={item}>Features</a>
+          <Link to={user ? "/dashboard" : "/login"} style={item}>Console</Link>
+          <a href={DOCS_URL} style={item}>Documentation</a>
         </nav>
-        <div className="ml-auto flex items-center md:ml-0" style={{ gap: 12 }}>
+
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap" }}>
           {loading ? null : user ? (
-            <Link to="/dashboard" style={{ ...CTA_STYLE, padding: "11px 22px", fontSize: 14 }}>
-              Dashboard
-            </Link>
+            <Link to="/dashboard" style={NAV_CTA}>Dashboard</Link>
           ) : (
             <>
-              <Link to="/login" style={{ ...link, fontWeight: 500 }}>Log in</Link>
-              <Link to="/signup" style={{ ...CTA_STYLE, padding: "11px 22px", fontSize: 14 }}>
-                Get started
+              <Link to="/login" className="hidden sm:block" style={{ color: "#fff", fontSize: 15, padding: "9px 12px" }}>
+                Log in
               </Link>
+              <Link to="/signup" style={NAV_CTA}>Get started</Link>
             </>
           )}
         </div>
@@ -491,6 +525,16 @@ function Header() {
   );
 }
 
+/** The nav's own button: flat lilac, navy ink. Not the hero's gradient. */
+const NAV_CTA: CSSProperties = {
+  background: "#CD94E6",
+  color: "#121A5C",
+  fontWeight: 600,
+  fontSize: 15,
+  padding: "9px 22px",
+  borderRadius: 999,
+  display: "inline-block",
+};
 /* ── hero ─────────────────────────────────────────────────────────────── */
 
 /**
@@ -2336,7 +2380,7 @@ function Footer() {
         style={{ maxWidth: PAGE_W, paddingInline: "clamp(18px,4vw,40px)", gap: "10px 26px", fontSize: 13.5 }}
       >
         <span className="flex items-center" style={{ gap: 9, color: "var(--color-text)", fontWeight: 700 }}>
-          <SweepMark size={20} />
+          <SweepMark size={20} onDark />
           Sweep Console
         </span>
         <span style={{ marginLeft: "auto", display: "flex", flexWrap: "wrap", gap: "10px 22px" }}>
