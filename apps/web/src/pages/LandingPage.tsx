@@ -34,7 +34,15 @@ import { useAuth } from "@/context/auth";
 import { DOCS_URL } from "@/lib/docs";
 import { feeOn, feePercent, keepsOf } from "@/lib/fee";
 import { HoloScene } from "@/components/landing/HoloScene";
-import { ChainMark, SweepMark, UsdcMark, USDC_TOKEN, METAMASK_LOGO, CIRCLE_LOGO, type ChainKey } from "@/components/ui/marks";
+import {
+  ChainMark,
+  SweepMark,
+  UsdcMark,
+  USDC_TOKEN,
+  METAMASK_LOGO_LIGHT,
+  CIRCLE_LOGO,
+  type ChainKey,
+} from "@/components/ui/marks";
 
 /** v4 lays every band out on a 1200px measure. */
 const PAGE_W = "min(1200px, 100%)";
@@ -122,13 +130,37 @@ const EVENTS = [
   { name: "mandate.revoked", desc: "Subscriber revoked access" },
 ];
 
-const CODE = `const session = await sweep.checkout.sessions.create({
-  plan: "plan_pro",
-  externalRef: user.id,
-  successUrl: "https://app.example.com/welcome",
-});
+/**
+ * The curl example from the design, with OUR values.
+ *
+ * The design writes api.sweepconsole.com, /checkout/sessions and a
+ * Stripe-shaped sk_test_… key. All three are wrong for this product: the API
+ * is api.sweepconsole.xyz, every route is under /v1, and ids.apiKey emits
+ * `test_`/`live_` with no `sk`. A landing page that prints an endpoint a
+ * developer cannot call is worse than one that does not match a mockup — the
+ * same reason EVENTS carries the real webhook names.
+ *
+ * external_ref is included because it is REQUIRED on a checkout session, and
+ * an example that omits a required field produces a 422 on first try.
+ *
+ * Colours are the design's: curl #9EA1FF, values and strings #8FE3C2, the
+ * comment #6B6C8F, JSON keys #fff, everything else #B7B8D6.
+ */
+const CODE_LINES: Array<Array<[string, string?]>> = [
+  [["curl", "#9EA1FF"], [" https://api.sweepconsole.xyz/v1/checkout/sessions \\"]],
+  [["  -H "], ['"Authorization: Bearer test_…"', "#8FE3C2"], [" \\"]],
+  [["  -d plan_id="], ["plan_pro_monthly", "#8FE3C2"], [" \\"]],
+  [["  -d external_ref="], ["user_8412", "#8FE3C2"], [" \\"]],
+  [["  -d success_url="], ["https://northwind.co/thanks", "#8FE3C2"]],
+  [[""]],
+  [["# → 200", "#6B6C8F"]],
+  [["{"]],
+  [["  "], ['"id"', "#fff"], [": "], ['"cs_test_8Hq2…"', "#8FE3C2"], [","]],
+  [["  "], ['"checkout_url"', "#fff"], [": "], ['"https://sweepconsole.xyz/checkout/cs_test_8Hq2…"', "#8FE3C2"], [","]],
+  [["  "], ['"status"', "#fff"], [": "], ['"open"', "#8FE3C2"]],
+  [["}"]],
+];
 
-res.redirect(session.url);`;
 
 /* ── shared primitives ─────────────────────────────────────────────────── */
 
@@ -339,7 +371,9 @@ const MARQUEE: Array<{ kind: "chain" | "token" | "logo"; key?: ChainKey; label: 
   { kind: "chain", key: "optimism", label: "Optimism" },
   { kind: "token", label: "USDC" },
   { kind: "chain", key: "arc", label: "Arc" },
-  { kind: "logo", label: "MetaMask", src: METAMASK_LOGO, h: 30 },
+  // The light variant: this strip is navy, and the default mark's wordmark
+  // is #161616.
+  { kind: "logo", label: "MetaMask", src: METAMASK_LOGO_LIGHT, h: 30 },
   { kind: "logo", label: "Circle", src: CIRCLE_LOGO, h: 32 },
 ];
 
@@ -2236,15 +2270,23 @@ function Developers() {
           <pre
             style={{
               margin: 0,
-              padding: "20px 22px",
-              overflowX: "auto",
+              padding: "22px 20px",
               fontFamily: "var(--font-mono)",
               fontSize: 13,
               lineHeight: 1.75,
-              color: "#C8C9E4",
+              color: "#B7B8D6",
+              overflowX: "auto",
             }}
           >
-            {CODE}
+            {CODE_LINES.map((line, i) => (
+              <span key={i} style={{ display: "block", minHeight: "1.75em" }}>
+                {line.map(([text, color], j) => (
+                  <span key={j} style={color ? { color } : undefined}>
+                    {text}
+                  </span>
+                ))}
+              </span>
+            ))}
           </pre>
         </div>
       </div>

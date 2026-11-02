@@ -32,6 +32,15 @@ export const CHAIN_ASSET: Record<ChainKey, string> = {
 export const SWEEP_MARK = `${BASE}/sweep-mark.png`;
 export const USDC_TOKEN = `${BASE}/token-usdc.svg`;
 export const METAMASK_LOGO = `${BASE}/metamask-logo.svg`;
+/**
+ * The same mark with a WHITE wordmark, for dark grounds.
+ *
+ * The two files differ in exactly one thing: the lettering is #ffffff here
+ * and #161616 in the other. The fox is identical. On the hero's navy strip
+ * the dark wordmark is nearly unreadable, which is what this fixes — and
+ * tinting the dark one with a filter would take the fox with it.
+ */
+export const METAMASK_LOGO_LIGHT = `${BASE}/metamask-logo-light.svg`;
 export const CIRCLE_LOGO = `${BASE}/circle-logo.png`;
 
 export function isChainKey(k: string): k is ChainKey {
