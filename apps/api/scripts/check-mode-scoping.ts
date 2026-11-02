@@ -347,6 +347,63 @@ function main(): void {
   try { walkWords(WEB_SRC); } catch { /* web app not present */ }
   findings.push(...words);
 
+  /**
+   * FIFTH PASS — the landing page's mode claims.
+   *
+   * walkWords only inspects `portal/`, because inside the console the server
+   * is authoritative: /portal/me carries testMode, and a claim not derived
+   * from it is a claim that can contradict it.
+   *
+   * The landing page has no server to ask. It states the mode before anyone
+   * signs in — the curl example's key prefix, the demo checkout's "Test mode"
+   * badge — and the only honest source there is lib/mode.ts, which derives it
+   * from the API URL the deployment already points at. Derived that way it
+   * cannot disagree with reality: a bundle talking to the sandbox API IS a
+   * sandbox bundle.
+   *
+   * SCOPED TO THE LANDING SURFACE on purpose. A first pass at this checked
+   * every non-portal file and was wrong twice over: it flagged the
+   * `?? "http://localhost:4000"` fallback in every file holding an API
+   * constant, and it flagged "Test mode is on by default" on the signup and
+   * onboarding pages — which is true of every new account on either
+   * deployment and is not a claim about this one.
+   *
+   * What it forbids is the shortcut here: a hand-rolled hostname test, or a
+   * mode badge, in the landing surface without going through lib/mode. That
+   * is how the live page ends up saying test mode, which is the one direction
+   * that matters — it tells a payer no real money moves.
+   */
+  const outside: Finding[] = [];
+  const LANDING = /^(pages\/LandingPage\.tsx|components\/landing\/)/;
+  const walkOutside = (dir: string): void => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) { walkOutside(full); continue; }
+      if (!e.name.endsWith(".tsx") && !e.name.endsWith(".ts")) continue;
+      const rel = full.slice(WEB_SRC.length + 1).replace(/\\/g, "/");
+      if (!LANDING.test(rel)) continue;
+      const body = readFileSync(full, "utf8");
+      // A badge that names the mode, or an actual TEST on the API URL — not
+      // the localhost fallback, which is a default and decides nothing.
+      const claimsMode = /["'`][^"'`]*\b(Test mode|Sandbox mode|Live mode)\b/.test(body);
+      const sniffsHost =
+        /VITE_API_URL/.test(body) &&
+        /\.(includes|startsWith|endsWith|match)\(|\.test\(\s*(API_URL|import\.meta)/.test(body);
+      if (!claimsMode && !sniffsHost) continue;
+      if (/from "@\/lib\/mode"/.test(body)) continue;
+      const at = body.search(/Test mode|Sandbox mode|Live mode|VITE_API_URL/);
+      outside.push({
+        file: rel,
+        line: body.slice(0, at < 0 ? 0 : at).split("\n").length,
+        model: "UI",
+        method: claimsMode ? "the landing page names a mode" : "the landing page sniffs the API URL",
+        fix: "import isSandboxBuild() from @/lib/mode — one place decides, so live cannot claim test",
+      });
+    }
+  };
+  try { walkOutside(WEB_SRC); } catch { /* web app not present */ }
+  findings.push(...outside);
+
   if (deferred.length > 0) {
     console.log(`${deferred.length} read(s) on models with no isTestMode column — deferred, not forgotten:`);
     const byModel = new Map<string, number>();

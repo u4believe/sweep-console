@@ -33,6 +33,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "@/context/auth";
 import { DOCS_URL } from "@/lib/docs";
 import { feeOn, feePercent, keepsOf } from "@/lib/fee";
+import { isSandboxBuild, keyPrefix, sessionPrefix } from "@/lib/mode";
 import { HoloScene } from "@/components/landing/HoloScene";
 import {
   ChainMark,
@@ -46,6 +47,9 @@ import {
 
 /** v4 lays every band out on a 1200px measure. */
 const PAGE_W = "min(1200px, 100%)";
+
+/** Where a hosted checkout actually lives for this deployment. */
+const APP_ORIGIN = isSandboxBuild() ? "https://sandbox.sweepconsole.xyz" : "https://sweepconsole.xyz";
 
 /** The CTA gradient, used by both call-to-action buttons. */
 const CTA_GRADIENT =
@@ -146,17 +150,17 @@ const EVENTS = [
  * Colours are the design's: curl #9EA1FF, values and strings #8FE3C2, the
  * comment #6B6C8F, JSON keys #fff, everything else #B7B8D6.
  */
-const CODE_LINES: Array<Array<[string, string?]>> = [
+const CODE_LINES = (): Array<Array<[string, string?]>> => [
   [["curl", "#9EA1FF"], [" https://api.sweepconsole.xyz/v1/checkout/sessions \\"]],
-  [["  -H "], ['"Authorization: Bearer test_…"', "#8FE3C2"], [" \\"]],
+  [["  -H "], [`"Authorization: Bearer ${keyPrefix()}…"`, "#8FE3C2"], [" \\"]],
   [["  -d plan_id="], ["plan_pro_monthly", "#8FE3C2"], [" \\"]],
   [["  -d external_ref="], ["user_8412", "#8FE3C2"], [" \\"]],
   [["  -d success_url="], ["https://northwind.co/thanks", "#8FE3C2"]],
   [[""]],
   [["# → 200", "#6B6C8F"]],
   [["{"]],
-  [["  "], ['"id"', "#fff"], [": "], ['"cs_test_8Hq2…"', "#8FE3C2"], [","]],
-  [["  "], ['"checkout_url"', "#fff"], [": "], ['"https://sweepconsole.xyz/checkout/cs_test_8Hq2…"', "#8FE3C2"], [","]],
+  [["  "], ['"id"', "#fff"], [": "], [`"${sessionPrefix()}8Hq2…"`, "#8FE3C2"], [","]],
+  [["  "], ['"checkout_url"', "#fff"], [": "], [`"${APP_ORIGIN}/checkout/${sessionPrefix()}8Hq2…"`, "#8FE3C2"], [","]],
   [["  "], ['"status"', "#fff"], [": "], ['"open"', "#8FE3C2"]],
   [["}"]],
 ];
@@ -459,6 +463,47 @@ function Marquee() {
 /* ── header ───────────────────────────────────────────────────────────── */
 
 /**
+ * Which section the viewer is looking at, for the nav's marker.
+ *
+ * The marker was pinned to Home, so it stayed lilac no matter where you
+ * scrolled or what you clicked. v4 draws it under the current section, and a
+ * nav that never moves is worse than none — it tells you where you are and is
+ * wrong about it.
+ *
+ * rootMargin pulls the detection line down past the fixed header and up from
+ * the bottom, so a section counts as current when it occupies the middle band
+ * of the viewport rather than the instant its first pixel appears. Without
+ * that, scrolling through the hero would flicker between two items.
+ *
+ * Hero included as "top" so Home lights up again when you scroll back.
+ */
+const NAV_SECTIONS = ["top", "how", "features"] as const;
+
+function useActiveSection(): string {
+  const [active, setActive] = useState<string>("top");
+  useEffect(() => {
+    const nodes = NAV_SECTIONS.map((id) => document.getElementById(id)).filter(
+      (n): n is HTMLElement => n !== null
+    );
+    if (nodes.length === 0) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        // The entry nearest the top of the band wins, so overlapping sections
+        // do not fight.
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible[0]) setActive(visible[0].target.id);
+      },
+      { rootMargin: "-20% 0px -60% 0px", threshold: 0 }
+    );
+    nodes.forEach((n) => io.observe(n));
+    return () => io.disconnect();
+  }, []);
+  return active;
+}
+
+/**
  * v4's nav, to the letter.
  *
  * POSITION: FIXED, not sticky. This is not cosmetic. A sticky header occupies
@@ -480,6 +525,7 @@ function Marquee() {
  */
 function Header() {
   const { user, loading } = useAuth();
+  const active = useActiveSection();
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const on = () => setScrolled(window.scrollY > 8);
@@ -521,23 +567,44 @@ function Header() {
           className="hidden lg:flex"
           style={{ marginLeft: "auto", gap: 30, fontSize: 15.5, fontWeight: 400, whiteSpace: "nowrap" }}
         >
-          {/* Home carries the current-section marker: a 14×2 lilac bar under it. */}
-          <a
-            href="#top"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 6,
-              color: "#CD94E6",
-              fontWeight: 600,
-            }}
-          >
-            Home
-            <span style={{ width: 14, height: 2, borderRadius: 1, background: "#CD94E6" }} />
-          </a>
-          <a href="#how" style={item}>How it works</a>
-          <a href="#features" style={item}>Features</a>
+          {/* The marked item carries v4's 14×2 lilac bar. Every entry can hold
+              it, not just Home. */}
+          {[
+            ["#top", "Home", "top"],
+            ["#how", "How it works", "how"],
+            ["#features", "Features", "features"],
+          ].map(([href, label, id]) => {
+            const on = active === id;
+            return (
+              <a
+                key={id}
+                href={href}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 6,
+                  color: on ? "#CD94E6" : "#fff",
+                  fontWeight: on ? 600 : 400,
+                  fontSize: 15.5,
+                  whiteSpace: "nowrap",
+                  transition: "color 160ms ease",
+                }}
+                aria-current={on ? "true" : undefined}
+              >
+                {label}
+                <span
+                  style={{
+                    width: 14,
+                    height: 2,
+                    borderRadius: 1,
+                    background: on ? "#CD94E6" : "transparent",
+                    transition: "background 160ms ease",
+                  }}
+                />
+              </a>
+            );
+          })}
           <Link to={user ? "/dashboard" : "/login"} style={item}>Console</Link>
           <a href={DOCS_URL} style={item}>Documentation</a>
         </nav>
@@ -1332,6 +1399,25 @@ function Demo() {
           >
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 20px", borderBottom: LINE }}>
               <span style={{ fontWeight: 700, fontSize: 15 }}>Northwind Studio</span>
+              {/* The same badge the real checkout shows, with the same styling
+                  as CheckoutFrame — and on the same condition, so the page
+                  depicts the checkout this deployment actually serves. Live
+                  shows nothing, which is the point: a live checkout must
+                  never imply no money moves. */}
+              {isSandboxBuild() && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    padding: "4px 9px",
+                    borderRadius: 5,
+                    background: "var(--color-accent-200)",
+                    color: "var(--color-accent)",
+                  }}
+                >
+                  Test mode
+                </span>
+              )}
             </div>
 
             <div style={{ display: "flex", borderBottom: LINE, padding: "0 12px", overflowX: "auto" }}>
@@ -2278,7 +2364,7 @@ function Developers() {
               overflowX: "auto",
             }}
           >
-            {CODE_LINES.map((line, i) => (
+            {CODE_LINES().map((line, i) => (
               <span key={i} style={{ display: "block", minHeight: "1.75em" }}>
                 {line.map(([text, color], j) => (
                   <span key={j} style={color ? { color } : undefined}>

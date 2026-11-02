@@ -266,9 +266,32 @@ figcaption { font-size: 11px; margin-top: var(--space-1); color: var(--color-neu
 /* The 2% press is what makes a filled rectangle feel like a button. */
 .btn:active:not(:disabled) { transform: scale(0.98); }
 
-/* --color-accent-ink, not #fff: the rail's accent takes dark navy text. */
-.btn-primary { background: var(--color-accent); color: var(--color-accent-ink, #fff); }
-.btn-primary:hover { background: var(--color-accent-600); color: var(--color-accent-ink, #fff); }
+/**
+ * The primary button takes the FLOW'S GRADIENT, which is what the design does
+ * everywhere it puts one: Console.dc.html fills Create key, Create endpoint,
+ * Save, Send invite and Request live access with var(--accent-fill), inked
+ * with var(--accent-ink).
+ *
+ * That is the "gradient colour" the console was missing — it was flat
+ * var(--color-accent). On the hosted flow the fill runs #1838E8 → #2868F8 →
+ * #10A8F8 with white ink; on the rail it is the five-stop
+ * #F6E7A9 → #EBC7F3 → #BCC5FF → #A9F0EC → #F3D2F0 with #121A5C navy ink.
+ *
+ * HOVER COLLAPSES THE GRADIENT to the flat --accent-hover, which is also the
+ * design's behaviour (style-hover="background:var(--accent-hover)"). It reads
+ * as the button settling rather than merely darkening.
+ *
+ * Outside the console both tokens fall back to the brand indigo, so a
+ * primary button on the landing page or a checkout is unchanged.
+ */
+.btn-primary {
+  background: var(--color-accent-fill, var(--color-accent));
+  color: var(--color-accent-ink, #fff);
+}
+.btn-primary:hover {
+  background: var(--color-accent-600);
+  color: var(--color-accent-ink, #fff);
+}
 .btn-primary:active { background: var(--color-accent-700); }
 
 .btn-secondary { border-color: var(--color-neutral-400); background: var(--color-bg); }
