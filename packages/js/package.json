@@ -41,9 +41,9 @@
     "url": "git+https://github.com/u4believe/sweep-console.git",
     "directory": "packages/js"
   },
-  "homepage": "https://github.com/u4believe/sweep-console#readme",
+  "homepage": "https://docs.sweepconsole.xyz",
   "bugs": {
-    "url": "https://github.com/u4believe/sweep-console/issues"
+    "url": "mailto:support@sweepconsole.xyz"
   },
   "publishConfig": {
     "access": "public"
