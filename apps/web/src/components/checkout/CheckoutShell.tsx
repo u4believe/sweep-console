@@ -193,7 +193,7 @@ function StepRow({
     return (
       <div
         className="flex items-center"
-        style={{ gap: 10, padding: "10px 0", borderBottom: HAIRLINE, fontSize: 13 }}
+        style={{ gap: 10, padding: "8px 0", borderBottom: HAIRLINE, fontSize: 13 }}
       >
         {num}
         <span style={done.mono ? { fontFamily: "var(--font-mono)", fontSize: 13 } : undefined}>
@@ -223,13 +223,13 @@ function StepRow({
   }
 
   return (
-    <div style={{ padding: "12px 0 6px", borderBottom: HAIRLINE }}>
+    <div style={{ padding: "9px 0 5px", borderBottom: HAIRLINE }}>
       <p
         className="m-0 uppercase"
         style={{
           display: "flex",
           gap: 10,
-          marginBottom: 8,
+          marginBottom: 6,
           fontSize: 11,
           fontWeight: 600,
           letterSpacing: "0.1em",
@@ -785,7 +785,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
       */}
       <div
         className="mx-auto w-full"
-        style={{ maxWidth: 1040, padding: "clamp(20px,3.5vw,36px) clamp(16px,3vw,32px) 30px" }}
+        style={{ maxWidth: 1040, padding: "clamp(16px,3vw,28px) clamp(16px,3vw,32px) 22px" }}
       >
         {/*
           No heading here.
@@ -814,7 +814,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
               one line, so the steps below are what the eye lands on. */}
           <div
             className="flex flex-wrap items-baseline justify-between"
-            style={{ gap: 12, padding: "14px 18px 11px", borderBottom: HAIRLINE }}
+            style={{ gap: 12, padding: "11px 18px 9px", borderBottom: HAIRLINE }}
           >
             <div>
               <p
@@ -826,7 +826,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
               <p className="m-0 mt-1" style={{ fontWeight: 700, fontSize: 16 }}>{selectedTierName}</p>
             </div>
             <div style={{ textAlign: "right" }}>
-              <p className="m-0" style={{ fontWeight: 700, fontSize: 24, letterSpacing: "-0.03em" }}>
+              <p className="m-0" style={{ fontWeight: 700, fontSize: 22, letterSpacing: "-0.03em" }}>
                 {hasTrial ? "Free" : formattedAmount}{" "}
                 <span style={{ fontSize: 13, fontWeight: 500, letterSpacing: 0, color: "var(--color-neutral-800)" }}>
                   {plan.currency} {INTERVAL_LABELS[effectiveInterval] ?? ""}
@@ -853,7 +853,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
         {/* Inside the card now, so no ground of its own and no heading —
             the title moved above the card, where the design has it, and two
             of them was one too many. */}
-        <main className="flex flex-col" style={{ padding: "4px 18px 16px" }}>
+        <main className="flex flex-col" style={{ padding: "2px 18px 12px" }}>
 
           {showSweep && payAddress ? (
             /* Cross-chain path: sweep USDC from Base / Arbitrum / Optimism */
@@ -1102,7 +1102,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                               border: 0,
                               borderTop: HAIRLINE,
                               borderLeft: `3px solid ${on ? "var(--color-accent)" : "transparent"}`,
-                              padding: "9px 14px",
+                              padding: "7px 14px",
                               cursor: isPending ? "not-allowed" : "pointer",
                               fontFamily: "var(--font-body)",
                             }}
@@ -1208,7 +1208,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                 <div style={{ marginTop: 14 }}>
                   <div
                     className="flex justify-between"
-                    style={{ padding: "7px 0", borderBottom: HAIRLINE, fontSize: 13.5 }}
+                    style={{ padding: "6px 0", borderBottom: HAIRLINE, fontSize: 13.5 }}
                   >
                     <span>Subtotal</span>
                     <span>{formattedAmount} {plan.currency}</span>
@@ -1216,7 +1216,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                   {hasTrial && (
                     <div
                       className="flex justify-between"
-                      style={{ padding: "7px 0", borderBottom: HAIRLINE, fontSize: 13.5 }}
+                      style={{ padding: "6px 0", borderBottom: HAIRLINE, fontSize: 13.5 }}
                     >
                       <span>Trial credit</span>
                       <span style={{ color: "var(--color-accent)" }}>−{formattedAmount} {plan.currency}</span>
@@ -1224,22 +1224,22 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                   )}
                   <div
                     className="flex justify-between"
-                    style={{ padding: "7px 0", borderBottom: HAIRLINE, fontSize: 13.5 }}
+                    style={{ padding: "6px 0", borderBottom: HAIRLINE, fontSize: 13.5 }}
                   >
                     <span>Network fee</span>
                     <span style={{ color: "var(--color-accent)" }}>Covered by Sweep Console</span>
                   </div>
                   <div
                     className="flex items-baseline justify-between"
-                    style={{ padding: "11px 0", borderBottom: "1px solid var(--color-neutral-400)" }}
+                    style={{ padding: "9px 0", borderBottom: "1px solid var(--color-neutral-400)" }}
                   >
-                    <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 18 }}>
+                    <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 17 }}>
                       Due today
                     </span>
                     <span
                       style={{
                         fontFamily: "var(--font-heading)", fontWeight: 700,
-                        fontSize: 27, letterSpacing: "-0.03em",
+                        fontSize: 24, letterSpacing: "-0.03em",
                       }}
                     >
                       {hasTrial ? "0.00" : formattedAmount}{" "}
