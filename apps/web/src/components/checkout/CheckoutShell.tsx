@@ -1206,13 +1206,29 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
               {/* Totals */}
               {verified && walletPresent && !walletBlocked && (
                 <div style={{ marginTop: 14 }}>
-                  <div
-                    className="flex justify-between"
-                    style={{ padding: "6px 0", borderBottom: HAIRLINE, fontSize: 13.5 }}
-                  >
-                    <span>Subtotal</span>
-                    <span>{formattedAmount} {plan.currency}</span>
-                  </div>
+                  {/*
+                    SUBTOTAL ONLY WHEN IT IS A SUM.
+
+                    Without a trial it holds the same expression as Due today
+                    — both are `formattedAmount` — and the plan header above
+                    already shows that figure, so the payer read one number
+                    three times and the card was a row taller for it.
+
+                    With a trial it is load-bearing: it is the first term of
+                    an arithmetic the payer has to follow, 29.00 − 29.00 =
+                    0.00. Drop it there and the Trial credit line has nothing
+                    to subtract from, and the zero looks arbitrary rather
+                    than earned.
+                  */}
+                  {hasTrial && (
+                    <div
+                      className="flex justify-between"
+                      style={{ padding: "6px 0", borderBottom: HAIRLINE, fontSize: 13.5 }}
+                    >
+                      <span>Subtotal</span>
+                      <span>{formattedAmount} {plan.currency}</span>
+                    </div>
+                  )}
                   {hasTrial && (
                     <div
                       className="flex justify-between"
