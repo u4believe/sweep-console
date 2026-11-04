@@ -819,14 +819,26 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
             <div>
               <p
                 className="m-0 uppercase"
-                style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", color: "var(--color-neutral-800)" }}
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: "0.1em",
+                  lineHeight: 1.3,
+                  color: "var(--color-neutral-800)",
+                }}
               >
                 Your plan
               </p>
-              <p className="m-0 mt-1" style={{ fontWeight: 700, fontSize: 16 }}>{selectedTierName}</p>
+              <p className="m-0 mt-1" style={{ fontWeight: 700, fontSize: 16, lineHeight: 1.15 }}>
+                {selectedTierName}
+              </p>
             </div>
             <div style={{ textAlign: "right" }}>
-              <p className="m-0" style={{ fontWeight: 700, fontSize: 22, letterSpacing: "-0.03em" }}>
+              {/* 1.15, not body's inherited 1.55. This row takes the height of its
+                  TALLER column, so the tier name opposite is tightened with it —
+                  dropping the price alone would have moved nothing whenever the
+                  Change-plan link is absent and the left column is the taller. */}
+              <p className="m-0" style={{ fontWeight: 700, fontSize: 22, letterSpacing: "-0.03em", lineHeight: 1.15 }}>
                 {hasTrial ? "Free" : formattedAmount}{" "}
                 <span style={{ fontSize: 13, fontWeight: 500, letterSpacing: 0, color: "var(--color-neutral-800)" }}>
                   {plan.currency} {INTERVAL_LABELS[effectiveInterval] ?? ""}
@@ -841,7 +853,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                 <button
                   type="button"
                   className="btn btn-ghost"
-                  style={{ marginTop: 2, padding: 0, fontSize: 12.5 }}
+                  style={{ marginTop: 2, padding: 0, fontSize: 12.5, lineHeight: 1.3 }}
                   onClick={() => setView("plans")}
                 >
                   ← Change plan
