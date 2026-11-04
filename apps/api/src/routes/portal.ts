@@ -17,6 +17,7 @@ import { closePlanSubscriptions, findSubsToClose } from "../lib/plan-lifecycle";
 import { requireStepUp } from "../lib/portal/stepup";
 import { refusePriceChange, applyPriceChange, type PriceScope } from "../lib/plan-pricing";
 import { sendPriceChangeNotices } from "../lib/email/price-change";
+import { explorerTxUrl } from "../lib/explorer";
 import { readTreasury } from "../lib/portal/treasury";
 import { isMainnet } from "../lib/gateway/chains";
 import { mandatePeriodStart } from "../lib/rail";
@@ -1857,6 +1858,52 @@ portalRouter.get("/subscriptions", async (req, res) => {
  * it gets. Callers that pass neither (the Payments table) keep the old
  * behaviour exactly.
  */
+// ─── GET /portal/withdrawals ──────────────────────────────────────────────────
+//
+// Payouts out of a Circle-held payout wallet, for the dashboard's recent
+// activity. Empty for a merchant on an external wallet: they move their own
+// USDC and we never see it.
+//
+// THE EXPLORER LINK IS BUILT HERE, not in the browser. The deployment knows
+// its network — portalAuth sets isTestMode = !isMainnet(), one mode per site —
+// and explorerBase() reads the same ARC_NETWORK that picks the chain set. A
+// client deriving it would be a second opinion about a fact the server already
+// holds, and the receipt emails already take it from here.
+portalRouter.get("/withdrawals", async (req, res) => {
+  const limit = Number(req.query.limit);
+  const take = Number.isFinite(limit)
+    ? Math.min(Math.max(Math.trunc(limit), 1), 200)
+    : 20;
+
+  try {
+    const rows = await withRetry(() =>
+      prisma.walletWithdrawal.findMany({
+        where: portalScope(req),
+        orderBy: { createdAt: "desc" },
+        take,
+      })
+    );
+
+    return ok(res, {
+      data: rows.map((w) => ({
+        id: w.withdrawalId,
+        amount: Number(w.amount),
+        currency: w.currency,
+        state: w.state,
+        destination: w.destination,
+        tx_hash: w.txHash,
+        // Null rather than a dead link when there is no hash yet.
+        explorer_url: explorerTxUrl(w.txHash),
+        test_mode: w.isTestMode,
+        created_at: w.createdAt.toISOString(),
+        confirmed_at: w.confirmedAt?.toISOString() ?? null,
+      })),
+    });
+  } catch (e) {
+    return serverError(res, "portal/withdrawals", e, "We couldn't load your withdrawals.");
+  }
+});
+
 portalRouter.get("/payments", async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
 
@@ -1907,6 +1954,9 @@ portalRouter.get("/payments", async (req, res) => {
         type: p.type,
         planName: p.subscription?.plan.name ?? null,
         txHash: p.txHash,
+        // Built here for the same reason the withdrawal's is: the deployment
+        // knows its network and the client should not have to re-derive it.
+        explorerUrl: explorerTxUrl(p.txHash),
         createdAt: p.createdAt.toISOString(),
       })),
     });

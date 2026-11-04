@@ -39,8 +39,41 @@ interface Payment {
   type: string;
   planName: string | null;
   txHash: string | null;
+  explorerUrl: string | null;
   createdAt: string;
 }
+
+/**
+ * A payout out of a Circle payout wallet.
+ *
+ * `explorerUrl` is built by the API, not here: the deployment knows its own
+ * network (portalAuth sets isTestMode = !isMainnet(), one mode per site) and
+ * the server already derives the Arc explorer from the same ARC_NETWORK that
+ * picks the chain set. Deriving it in the browser would be a second opinion
+ * about a fact the server holds.
+ */
+interface Withdrawal {
+  id: string;
+  amount: number;
+  currency: string;
+  state: string;
+  txHash: string | null;
+  explorerUrl: string | null;
+  createdAt: string;
+}
+
+/** One row of the activity table, from either source. */
+type ActivityRow = {
+  key: string;
+  amount: number;
+  kind: string;
+  status: string;
+  plan: string | null;
+  createdAt: string;
+  txHash: string | null;
+  explorerUrl: string | null;
+  outgoing: boolean;
+};
 
 interface Subscription {
   id: string;
@@ -268,6 +301,46 @@ export function DashboardPage() {
   // it — a merchant quiet for a month would otherwise see "No payments yet".
   const [chartPayments, setChartPayments] = useState<Payment[]>([]);
   const [recent, setRecent] = useState<Payment[]>([]);
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  /**
+   * Payments and payouts in one list, newest first, trimmed to five.
+   *
+   * Merged in the browser rather than by the API because the two are different
+   * resources with different shapes and lifetimes, and /portal/payments is a
+   * public-ish contract several screens read. A union type here costs one sort;
+   * a union endpoint would cost every caller of payments.
+   *
+   * Payments now link their hash too. They settle on Arc like a payout does,
+   * so an unlinked payment hash beside a linked withdrawal one would look
+   * broken rather than deliberate — and the explorer is the same.
+   */
+  const activity: ActivityRow[] = [
+    ...recent.map((p) => ({
+      key: `p_${p.id}`,
+      amount: p.amount,
+      kind: p.type,
+      status: p.status,
+      plan: p.planName,
+      createdAt: p.createdAt,
+      txHash: p.txHash,
+      explorerUrl: p.txHash ? p.explorerUrl : null,
+      outgoing: false,
+    })),
+    ...withdrawals.map((w) => ({
+      key: `w_${w.id}`,
+      amount: w.amount,
+      kind: "withdrawal",
+      status: w.state.toLowerCase(),
+      plan: null,
+      createdAt: w.createdAt,
+      txHash: w.txHash,
+      explorerUrl: w.explorerUrl,
+      outgoing: true,
+    })),
+  ]
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    .slice(0, 5);
+
   const [rangeKey, setRangeKey] = useState<RangeKey>("14d");
   const [subs, setSubs] = useState<Subscription[]>([]);
   const scope = useScope();
@@ -301,6 +374,27 @@ export function DashboardPage() {
       .then((r) => r.json())
       .then((json: { data?: Payment[] }) => { if (json.data) setChartPayments(json.data); })
       .catch(() => { /* the chart degrades to empty */ });
+
+    // Only a Circle-held payout wallet produces these; an external wallet
+    // moves its own USDC and we never see it, so the list is simply empty and
+    // the activity table is payments alone.
+    fetch(`${API_URL}/portal/withdrawals?limit=5`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((json: { data?: Array<Record<string, unknown>> }) => {
+        if (!json.data) return;
+        setWithdrawals(
+          json.data.map((w) => ({
+            id: String(w.id),
+            amount: Number(w.amount),
+            currency: String(w.currency ?? "USDC"),
+            state: String(w.state ?? ""),
+            txHash: (w.tx_hash as string | null) ?? null,
+            explorerUrl: (w.explorer_url as string | null) ?? null,
+            createdAt: String(w.created_at),
+          }))
+        );
+      })
+      .catch(() => { /* the activity list degrades to payments only */ });
 
     fetch(`${API_URL}/portal/payments?limit=5`, { credentials: "include" })
       .then((r) => r.json())
@@ -501,7 +595,7 @@ export function DashboardPage() {
           </button>
         }
       >
-        {recent.length === 0 ? (
+        {activity.length === 0 ? (
           <p className="m-0" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
             No payments yet — activity appears here once subscribers complete checkout.
           </p>
@@ -512,19 +606,34 @@ export function DashboardPage() {
                 <tr><th>Amount</th><th>Type</th><th>Status</th><th>Plan</th><th>Date</th><th>Tx</th></tr>
               </thead>
               <tbody>
-                {recent.map((p) => (
-                  <tr key={p.id}>
+                {activity.map((r) => (
+                  <tr key={r.key}>
+                    {/* A withdrawal is money LEAVING, so it is signed. Without
+                        the minus a payout sits in a column of receipts looking
+                        like one. */}
                     <td style={{ fontFamily: "var(--font-heading)", fontWeight: 700 }}>
-                      {(p.amount / 1_000_000).toFixed(2)}
+                      {r.outgoing ? "−" : ""}
+                      {(r.amount / 1_000_000).toFixed(2)}
                     </td>
-                    <td>{p.type}</td>
-                    <td><StatusTag status={p.status} /></td>
-                    <td>{p.planName ?? "—"}</td>
+                    <td>{r.kind}</td>
+                    <td><StatusTag status={r.status} /></td>
+                    <td>{r.plan ?? "—"}</td>
                     <td style={{ color: "var(--color-neutral-700)" }}>
-                      {new Date(p.createdAt).toLocaleDateString()}
+                      {new Date(r.createdAt).toLocaleDateString()}
                     </td>
                     <td style={{ color: "var(--color-neutral-700)" }}>
-                      <Mono>{p.txHash ? `${p.txHash.slice(0, 8)}…` : "—"}</Mono>
+                      {r.txHash && r.explorerUrl ? (
+                        <a
+                          href={r.explorerUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: "var(--color-accent)" }}
+                        >
+                          <Mono>{r.txHash.slice(0, 8)}…</Mono>
+                        </a>
+                      ) : (
+                        <Mono>{r.txHash ? `${r.txHash.slice(0, 8)}…` : "—"}</Mono>
+                      )}
                     </td>
                   </tr>
                 ))}

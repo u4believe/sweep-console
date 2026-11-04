@@ -4,6 +4,7 @@ import { createPublicKey, verify as cryptoVerify } from "crypto";
 import { prisma, withRetry } from "../lib/prisma";
 import { IS_PRODUCTION } from "../lib/env";
 import { getWebhookPublicKey, getCircleWalletBalances, circleBlockchain, usdcOnSettlementChain } from "../lib/circle";
+import { ids } from "../lib/ids";
 import { walletWrite } from "../lib/merchant-wallet";
 
 export const circleWebhooksRouter = Router();
@@ -26,7 +27,7 @@ async function getVerifyKey(keyId: string): Promise<ReturnType<typeof createPubl
   return key;
 }
 
-interface InboundNotification {
+interface TransferNotification {
   walletId: string;
   destinationAddress: string;
   amounts: string[];
@@ -40,7 +41,7 @@ interface WebhookPayload {
   subscriptionId?: string;
   notificationId: string;
   notificationType: string;
-  notification?: InboundNotification;
+  notification?: TransferNotification;
   timestamp: string;
   version: number;
 }
@@ -103,10 +104,29 @@ circleWebhooksRouter.post("/", (req, res) => {
       (n?.state === "CONFIRMED" || n?.state === "COMPLETE") &&
       n?.token?.symbol === "USDC";
     if (isInboundUsdc) await handleInboundDeposit(n!);
+
+    /**
+     * A payout LEAVING a Circle-held payout wallet.
+     *
+     * This is the only place the transaction hash of a withdrawal appears.
+     * POST /portal/wallet/circle/withdraw creates a Circle challenge and the
+     * browser executes it; that SDK callback reports an error or nothing, so
+     * neither side of our code learns the hash from the request path.
+     *
+     * Recorded on SENT as well as CONFIRMED/COMPLETE, because a creator
+     * watching the dashboard should see the payout the moment it is on its
+     * way, not a minute later — the state travels with it and the row is
+     * updated in place as Circle progresses it.
+     */
+    const isOutboundUsdc =
+      payload.notificationType === "transactions.outbound" &&
+      n?.operation === "OUTBOUND" &&
+      n?.token?.symbol === "USDC";
+    if (isOutboundUsdc) await handleOutboundWithdrawal(n!);
   })();
 });
 
-async function handleInboundDeposit(n: InboundNotification): Promise<void> {
+async function handleInboundDeposit(n: TransferNotification): Promise<void> {
   const { walletId, amounts, txHash, state } = n;
   console.log(
     `[circle-webhook] Inbound ${amounts[0] ?? "?"} USDC to wallet ${walletId} | state=${state} | tx=${txHash}`
@@ -175,5 +195,88 @@ async function handleInboundDeposit(n: InboundNotification): Promise<void> {
     console.log(`[circle-webhook] Merchant ${merchant.id} (${merchant.email}) balance updated to ${newBalance} USDC`);
   } catch (e) {
     console.error("[circle-webhook] Failed to process deposit:", e);
+  }
+}
+
+/**
+ * Record a payout out of a Circle payout wallet, so it can appear in the
+ * dashboard's recent activity with a link to the transaction.
+ *
+ * WHICH COLUMN MATCHED IS THE MODE. A merchant holds one Circle wallet per
+ * environment. Finding them by `circleWalletId` means this was the test
+ * wallet; by `liveCircleWalletId`, the live one. That is recorded on the row
+ * rather than re-derived later, because the explorer the hash is linked to
+ * depends on it and a row that cannot say which network it was on is a link
+ * nobody can trust.
+ *
+ * Keyed on txHash, which Circle repeats across the SENT -> CONFIRMED ->
+ * COMPLETE notifications for one transfer. So this upserts: the first
+ * notification creates the row, the rest advance its state. Without that, one
+ * withdrawal would appear three times.
+ */
+async function handleOutboundWithdrawal(n: TransferNotification): Promise<void> {
+  const { walletId, amounts, txHash, state, destinationAddress } = n;
+  console.log(
+    `[circle-webhook] Outbound ${amounts[0] ?? "?"} USDC from wallet ${walletId} | state=${state} | tx=${txHash}`
+  );
+  if (!txHash) {
+    // Circle sends an INITIATED notification before the transaction exists.
+    // Nothing to key on and nothing a creator could click, so it is skipped
+    // rather than stored as a row with a null hash that never fills in.
+    console.log(`[circle-webhook] outbound with no txHash yet (state=${state}) — skipped`);
+    return;
+  }
+
+  try {
+    const merchant = await withRetry(() =>
+      prisma.merchant.findFirst({
+        where: { OR: [{ circleWalletId: walletId }, { liveCircleWalletId: walletId }] },
+        select: { id: true, circleWalletId: true, liveCircleWalletId: true },
+      })
+    );
+    if (!merchant) {
+      console.warn(`[circle-webhook] No merchant found for Circle wallet ${walletId}`);
+      return;
+    }
+
+    // The test wallet unless it is demonstrably the live one. Erring towards
+    // test means a mislabelled row links to the testnet explorer, where the
+    // hash is simply absent — the other way round, a live payout would be
+    // linked to a testnet page and look like a lost payment.
+    const isTestMode = merchant.liveCircleWalletId !== walletId;
+
+    // Circle reports USDC in whole units ("12.5"); the column is micro-units.
+    const raw = amounts[0] ?? "0";
+    const micro = BigInt(Math.round(parseFloat(raw) * 1_000_000));
+    const settled = state === "CONFIRMED" || state === "COMPLETE";
+
+    await withRetry(() =>
+      prisma.walletWithdrawal.upsert({
+        where: { txHash },
+        create: {
+          withdrawalId: ids.withdrawal(),
+          merchantId: merchant.id,
+          amount: micro,
+          state,
+          destination: destinationAddress ?? null,
+          txHash,
+          circleWalletId: walletId,
+          isTestMode,
+          confirmedAt: settled ? new Date() : null,
+        },
+        // Only the state moves. The amount, destination and mode were settled
+        // by the first notification and a later one restating them differently
+        // would be Circle contradicting itself, not new information.
+        update: {
+          state,
+          ...(settled ? { confirmedAt: new Date() } : {}),
+        },
+      })
+    );
+    console.log(`[circle-webhook] withdrawal recorded tx=${txHash} state=${state} test=${isTestMode}`);
+  } catch (e) {
+    // A webhook that throws is retried by Circle; a withdrawal missing from
+    // the activity list is a display gap, not a lost payout.
+    console.error(`[circle-webhook] could not record withdrawal ${txHash}:`, e);
   }
 }

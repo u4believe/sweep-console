@@ -15,7 +15,7 @@
 import { prisma } from "../prisma";
 import { sendEmail, receiptEmailHtml, type ReceiptEmailData } from "../email";
 import { supportedSourceChains } from "../gateway/chains";
-import { explorerTxUrl } from "./explorer";
+import { explorerTxUrl } from "../explorer";
 
 /// Payment.type values that represent money moving FROM a subscriber TO a
 /// merchant. "refund" and "settlement" are not receipts to the subscriber.

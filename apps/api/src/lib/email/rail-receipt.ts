@@ -12,7 +12,7 @@
 import { prisma } from "../prisma";
 import { sendEmail, railChargeReceiptEmailHtml, type RailChargeReceiptData } from "../email";
 import { manageUrl } from "../email-shell";
-import { explorerTxUrl } from "./explorer";
+import { explorerTxUrl } from "../explorer";
 
 /// Display names for Charge.chain, which stores the gateway's own chain keys.
 const CHAIN_NAMES: Record<string, string> = {

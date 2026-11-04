@@ -21,6 +21,7 @@ export const ids = {
   // already calls these grants; the id says so too.
   grant: ()        => `grt_${randomHex(10)}`,
   charge: ()       => `chg_${randomHex(10)}`,
+  withdrawal: ()   => `wdr_${randomHex(10)}`,
   apiKey: (live: boolean) => `${live ? "live" : "test"}_${randomHex(24)}`,
 
   // Converts a platform subscription ID to a bytes32 for the smart contract

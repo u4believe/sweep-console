@@ -18,9 +18,11 @@
  * an override for a private or renamed explorer.
  *
  * One module because there were two copies of the same line, hosted and
- * rail, and two copies is how one gets fixed.
+ * rail, and two copies is how one gets fixed. It lived under lib/email while
+ * receipts were its only caller; GET /portal/withdrawals links a hash too, so
+ * it sits at lib/ now rather than making a portal route import from email/.
  */
-import { isMainnet } from "../gateway/chains";
+import { isMainnet } from "./gateway/chains";
 
 /**
  * Arc's Blockscout explorers, per network.

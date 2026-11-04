@@ -149,6 +149,9 @@ model Merchant {
   mandates         Mandate[]
   grants           RenewalDelegation[]
   charges          Charge[]
+  /// Payouts out of a Circle-held payout wallet. Recorded from Circle's own
+  /// outbound webhook, which is the only place the transaction hash appears.
+  withdrawals      WalletWithdrawal[]
   idempotencyKeys  IdempotencyKey[]
 
   @@map("merchants")
@@ -954,6 +957,50 @@ model Charge {
   @@index([mandateId])
   @@index([status])
   @@map("charges")
+}
+
+/// A payout out of a Circle-held payout wallet.
+///
+/// WHY THIS IS RECORDED FROM A WEBHOOK AND NOT FROM THE REQUEST.
+/// POST /portal/wallet/circle/withdraw does not move money. It creates a
+/// Circle *challenge* and hands the browser a userToken; the transfer is
+/// executed client-side through Circle's SDK, whose callback reports an error
+/// or nothing. Neither side of our code ever sees a transaction hash that
+/// way.
+///
+/// Circle's `transactions.outbound` webhook does carry it — txHash, amounts,
+/// state, walletId — and it is the only source that does. So a withdrawal
+/// appears here when Circle says it happened, not when a creator asked for
+/// it: an abandoned PIN prompt leaves no row, which is correct, because no
+/// money moved.
+///
+/// isTestMode comes from WHICH wallet column matched. A merchant holds one
+/// Circle wallet per environment — circleWalletId and liveCircleWalletId —
+/// so the column that found the merchant is the mode, and the mode is what
+/// picks the explorer the hash is linked to.
+model WalletWithdrawal {
+  id           String   @id @default(cuid())
+  withdrawalId String   @unique // "wdr_abc123"
+  merchantId   String
+  merchant     Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  amount      BigInt // USDC in smallest unit (6 decimals), as Circle reports it
+  currency    String  @default("USDC")
+  /// Circle's own state: SENT, CONFIRMED, COMPLETE, FAILED. Kept verbatim
+  /// rather than mapped, so a state Circle adds later is visible instead of
+  /// silently becoming "unknown".
+  state       String
+  destination String? // the address the creator sent to, when Circle reports it
+  txHash      String? @unique
+  /// The Circle wallet it left, so a merchant with both can be told apart.
+  circleWalletId String
+  isTestMode     Boolean
+
+  createdAt   DateTime @default(now())
+  confirmedAt DateTime?
+
+  @@index([merchantId, createdAt])
+  @@index([merchantId, isTestMode, createdAt])
 }
 
 // ─── IdempotencyKey ───────────────────────────────────────────────────────────
