@@ -1245,21 +1245,39 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                     <span>Network fee</span>
                     <span style={{ color: "var(--color-accent)" }}>Covered by Sweep Console</span>
                   </div>
+                  {/*
+                    THE LINE-HEIGHT MATTERS MORE THAN THE SIZE HERE. This row's
+                    height is set by the amount, and the amount is a <span>, so
+                    it inherited body's 1.55 — 37px of line box around a 24px
+                    number. Taking the size to 21px saves 4.6px; giving display
+                    type the 1.15 it should have had saves another 8.4px. Both,
+                    plus a point off the padding, is 15px.
+
+                    Still the largest thing in the card and still the last word
+                    before the button, which is what the row is for.
+                  */}
                   <div
                     className="flex items-baseline justify-between"
-                    style={{ padding: "9px 0", borderBottom: "1px solid var(--color-neutral-400)" }}
+                    style={{ padding: "8px 0", borderBottom: "1px solid var(--color-neutral-400)" }}
                   >
-                    <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 17 }}>
+                    <span
+                      style={{
+                        fontFamily: "var(--font-heading)",
+                        fontWeight: 700,
+                        fontSize: 15,
+                        lineHeight: 1.15,
+                      }}
+                    >
                       Due today
                     </span>
                     <span
                       style={{
                         fontFamily: "var(--font-heading)", fontWeight: 700,
-                        fontSize: 24, letterSpacing: "-0.03em",
+                        fontSize: 21, letterSpacing: "-0.03em", lineHeight: 1.15,
                       }}
                     >
                       {hasTrial ? "0.00" : formattedAmount}{" "}
-                      <span style={{ fontSize: 15, color: "var(--color-neutral-700)" }}>{plan.currency}</span>
+                      <span style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>{plan.currency}</span>
                     </span>
                   </div>
                 </div>
