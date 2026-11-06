@@ -160,7 +160,8 @@ export async function grantRenewalMandates(
       // Undefined on a deployment that has not split settlement from the
       // delegate yet, which leaves the grant exactly as unconstrained as before
       // rather than pinning the destination to the key that can already spend it.
-      payee: t.payee,
+      // Two entries under direct settlement: the creator and the treasury.
+      payees: t.payees,
       periodAmountMicro: BigInt(t.period_amount),
       periodDurationSec: t.period_duration,
       startTimeSec: now,

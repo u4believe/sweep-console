@@ -7,7 +7,7 @@ import {
   injectedWallet,
 } from "@rainbow-me/rainbowkit/wallets";
 import {
-  base, arbitrum, optimism,
+  base, arbitrum, optimism, monad,
   baseSepolia, arbitrumSepolia, optimismSepolia,
 } from "viem/chains";
 import { arcMainnet, arcTestnet } from "./chain/config";
@@ -43,7 +43,9 @@ export const wagmiConfig = getDefaultConfig({
    * Base Sepolia while paying on Base costs nothing.
    */
   chains: [
-    arcMainnet, base, arbitrum, optimism,
+    // Monad is mainnet-only — see MAINNET_CHAINS in the API's gateway/chains.ts.
+    // There is no sandbox counterpart to list beside the Sepolias below.
+    arcMainnet, base, arbitrum, optimism, monad,
     arcTestnet, baseSepolia, arbitrumSepolia, optimismSepolia,
   ],
 });

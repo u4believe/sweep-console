@@ -200,15 +200,51 @@ export function periodicTransferExecution(
   token: Address,
   recipient: Address,
   amount: bigint
-): { executionCallData: Hex; mode: Hex } {
-  const call = transferCall(token, recipient, amount);
+): { executionCallDatas: Hex[]; mode: Hex } {
   return {
-    executionCallData: encodePacked(
-      ["address", "uint256", "bytes"],
-      [call.target, call.value, call.callData]
-    ),
+    executionCallDatas: [packCall(transferCall(token, recipient, amount))],
     mode: SINGLE_DEFAULT_MODE,
   };
+}
+
+/**
+ * A batch item that settles a period in two: fee to the treasury, remainder
+ * to the creator.
+ *
+ * Both calldatas go into ONE redeemDelegations for this item, so they revert
+ * together — see redeemSplitTransfer, which does the same for a lone
+ * redemption. Across items a batch stays independent, which is what you want:
+ * one subscriber's spent period should not block twenty others.
+ *
+ * Throws rather than returning a bad split, because the caller is mid-batch
+ * and a silently wrong share would be indistinguishable from a correct one.
+ */
+export function splitTransferExecution(
+  token: Address,
+  creator: Address,
+  treasury: Address,
+  periodAmount: bigint,
+  fee: bigint
+): { executionCallDatas: Hex[]; mode: Hex } {
+  if (fee < 0n) throw new Error("fee cannot be negative");
+  if (fee > periodAmount) {
+    throw new Error(`fee ${fee} exceeds the period amount ${periodAmount}`);
+  }
+  const creatorShare = periodAmount - fee;
+  if (creatorShare <= 0n) {
+    throw new Error(`the fee would leave the creator nothing from ${periodAmount}`);
+  }
+  return {
+    executionCallDatas: [
+      ...(fee > 0n ? [packCall(transferCall(token, treasury, fee))] : []),
+      packCall(transferCall(token, creator, creatorShare)),
+    ],
+    mode: SINGLE_DEFAULT_MODE,
+  };
+}
+
+function packCall(call: { target: Address; value: bigint; callData: Hex }): Hex {
+  return encodePacked(["address", "uint256", "bytes"], [call.target, call.value, call.callData]);
 }
 
 function transferCall(token: Address, recipient: Address, amount: bigint) {
@@ -225,17 +261,32 @@ function transferCall(token: Address, recipient: Address, amount: bigint) {
 
 /// Shared single-call redeem: execute one call FROM the subscriber's account,
 /// bounded by the periodic enforcer in the granted context.
-async function redeemSingle(
+/**
+ * Redeem one grant as one or more calls, in ONE redeemDelegations.
+ *
+ * Several calls means several transfers that stand or fall together: the
+ * DelegationManager runs every caveat for every entry and reverts the lot if
+ * any one is refused. That is what a split settlement needs — fee to the
+ * treasury and the remainder to the creator must not be able to half-happen,
+ * and batching two UserOperations would allow exactly that, because the
+ * EntryPoint charges and reports each operation on its own.
+ *
+ * The same context is repeated once per call. The period enforcer caps the
+ * SUM across them, so two transfers totalling one period pass where three
+ * totalling two periods would not.
+ */
+async function redeemCalls(
   chainId: number,
   delegationManager: Address,
   context: Hex,
-  call: { target: Address; value: bigint; callData: Hex },
+  calls: { target: Address; value: bigint; callData: Hex }[],
   delegate?: Address
 ): Promise<RedeemResult> {
-  const executionCallData = encodePacked(
-    ["address", "uint256", "bytes"],
-    [call.target, call.value, call.callData]
-  );
+  if (calls.length === 0) throw new Error("redeemCalls called with no calls");
+  const executionCallDatas = calls.map(packCall);
+  const contexts = calls.map(() => context);
+  const modes = calls.map(() => SINGLE_DEFAULT_MODE);
+  const executionCallData = executionCallDatas[0]!;
 
   /**
    * A grant naming one of our MSCAs is redeemed by submitting a UserOperation
@@ -253,9 +304,11 @@ async function redeemSingle(
       const { txHash, blockNumber } = await redeemViaSelfBundler({
         chainId,
         delegationManager,
-        context,
-        executionCallData,
-        mode: SINGLE_DEFAULT_MODE,
+        redemptions: executionCallDatas.map((d) => ({
+          context,
+          executionCallData: d,
+          mode: SINGLE_DEFAULT_MODE,
+        })),
         delegate,
         owner: held.owner,
       });
@@ -272,7 +325,7 @@ async function redeemSingle(
       address: delegationManager,
       abi: DELEGATION_MANAGER_ABI,
       functionName: "redeemDelegations",
-      args: [[context], [SINGLE_DEFAULT_MODE], [executionCallData]],
+      args: [contexts, modes, executionCallDatas],
       account,
     })
     .catch((e) => {
@@ -372,13 +425,58 @@ export interface PeriodicTransferInput {
 
 /// Redeem one period as `transfer(recipient, amount)` from the subscriber.
 export async function redeemPeriodicTransfer(input: PeriodicTransferInput): Promise<RedeemResult> {
-  return redeemSingle(
+  return redeemCalls(
     input.chainId,
     input.delegationManager,
     input.context,
-    transferCall(input.token, input.recipient, input.amount),
+    [transferCall(input.token, input.recipient, input.amount)],
     input.delegate
   );
+}
+
+export interface SplitTransferInput extends Omit<PeriodicTransferInput, "recipient" | "amount"> {
+  /** The creator's payout wallet — pinned as a payee when the grant was signed. */
+  creator: Address;
+  /** The platform treasury — the other pinned payee. */
+  treasury: Address;
+  /** One full period. `fee` comes out of it; the creator gets the remainder. */
+  periodAmount: bigint;
+  /** The platform's cut of `periodAmount`. Zero is allowed and skips its call. */
+  fee: bigint;
+}
+
+/**
+ * Settle one period wallet-to-wallet: fee to the treasury, remainder to the
+ * creator, in ONE redeemDelegations.
+ *
+ * THE FEE GOES FIRST. Both transfers are in a single call and revert
+ * together, so the order cannot decide who loses out — but the order is the
+ * one the plan asked for, and it reads correctly in a block explorer: the
+ * platform takes its cut out of the period, then the creator is paid what is
+ * left.
+ *
+ * NOTHING REACHES THE PLATFORM'S RELAYER. The grant pins both destinations
+ * (see lib/chain/direct-settlement.ts), so this call can only pay those two
+ * addresses — and the relayer, which submits it, is not one of them. That is
+ * the difference between this and the path it replaces, where the period was
+ * transferred to the relayer and bridged.
+ */
+export async function redeemSplitTransfer(input: SplitTransferInput): Promise<RedeemResult> {
+  if (input.fee < 0n) throw new Error("fee cannot be negative");
+  if (input.fee > input.periodAmount) {
+    throw new Error(`fee ${input.fee} exceeds the period amount ${input.periodAmount}`);
+  }
+  const creatorShare = input.periodAmount - input.fee;
+  if (creatorShare <= 0n) {
+    throw new Error(
+      `the fee would leave the creator nothing from a period of ${input.periodAmount}`
+    );
+  }
+  const calls = [
+    ...(input.fee > 0n ? [transferCall(input.token, input.treasury, input.fee)] : []),
+    transferCall(input.token, input.creator, creatorShare),
+  ];
+  return redeemCalls(input.chainId, input.delegationManager, input.context, calls, input.delegate);
 }
 
 /// Diagnostic: SIMULATE the periodic transfer redeem — confirms the granted 7715

@@ -33,13 +33,14 @@ import {
   getPublicClient,
   getUsdcAddress,
 } from "../chain/contract";
-import { assertAccountDeployed, redeemPeriodicTransfer, relayerBridgeToArc, rpcUrlForChain } from "../chain/delegation";
+import { assertAccountDeployed, redeemPeriodicTransfer, redeemSplitTransfer, relayerBridgeToArc, rpcUrlForChain } from "../chain/delegation";
 import { settlementTargetFor } from "../chain/settlement-target";
 import { walletFor } from "../merchant-wallet";
 import { settleViaUserOp } from "../chain/settlement-userop";
 import { assertCctpContract, fetchAttestation, getTokenMessenger, receiveOnArc } from "../gateway/cctp";
 import { getSettlementAddress } from "../chain/signers";
 import { payFeeToTreasury, treasuryAddress } from "../chain/fee-payout";
+import { directSettlementEnabled, treasuryPayee } from "../chain/direct-settlement";
 import { ARC_DOMAIN, chainKeyForId, getSourceChain } from "../gateway/chains";
 import { selectPaymentChain } from "../gateway/selector";
 
@@ -238,9 +239,68 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
     // AllowedCalldataEnforcer:invalid-calldata — which is what this path did
     // after the split moved the other two redemption sites and left this one
     // behind. Grants without a payee accept either, so both generations work.
-    const settlementTarget = settlementTargetFor(mandate.chainId, mandate.context as Hex);
-
     assertAccountDeployed(mandate);
+
+    /**
+     * DIRECT SETTLEMENT: the first payment lands on the payer's own chain.
+     *
+     * The grant pins the creator's wallet and the treasury, so one
+     * redeemDelegations pays both and the checkout is complete. Everything
+     * below this branch — the burn, the attestation wait, the mint on Arc,
+     * the separate fee remittance — exists only to move money the platform
+     * had to hold first. Under direct settlement it never holds it.
+     */
+    if (directSettlementEnabled()) {
+      await setSweepStatus(sweepDbId, "depositing");
+      const settled = await redeemSplitTransfer({
+        chainId: mandate.chainId,
+        delegationManager: mandate.delegationManager as Address,
+        context: mandate.context as Hex,
+        delegate: mandate.delegateAddress as Address,
+        token: source.usdc,
+        creator: payout as Address,
+        treasury: treasuryPayee(),
+        periodAmount: amount,
+        fee,
+      });
+
+      // The grant's period is spent. The enforcer knows; the database did not,
+      // and the renewal pass reads this.
+      await prisma.renewalDelegation.update({
+        where: { id: mandate.id },
+        data: { lastRedeemedAt: new Date(), lastRedeemTx: settled.txHash },
+      });
+
+      await completeCheckoutSession({
+        session,
+        walletAddress: subscriber,
+        activationMethod: "cctp",
+        email: sweep.subscriberEmail,
+        customerDbId: sweep.customerId,
+        // The settlement itself is the receipt — there is no mint to cite.
+        txHash: settled.txHash,
+        platformSettled: true,
+        sourceChain: chosenKey,
+      });
+
+      await withRetry(() =>
+        prisma.sweep.update({
+          where: { id: sweepDbId },
+          data: {
+            status: "complete",
+            activationTxHash: settled.txHash,
+            sourceChain: chosenKey,
+            error: null,
+          },
+        })
+      );
+      console.log(
+        `[checkout/cctp] ${sweep.sweepId} settled direct on ${chosenKey} — tx ${settled.txHash}`
+      );
+      return;
+    }
+
+    const settlementTarget = settlementTargetFor(mandate.chainId, mandate.context as Hex);
 
     await setSweepStatus(sweepDbId, "depositing");
     await redeemPeriodicTransfer({

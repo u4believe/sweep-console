@@ -67,6 +67,20 @@ const base = defineChain({
   rpcUrls: { default: { http: ["https://mainnet.base.org"] } },
 });
 
+/**
+ * Monad mainnet. No testnet counterpart on purpose — see MAINNET_CHAINS.
+ *
+ * Verified against the chain itself rather than taken from a doc page:
+ * rpc.monad.xyz reports chain id 143, and the USDC below answers name
+ * "USDC", symbol "USDC", decimals 6.
+ */
+const monad = defineChain({
+  id: 143,
+  name: "Monad",
+  nativeCurrency: { name: "Monad", symbol: "MON", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.monad.xyz"] } },
+});
+
 /// CCTP V2 domain ID for Arc (the destination domain of every bridge). Arc is
 /// live on both networks and keeps domain 26 on each, so this needs no branch.
 export const ARC_DOMAIN = 26;
@@ -127,6 +141,43 @@ const MAINNET_CHAINS: SourceChain[] = [
     domain: 6,
     chain: base,
     usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  },
+  /**
+   * MAINNET ONLY, AND NOT BY OVERSIGHT.
+   *
+   * Every other key appears in both tables, so a developer can exercise a
+   * chain in sandbox before taking it live. Monad cannot be exercised that
+   * way: it is here because MetaMask's smart-account upgrade and advanced
+   * permissions support Monad on mainnet, and sandbox has no equivalent to
+   * point at. getSourceChain("monad") therefore throws in test mode, which is
+   * the honest answer rather than a silent fallback to another chain.
+   *
+   * Direct settlement is what makes this additive at all. The old path
+   * required a CCTP route from here to Arc; this one pays the creator on the
+   * chain the payer used, so a new chain needs USDC, an ERC-7710 delegation
+   * and nothing else. The domain below is recorded for completeness and is
+   * unused while DIRECT_SETTLEMENT_ENABLED is on.
+   *
+   * BEING IN THIS TABLE DOES NOT OFFER IT. supportedSourceChains() filters by
+   * SUPPORTED_SOURCE_CHAINS, whose default deliberately omits monad, so a
+   * deployment has to ask:
+   *
+   *   SUPPORTED_SOURCE_CHAINS=arbitrum,base,optimism,monad
+   *   DELEGATION_RPC_143=https://rpc.monad.xyz
+   *
+   * Without the RPC a redeem here throws from rpcUrlForChain. The delegate
+   * MSCA derives to the same address on Monad as elsewhere (probe it with
+   * scripts/probe-msca-address.ts) but is NOT deployed there yet; the first
+   * UserOperation carries its initCode, so it self-deploys — which costs more
+   * verification gas than a steady-state redeem, so fund the gas payer before
+   * the first charge rather than after it.
+   */
+  {
+    key: "monad",
+    name: "Monad",
+    domain: 15,
+    chain: monad,
+    usdc: "0x754704Bc059F8C67012fEd69BC8A327a5aafb603",
   },
 ];
 

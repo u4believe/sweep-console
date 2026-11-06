@@ -95,6 +95,34 @@ export function getRelayerAccount(mode: RelayerMode = "hosted"): LocalAccount {
     : accountFor(platformKey(), "PLATFORM_PRIVATE_KEY");
 }
 
+/**
+ * The account that SUBMITS transactions and pays their gas, when that is not
+ * the key being protected.
+ *
+ * WHY THIS IS SEPARATE FROM THE OWNER. A self-bundled redeem needs two
+ * different things from two different places: a SIGNATURE over the
+ * UserOperation, which only the MSCA's owner can give, and NATIVE TOKEN to
+ * send the transaction and seed the EntryPoint deposit. Nothing requires them
+ * to be the same account — handleOps is permissionless and depositTo is
+ * payable by anyone — and keeping them together forces the owner key to hold
+ * a balance on every chain.
+ *
+ * That matters most when the owner is a KMS key. A KMS key that must be
+ * topped up is an operational liability on every chain it signs for; one that
+ * only ever signs is a key, and nothing else. Funding moves to an ordinary
+ * EOA that holds no user funds and can be replaced at will, because no grant
+ * names it — grants name the DELEGATE, and the delegate is the MSCA.
+ *
+ * Returns null when unconfigured, and the caller then submits from the owner
+ * exactly as it did before this existed.
+ */
+export function getGasRelayerAccount(): LocalAccount | null {
+  const kms = kmsSignerFromEnv("gas");
+  if (kms) return toKmsAccount(kms);
+  const pk = process.env.GAS_RELAYER_PRIVATE_KEY;
+  return pk ? accountFor(pk, "GAS_RELAYER_PRIVATE_KEY") : null;
+}
+
 /// The address checkout shows the subscriber, so the grant names the right delegate.
 export function getRelayerAddress(mode: RelayerMode = "hosted"): Address {
   return getRelayerAccount(mode).address;

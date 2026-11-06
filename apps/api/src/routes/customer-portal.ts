@@ -23,6 +23,8 @@ import { supportedSourceChains, chainKeyForId } from "../lib/gateway/chains";
 import { getDelegateAddress, decodePeriodTransferTerms, delegationIdentity, mandateCovers } from "../lib/chain/delegation";
 import { settlementIsSeparate } from "../lib/chain/signers";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
+import { directSettlementEnabled, settlementPayees } from "../lib/chain/direct-settlement";
+import { WALLET_SELECT, walletFor } from "../lib/merchant-wallet";
 
 export const customerPortalRouter = Router();
 
@@ -343,11 +345,24 @@ customerPortalRouter.post("/subscriptions/:id/grant-plan", async (req, res) => {
     const interval = sub.interval ?? sub.plan.interval;
     const periodDuration = INTERVAL_SECONDS[interval] ?? INTERVAL_SECONDS.monthly;
     const delegate = getDelegateAddress();
-  // Only pin a payee when settlement is genuinely a different key. Pinning it to
-  // an address the delegate already controls constrains nothing — a thief redeems
-  // into it and spends from it with the same key — and would leave a caveat in the
-  // signed context implying a protection that is not there.
-  const payee = settlementIsSeparate() ? settlementPayeeAddress() : undefined;
+    /**
+     * WHO A REDEMPTION MAY PAY.
+     *
+     * Direct settlement pins the creator's wallet and the treasury, so a
+     * re-grant from the portal is constrained exactly as the original
+     * checkout grant was. Otherwise the legacy pin: settlement, and only when
+     * it is genuinely a different key — pinning an address the delegate
+     * already controls constrains nothing.
+     */
+    let payees: string[] | undefined;
+    if (directSettlementEnabled()) {
+      const resolved = settlementPayees(walletFor(sub.merchant, sub.isTestMode));
+      if (!resolved.ok) return err(res, resolved.reason, 409, "payout_wallet_unavailable");
+      payees = resolved.payees;
+    } else {
+      const legacy = settlementIsSeparate() ? settlementPayeeAddress() : undefined;
+      payees = legacy ? [legacy] : undefined;
+    }
 
     // Every supported source chain, regardless of current USDC balance — see
     // the equivalent checkout-side grant-plan in routes/delegation.ts.
@@ -359,7 +374,7 @@ customerPortalRouter.post("/subscriptions/:id/grant-plan", async (req, res) => {
       period_amount: amount.toString(),
       period_duration: periodDuration,
       delegate,
-      payee,
+      payees,
     }));
 
     // Chains this subscription is already covered on. The checkout side has done
@@ -555,6 +570,10 @@ customerPortalRouter.post("/mandates/:id/grant-plan", async (req, res) => {
     select: {
       id: true, mandateId: true, chains: true, maxAmount: true, interval: true,
       periodDuration: true, status: true, expiresAt: true, walletAddress: true,
+      // Direct settlement pins the merchant's payout wallet as a payee, so a
+      // chain added later must pin the same one the original grant did.
+      isTestMode: true,
+      merchant: { select: { ...WALLET_SELECT } },
     },
   });
   if (!m) return err(res, "Authorization not found", 404, "not_found");
@@ -578,7 +597,21 @@ customerPortalRouter.post("/mandates/:id/grant-plan", async (req, res) => {
 
   try {
     const delegate = getDelegateAddress();
-    const payee = settlementIsSeparate() ? settlementPayeeAddress() : undefined;
+    /**
+     * The SAME payees the mandate's existing grants carry. A chain added
+     * later is part of one authorization, and a grant on the new chain
+     * pinning a different destination than the others would be a quietly
+     * different promise from the one the payer already made.
+     */
+    let payees: string[] | undefined;
+    if (directSettlementEnabled()) {
+      const resolved = settlementPayees(walletFor(m.merchant, m.isTestMode));
+      if (!resolved.ok) return err(res, resolved.reason, 409, "payout_wallet_unavailable");
+      payees = resolved.payees;
+    } else {
+      const legacy = settlementIsSeparate() ? settlementPayeeAddress() : undefined;
+      payees = legacy ? [legacy] : undefined;
+    }
 
     const granted = await prisma.renewalDelegation.findMany({
       where: { sessionId: m.mandateId, mode: "external", status: "active" },
@@ -601,7 +634,7 @@ customerPortalRouter.post("/mandates/:id/grant-plan", async (req, res) => {
         period_amount: m.maxAmount.toString(),
         period_duration: m.periodDuration,
         delegate,
-        payee,
+        payees,
       }));
 
     return ok(res, { targets, granted_chain_ids: grantedChainIds });

@@ -95,9 +95,19 @@ async function main(): Promise<void> {
       return undefined;
     }
   };
+  /**
+   * With a gas relayer configured it is the RELAYER that needs native token,
+   * not the owner key — the owner only signs. Checking the owner's balance
+   * then reports a problem that does not exist and misses the one that does.
+   */
+  const gasRelayer = getGasRelayerAccount();
+  const payerFor = (mode: "hosted" | "external") => gasRelayer?.address ?? ownerOf(mode);
+  if (gasRelayer) {
+    console.log(`gas relayer ${gasRelayer.address} pays for every redeem; owner keys only sign.\n`);
+  }
   const delegates = [
-    ["renewal", process.env.RENEWAL_DELEGATE_MSCA_ADDRESS, ownerOf("hosted")],
-    ["external", process.env.EXTERNAL_RELAYER_MSCA_ADDRESS, ownerOf("external")],
+    ["renewal", process.env.RENEWAL_DELEGATE_MSCA_ADDRESS, payerFor("hosted")],
+    ["external", process.env.EXTERNAL_RELAYER_MSCA_ADDRESS, payerFor("external")],
   ] as const;
 
   if (!settlement) {

@@ -33,6 +33,7 @@ import { chainKeyForId, getSourceChain } from "../lib/gateway/chains";
 import {
   assertAccountDeployed,
   redeemPeriodicTransfer,
+  redeemSplitTransfer,
   decodePeriodTransferTerms,
   isDelegationDisabled,
 } from "../lib/chain/delegation";
@@ -44,6 +45,7 @@ import { payFeeToTreasury } from "../lib/chain/fee-payout";
 import { fireWebhook } from "../lib/webhooks/delivery";
 import { sendRailChargeReceipt } from "../lib/email/rail-receipt";
 import { chargeFailureReason } from "./charge-failure";
+import { directSettlementEnabled, settlementPayees, treasuryPayee } from "../lib/chain/direct-settlement";
 
 
 /// Why a charge could not be attempted. These map onto the documented API codes,
@@ -268,17 +270,26 @@ async function recordChargeSettled(
   // whose funds reached the merchant is succeeded either way — the alternative is
   // reporting an arrived payment as pending forever.
   mintTxHash: Hex | null,
-  bridgeId: string
+  /**
+   * Null under direct settlement: there is no bridge, because the funds never
+   * left the chain the payer paid on. The settlement tx is the charge's tx.
+   */
+  bridgeId: string | null
 ) {
   await prisma.$transaction([
     prisma.charge.update({
       where: { id: c.id },
       data: { status: "succeeded", txHash: mintTxHash, chain: chainKey, settledAt: new Date() },
     }),
-    prisma.bridgeTransfer.update({
-      where: { id: bridgeId },
-      data: { status: "minted", mintTxHash, mintedAt: new Date() },
-    }),
+    // No bridge row to close under direct settlement: nothing was bridged.
+    ...(bridgeId
+      ? [
+          prisma.bridgeTransfer.update({
+            where: { id: bridgeId },
+            data: { status: "minted", mintTxHash, mintedAt: new Date() },
+          }),
+        ]
+      : []),
   ]);
 
   await fireWebhook(c.merchantId, c.externalRef ?? "", c.merchant.merchantId, "charge.succeeded", {
@@ -356,6 +367,43 @@ export async function executeCharge(chargeDbId: string): Promise<void> {
   try {
     // Before anything moves: this path cannot deploy a counterfactual account.
     assertAccountDeployed(plan.grant);
+
+    /**
+     * DIRECT SETTLEMENT: one call, two transfers, nothing in between.
+     *
+     * The grant pins the creator's wallet and the treasury as its only
+     * payees, so this pays both out of the subscriber's wallet on the chain
+     * they chose and the charge is finished. No relayer balance, no CCTP
+     * burn, no BridgeTransfer row, no resume pass, and nothing that can be
+     * left stranded if a mint fails — because there is no mint.
+     */
+    if (directSettlementEnabled()) {
+      const wallet = walletFor(c.merchant, c.isTestMode);
+      const payees = settlementPayees(wallet);
+      if (!payees.ok) throw new Error(payees.reason);
+      const settled = await redeemSplitTransfer({
+        chainId: plan.grant.chainId,
+        delegationManager: plan.grant.delegationManager as Address,
+        context: plan.grant.context as Hex,
+        delegate: plan.grant.delegateAddress as Address,
+        token: source.usdc,
+        creator: wallet.address as Address,
+        treasury: treasuryPayee(),
+        periodAmount: c.amount,
+        fee,
+      });
+      await prisma.renewalDelegation.update({
+        where: { id: plan.grant.id },
+        data: { lastRedeemedAt: new Date() },
+      });
+      // Settled on the source chain, so that is the chain the charge cites —
+      // not Arc, which is no longer in the path.
+      await recordChargeSettled(c, plan.chainKey, settled.txHash as Hex, null);
+      console.log(
+        `[charge] ${c.chargeId} settled direct on ${plan.chainKey} (tx ${settled.txHash})`
+      );
+      return;
+    }
 
     // Funds move here. Everything after this point resumes; nothing re-pulls.
     await redeemPeriodicTransfer({

@@ -19,17 +19,20 @@ export interface PeriodicErc20MandateInput {
   token: Address;
   delegate: Address;
   /**
-   * The only address this permission may transfer to.
+   * Every address this permission may transfer to, and no others.
    *
    * The periodic permission's own data bounds the token, the amount and the
    * period — and says nothing about the destination, so a delegate key on its
-   * own can redeem to any address it chooses. `payee` is the one ERC-7715 control
+   * own can redeem to any address it chooses. This is the one ERC-7715 control
    * that closes that: the kit maps it to an AllowedCalldataEnforcer caveat
    * pinning the recipient bytes of the transfer.
    *
-   * Omit and the grant is unconstrained in exactly the old way.
+   * A LIST, because ERC-7715 takes one. Direct settlement names two — the
+   * creator and the treasury — so a settlement's two halves come from one
+   * permission and can share one redeemDelegations call. The legacy path
+   * names one. Omit and the grant is unconstrained in exactly the old way.
    */
-  payee?: Address;
+  payees?: Address[];
   periodAmountMicro: bigint;
   periodDurationSec: number;
   startTimeSec: number;
@@ -49,11 +52,13 @@ export function buildPeriodicPermission(
     chainId: input.chainId,
     to: input.delegate,
     expiry: input.expirySec,
-    // Only the delegate may redeem, and only settlement may be paid. Together
-    // these mean a stolen delegate key can move a subscriber's USDC into an
-    // account it cannot spend from, and nowhere else.
+    // Only the delegate may redeem, and only the named payees may be paid.
+    // Under direct settlement those are the creator and the treasury, so a
+    // stolen delegate key can move a subscriber's USDC to the merchant they
+    // subscribed to or to our fee address, and nowhere else — it cannot pay
+    // itself.
     redeemer: [input.delegate],
-    ...(input.payee ? { payee: [input.payee] } : {}),
+    ...(input.payees?.length ? { payee: input.payees } : {}),
     permission: {
       type: "erc20-token-periodic",
       isAdjustmentAllowed: false,

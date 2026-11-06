@@ -77,6 +77,19 @@ async function mintAndSettle(bridge: BridgeTransfer, settle: SettleBridge): Prom
 ///
 /// Safe to call on a row in any non-terminal state, and safe to call repeatedly —
 /// that is exactly what the resume passes do.
+/**
+ * UNDER DIRECT SETTLEMENT THIS IS THE DRAIN, NOT THE PATH.
+ *
+ * Neither caller creates a BridgeTransfer any more when the flag is on, so
+ * everything this function sees is a row written BEFORE the migration, with
+ * real money already burned on a source chain and owed a mint on Arc. It
+ * therefore keeps working exactly as it did, pinned settlement address and
+ * all — turning the flag on must not strand funds that are mid-flight.
+ *
+ * Which is also why Arc cannot be switched off the moment the flag goes on:
+ * these rows have to reach zero first. `select count(*) from "BridgeTransfer"
+ * where status <> 'minted'` is the number to watch.
+ */
 export async function advanceBridge(bridge: BridgeTransfer, settle: SettleBridge): Promise<BridgeResult> {
   let b = bridge;
   if (b.status === "pulled") {

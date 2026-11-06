@@ -24,6 +24,8 @@ import {
 } from "../lib/checkout/wallet-guard";
 import { resolveTier } from "../lib/checkout/tiers";
 import { ids } from "../lib/ids";
+import { directSettlementEnabled, settlementPayees } from "../lib/chain/direct-settlement";
+import { WALLET_SELECT, walletFor } from "../lib/merchant-wallet";
 
 export const delegationRouter = Router();
 
@@ -47,7 +49,12 @@ delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, re
   try {
     const session = await prisma.checkoutSession.findUnique({
       where: { sessionId: req.params.session_id as string },
-      include: { plan: true },
+      include: {
+        plan: true,
+        // Under direct settlement the merchant's payout wallet IS the payee
+        // pinned into the subscriber's permission.
+        merchant: { select: { merchantId: true, ...WALLET_SELECT } },
+      },
     });
     if (!session) return err(res, "Checkout session not found", 404);
 
@@ -56,11 +63,25 @@ delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, re
     const amount = tier.amount;
     const periodDuration = INTERVAL_SECONDS[tier.interval] ?? INTERVAL_SECONDS.monthly;
     const delegate = getDelegateAddress();
-  // Only pin a payee when settlement is genuinely a different key. Pinning it to
-  // an address the delegate already controls constrains nothing — a thief redeems
-  // into it and spends from it with the same key — and would leave a caveat in the
-  // signed context implying a protection that is not there.
-  const payee = settlementIsSeparate() ? settlementPayeeAddress() : undefined;
+    /**
+     * WHO A REDEMPTION MAY PAY.
+     *
+     * Direct settlement pins the creator's wallet and the treasury, so the
+     * permission can only pay the merchant this subscriber is subscribing to
+     * and our fee address. Otherwise the legacy pin: settlement, and only
+     * when it is genuinely a different key — pinning an address the delegate
+     * already controls constrains nothing, and would leave a caveat in the
+     * signed context implying a protection that is not there.
+     */
+    let payees: string[] | undefined;
+    if (directSettlementEnabled()) {
+      const resolved = settlementPayees(walletFor(session.merchant, session.isTestMode));
+      if (!resolved.ok) return err(res, resolved.reason, 409, "payout_wallet_unavailable");
+      payees = resolved.payees;
+    } else {
+      const legacy = settlementIsSeparate() ? settlementPayeeAddress() : undefined;
+      payees = legacy ? [legacy] : undefined;
+    }
 
     const target = (chainId: number, key: string, name: string, token: string) => ({
       chain_id: chainId,
@@ -70,7 +91,7 @@ delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, re
       period_amount: amount.toString(),
       period_duration: periodDuration,
       delegate,
-      payee,
+      payees,
     });
 
     // Every supported source chain, regardless of current USDC balance — the

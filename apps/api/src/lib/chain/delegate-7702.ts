@@ -167,7 +167,16 @@ export interface Redeem7702Item {
   delegationManager: Address;
   context: Hex;
   mode: Hex;
-  executionCallData: Hex;
+  /**
+   * The calls this item redeems, in ONE redeemDelegations.
+   *
+   * A list because direct settlement splits a period in two — fee to the
+   * treasury, remainder to the creator — and those must stand or fall
+   * together. They share one contract call, so any enforcer refusing either
+   * reverts both. Items remain independent of each other; it is only the
+   * calls WITHIN an item that are atomic.
+   */
+  executionCallDatas: Hex[];
   /** Caller's own id for this item, echoed back in the results map. */
   ref: string;
 }
@@ -222,7 +231,11 @@ export async function redeemBatchVia7702(input: {
     callData: encodeFunctionData({
       abi: REDEEM_DELEGATIONS_ABI,
       functionName: "redeemDelegations",
-      args: [[i.context], [i.mode], [i.executionCallData]],
+      args: [
+        i.executionCallDatas.map(() => i.context),
+        i.executionCallDatas.map(() => i.mode),
+        i.executionCallDatas,
+      ],
     }),
   }));
 

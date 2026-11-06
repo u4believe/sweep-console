@@ -73,7 +73,7 @@ export function OptimismLogo({ className = "h-8 w-8" }: { className?: string }) 
   );
 }
 
-export type ChainKey = "base" | "arbitrum" | "optimism";
+export type ChainKey = "base" | "arbitrum" | "optimism" | "monad";
 
 /**
  * The hand-drawn marks above are kept as exports — other screens still import
@@ -87,6 +87,8 @@ const LABELS: Record<ChainKey, string> = {
   base: "Base",
   arbitrum: "Arbitrum",
   optimism: "Optimism",
+  // Mainnet only; sandbox never offers it. See MAINNET_CHAINS in the API.
+  monad: "Monad",
 };
 
 export function ChainBadge({

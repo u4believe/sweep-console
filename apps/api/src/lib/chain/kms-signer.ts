@@ -263,7 +263,9 @@ export const digestOf = toHex;
 /// Logged once per role, not per signature.
 const announced = new Set<string>();
 
-export function kmsSignerFromEnv(role: "hosted" | "external" | "settlement"): RemoteSigner | null {
+export function kmsSignerFromEnv(
+  role: "hosted" | "external" | "settlement" | "gas"
+): RemoteSigner | null {
   const provider = process.env.KMS_PROVIDER;
   if (!provider) return null;
 

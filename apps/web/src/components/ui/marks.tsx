@@ -19,14 +19,25 @@
 
 const BASE = "/design";
 
-export type ChainKey = "base" | "arbitrum" | "optimism" | "arc";
+export type ChainKey = "base" | "arbitrum" | "optimism" | "arc" | "monad";
 
 /** The chain marks, keyed the way the rest of the app keys chains. */
-export const CHAIN_ASSET: Record<ChainKey, string> = {
+export const CHAIN_ASSET: Partial<Record<ChainKey, string>> = {
   base: `${BASE}/chain-base.svg`,
   arbitrum: `${BASE}/chain-arbitrum.svg`,
   optimism: `${BASE}/chain-optimism.svg`,
   arc: `${BASE}/chain-arc.svg`,
+  /**
+   * monad: DELIBERATELY ABSENT until the real mark is dropped in beside the
+   * others as `public/design/chain-monad.svg`.
+   *
+   * The note on ChainBadge applies here and is the reason this is a gap rather
+   * than something hand-drawn: a payer recognises a chain's own mark, and an
+   * approximation of it on the screen where they commit money is worse than
+   * none. ChainMark renders a neutral monogram in the meantime, which is
+   * visibly a placeholder and keeps the badge the same height as its
+   * neighbours instead of collapsing the row.
+   */
 };
 
 export const SWEEP_MARK = `${BASE}/sweep-mark.png`;
@@ -43,8 +54,10 @@ export const METAMASK_LOGO = `${BASE}/metamask-logo.svg`;
 export const METAMASK_LOGO_LIGHT = `${BASE}/metamask-logo-light.svg`;
 export const CIRCLE_LOGO = `${BASE}/circle-logo.png`;
 
+const CHAIN_KEYS: ChainKey[] = ["base", "arbitrum", "optimism", "arc", "monad"];
+
 export function isChainKey(k: string): k is ChainKey {
-  return k in CHAIN_ASSET;
+  return (CHAIN_KEYS as string[]).includes(k);
 }
 
 /**
@@ -72,9 +85,35 @@ export function ChainMark({
   opacity?: number;
 }) {
   if (!isChainKey(chain)) return null;
+  const asset = CHAIN_ASSET[chain];
+  if (!asset) {
+    // A known chain with no mark yet. Same footprint, obviously a stand-in.
+    return (
+      <span
+        aria-hidden="true"
+        style={{
+          width: size,
+          height: size,
+          flex: "none",
+          opacity,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: size * 0.3,
+          background: "var(--color-neutral-200)",
+          color: "var(--color-neutral-700)",
+          fontSize: size * 0.5,
+          fontWeight: 700,
+          lineHeight: 1,
+        }}
+      >
+        {chain.charAt(0).toUpperCase()}
+      </span>
+    );
+  }
   return (
     <img
-      src={CHAIN_ASSET[chain]}
+      src={asset}
       alt=""
       width={size}
       height={size}

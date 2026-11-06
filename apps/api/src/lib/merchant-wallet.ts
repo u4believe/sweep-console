@@ -45,7 +45,7 @@ export interface MerchantWallet {
 }
 
 /** The shape WALLET_SELECT returns. Loose on purpose — callers select more. */
-type WalletColumns = {
+export type WalletColumns = {
   walletAddress?: string | null;
   walletType?: string;
   circleWalletId?: string | null;

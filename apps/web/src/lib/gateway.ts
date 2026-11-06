@@ -24,10 +24,11 @@ export interface GrantTarget {
   period_duration: number;
   delegate: `0x${string}`;
   /// The only address a redemption of this grant may pay out to. Pinned into the
-  /// signed context as an ERC-7715 `payee` rule, so the delegate key alone cannot
+  /// signed context as an ERC-7715 `payee` rule — a LIST, so direct settlement
+  /// names the creator and the treasury — and the delegate key alone cannot
   /// send a subscriber's USDC anywhere else. Absent on grants issued before the
   /// split, which carry no such constraint.
-  payee?: `0x${string}`;
+  payees?: `0x${string}`[];
   /**
    * When this grant's permission should expire, in unix seconds.
    *

@@ -31,6 +31,8 @@ import { assertAccountDeployed,
 import { ownerOfDelegateMsca, redeemBatchViaSelfBundler } from "../lib/chain/delegate-msca";
 import { ownerFor7702Delegate, redeemBatchVia7702 } from "../lib/chain/delegate-7702";
 import { settlementTargetFor } from "../lib/chain/settlement-target";
+import { directSettlementEnabled, treasuryPayee } from "../lib/chain/direct-settlement";
+import { splitTransferExecution, redeemSplitTransfer } from "../lib/chain/delegation";
 import { periodConsumed } from "../lib/rail";
 import { advanceBridge } from "./bridge";
 import { payFeeToTreasury } from "../lib/chain/fee-payout";
@@ -254,6 +256,14 @@ type PreparedRenewal = {
   periodDur: number;
   /** Set once this renewal's funds have actually been pulled. */
   redeemed: boolean;
+  /**
+   * The settlement transaction, under direct settlement only.
+   *
+   * It is the receipt the payer and the creator both see. The bridged path has
+   * no equivalent at this point — there it is the MINT on Arc that gets cited,
+   * which is why this is carried separately rather than reusing a field.
+   */
+  settlementTx?: Hex;
 };
 
 /**
@@ -538,19 +548,16 @@ async function redeemPrepared(prepared: PreparedRenewal[], outcomes: RenewalOutc
           items: items.map((p) => ({
             delegationManager: p.chosenMandate.delegationManager as Address,
             context: p.chosenMandate.context as Hex,
-            // Settlement, not the delegate — the same pinning the MSCA path
-            // relies on, and for the same reason.
-            ...periodicTransferExecution(
-              source.usdc,
-              settlementTargetFor(p.chosenMandate.chainId, p.chosenMandate.context as Hex).address,
-              p.amount
-            ),
+            ...sourceExecutionFor(p, source.usdc),
             ref: p.sub.id,
           })),
         });
         for (const p of items) {
           if (out.results.get(p.sub.id)?.success) {
             p.redeemed = true;
+            // Every item in a 7702 batch shares one transaction, so that hash
+            // is this renewal's receipt.
+            p.settlementTx = out.txHash;
             continue;
           }
           await releaseClaim(p.sub.id, p.periodKey).catch(() => {});
@@ -581,13 +588,7 @@ async function redeemPrepared(prepared: PreparedRenewal[], outcomes: RenewalOutc
           items: items.map((p) => ({
             delegationManager: p.chosenMandate.delegationManager as Address,
             context: p.chosenMandate.context as Hex,
-            // Settlement, not the delegate: new grants pin `payee` there and
-            // older ones carry no payee caveat and accept it just the same.
-            ...periodicTransferExecution(
-              source.usdc,
-              settlementTargetFor(p.chosenMandate.chainId, p.chosenMandate.context as Hex).address,
-              p.amount
-            ),
+            ...sourceExecutionFor(p, source.usdc),
             ref: p.sub.id,
           })),
         });
@@ -595,6 +596,8 @@ async function redeemPrepared(prepared: PreparedRenewal[], outcomes: RenewalOutc
           const r = out.results.get(p.sub.id);
           if (r?.success) {
             p.redeemed = true;
+            // One handleOps carried the whole batch; this is its hash.
+            p.settlementTx = out.txHash;
             continue;
           }
           /// An operation that reverted inside a successful handleOps moved no
@@ -628,22 +631,39 @@ async function redeemPrepared(prepared: PreparedRenewal[], outcomes: RenewalOutc
       const source = getSourceChain(p.chosenKey);
       try {
         assertAccountDeployed(p.chosenMandate);
-        await redeemPeriodicTransfer({
-          chainId: p.chosenMandate.chainId,
-          delegationManager: p.chosenMandate.delegationManager as Address,
-          context: p.chosenMandate.context as Hex,
-          delegate: p.chosenMandate.delegateAddress as Address,
-          token: source.usdc,
-          // Whatever this grant pins — see the note in cctp-activate.ts.
-          recipient: settlementTargetFor(
-            p.chosenMandate.chainId,
-            p.chosenMandate.context as Hex
-          ).address,
-          // Still the full period in one redemption: splitting it would double
-          // the redeem gas and the enforcer counts both against the same period
-          // cap anyway. The fee moves on in the next step instead.
-          amount: p.amount,
-        });
+        if (directSettlementEnabled()) {
+          // Fee and remainder in ONE redeemDelegations — see
+          // redeemSplitTransfer. Nothing reaches the relayer that submits it.
+          const settled = await redeemSplitTransfer({
+            chainId: p.chosenMandate.chainId,
+            delegationManager: p.chosenMandate.delegationManager as Address,
+            context: p.chosenMandate.context as Hex,
+            delegate: p.chosenMandate.delegateAddress as Address,
+            token: source.usdc,
+            creator: p.creator,
+            treasury: treasuryPayee(),
+            periodAmount: p.amount,
+            fee: p.fee,
+          });
+          p.settlementTx = settled.txHash as Hex;
+        } else {
+          await redeemPeriodicTransfer({
+            chainId: p.chosenMandate.chainId,
+            delegationManager: p.chosenMandate.delegationManager as Address,
+            context: p.chosenMandate.context as Hex,
+            delegate: p.chosenMandate.delegateAddress as Address,
+            token: source.usdc,
+            // Whatever this grant pins — see the note in cctp-activate.ts.
+            recipient: settlementTargetFor(
+              p.chosenMandate.chainId,
+              p.chosenMandate.context as Hex
+            ).address,
+            // Still the full period in one redemption: splitting it would double
+            // the redeem gas and the enforcer counts both against the same period
+            // cap anyway. The fee moves on in the next step instead.
+            amount: p.amount,
+          });
+        }
         p.redeemed = true;
       } catch (e) {
         await releaseClaim(p.sub.id, p.periodKey).catch(() => {});
@@ -659,9 +679,55 @@ async function redeemPrepared(prepared: PreparedRenewal[], outcomes: RenewalOutc
  * From here the bridge owns the period: every failure resumes rather than
  * re-pulls, so the claim stays put whatever happens.
  */
+/**
+ * What one source-chain item redeems: a split settlement, or the legacy pull
+ * to the relayer.
+ *
+ * Both batch paths and the single path call this, so they cannot drift apart
+ * — and drift here is expensive: the 7702 path and the MSCA path pin
+ * destinations independently, and a grant that pins one while the redeem asks
+ * for another reverts only once a payer has already signed.
+ */
+function sourceExecutionFor(p: PreparedRenewal, usdc: Address) {
+  if (directSettlementEnabled()) {
+    return splitTransferExecution(usdc, p.creator, treasuryPayee(), p.amount, p.fee);
+  }
+  return periodicTransferExecution(
+    usdc,
+    // Settlement, not the delegate — a grant pinning the MSCA reverts a
+    // redeem to anything else.
+    settlementTargetFor(p.chosenMandate.chainId, p.chosenMandate.context as Hex).address,
+    p.amount
+  );
+}
+
 async function finishSourceRenewal(p: PreparedRenewal, outcomes: RenewalOutcome[]): Promise<void> {
   try {
     const source = getSourceChain(p.chosenKey);
+
+    /**
+     * DIRECT SETTLEMENT: already finished. The redeem paid the creator and the
+     * treasury on the chain the subscriber holds USDC on, so there is nothing
+     * to bridge, nothing to attest and no mint to wait for. The renewal is
+     * recorded against the SOURCE chain, because that is where it happened —
+     * the old path recorded "arc" for every renewal regardless.
+     */
+    if (directSettlementEnabled()) {
+      await recordRenewalSettled(
+        p.sub, p.chosenMandate.id, p.amount, p.settlementTx ?? null, undefined,
+        // No bridgeId: there is no bridge row to close, because nothing bridged.
+        p.chosenKey, p.periodDur
+      );
+      outcomes.push({
+        subscriptionId: p.sub.subscriptionId,
+        result: "settled",
+        chain: p.chosenKey,
+        txHash: p.settlementTx ?? undefined,
+        detail: `settled direct on ${p.chosenKey} — fee to treasury, remainder to the creator`,
+      });
+      return;
+    }
+
     const bridge = await prisma.bridgeTransfer.create({
       data: {
         subscriptionId: p.sub.id,

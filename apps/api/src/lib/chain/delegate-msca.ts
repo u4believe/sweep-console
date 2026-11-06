@@ -63,7 +63,7 @@ import {
 } from "viem";
 import { getUserOperationHash, toPackedUserOperation } from "viem/account-abstraction";
 import { toCircleSmartAccount } from "@circle-fin/modular-wallets-core";
-import { getRelayerAccount, type RelayerMode } from "./signers";
+import { getGasRelayerAccount, getRelayerAccount, type RelayerMode } from "./signers";
 import { rpcUrlForChain } from "./delegation";
 import { withNonce } from "./nonce";
 import { delegate7702Enabled } from "./delegate-7702";
@@ -265,8 +265,10 @@ async function confirmDeposit(opts: {
  */
 function topUpAmount(opts: {
   required: bigint;
+  /** The PAYER's balance — the gas relayer if one is configured, else the owner. */
   ownerBalance: bigint;
   maxFeePerGas: bigint;
+  /** The PAYER's address, which is the one to fund. */
   owner: Address;
   chainId: number;
 }): bigint {
@@ -274,10 +276,11 @@ function topUpAmount(opts: {
   const affordable = opts.ownerBalance > reserve ? opts.ownerBalance - reserve : 0n;
   if (affordable < opts.required) {
     throw new Error(
-      `delegate owner ${opts.owner} holds ${formatEther(opts.ownerBalance)} ETH on chain ` +
+      `gas payer ${opts.owner} holds ${formatEther(opts.ownerBalance)} ETH on chain ` +
         `${opts.chainId}, which after ${formatEther(reserve)} for this transaction's own gas ` +
         `leaves ${formatEther(affordable)} — under the ${formatEther(opts.required)} the operation ` +
-        `needs. Fund that address; it is the owner, not the smart account.`
+        `needs. Fund THAT address — it is the submitting EOA, not the smart account ` +
+        `and not necessarily the owner key (see getGasRelayerAccount).`
     );
   }
   const floor = depositFloor();
@@ -368,12 +371,27 @@ function packTwo(high: bigint, low: bigint): Hex {
 export interface SelfBundledRedeemInput {
   chainId: number;
   delegationManager: Address;
-  /** The grant's permission context, redeemed as-is. */
-  context: Hex;
-  /** Already-encoded single-call execution data, as redeemSingle builds it. */
-  executionCallData: Hex;
-  /** The mode encoded in SINGLE_DEFAULT_MODE by the caller. */
-  mode: Hex;
+  /**
+   * The redemptions to perform, in order, inside ONE redeemDelegations call.
+   *
+   * ONE CALL, NOT ONE BATCH, and the difference is the whole point. The
+   * EntryPoint runs each UserOperation independently — see
+   * redeemBatchViaSelfBundler, which returns a map precisely because a batch
+   * of twenty can settle nineteen. Two UserOperations would therefore let a
+   * settlement half-complete: the fee taken, the creator unpaid.
+   *
+   * redeemDelegations takes bytes[] / bytes32[] / bytes[], so several
+   * redemptions ride one contract call. Any enforcer rejecting any of them
+   * reverts all of them, which is the atomicity a split settlement needs.
+   */
+  redemptions: Array<{
+    /** The grant's permission context, redeemed as-is. */
+    context: Hex;
+    /** Already-encoded single-call execution data, as redeemSingle builds it. */
+    executionCallData: Hex;
+    /** The mode encoded in SINGLE_DEFAULT_MODE by the caller. */
+    mode: Hex;
+  }>;
   /** The MSCA the grant names, and the key that owns it. */
   delegate: Address;
   owner: LocalAccount;
@@ -398,7 +416,13 @@ export async function redeemViaSelfBundler(
     rpcUrls: { default: { http: [rpc] } },
   });
   const publicClient = createPublicClient({ chain, transport: http(rpc) });
-  const submitter = createWalletClient({ account: input.owner, chain, transport: http(rpc) });
+  /**
+   * The owner SIGNS; the payer PAYS. See getGasRelayerAccount — with a gas
+   * relayer configured the owner key never needs a balance on this chain,
+   * and without one this is the owner, exactly as before.
+   */
+  const payer: LocalAccount = getGasRelayerAccount() ?? input.owner;
+  const submitter = createWalletClient({ account: payer, chain, transport: http(rpc) });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const account = await toCircleSmartAccount({ client: publicClient as any, owner: input.owner as any });
@@ -427,19 +451,19 @@ export async function redeemViaSelfBundler(
     args: [account.address],
   });
   if (deposit < required) {
-    const ownerBalance = await publicClient.getBalance({ address: input.owner.address });
+    const ownerBalance = await publicClient.getBalance({ address: payer.address });
     const top = topUpAmount({
       required,
       ownerBalance,
       maxFeePerGas,
-      owner: input.owner.address,
+      owner: payer.address,
       chainId: input.chainId,
     });
     console.warn(
       `[delegate/self-bundler] ${account.address} deposit ${formatEther(deposit)} ETH is under the ` +
-        `${formatEther(required)} this operation needs — depositing ${formatEther(top)} from ${input.owner.address}`
+        `${formatEther(required)} this operation needs — depositing ${formatEther(top)} from ${payer.address}`
     );
-    const hash = await withNonce(input.owner.address, input.chainId, publicClient, (nonce) =>
+    const hash = await withNonce(payer.address, input.chainId, publicClient, (nonce) =>
       submitter.sendTransaction({
         to: ENTRY_POINT,
         value: top,
@@ -453,7 +477,11 @@ export async function redeemViaSelfBundler(
   const redeemCall = encodeFunctionData({
     abi: REDEEM_DELEGATIONS_ABI,
     functionName: "redeemDelegations",
-    args: [[input.context], [input.mode], [input.executionCallData]],
+    args: [
+      input.redemptions.map((r) => r.context),
+      input.redemptions.map((r) => r.mode),
+      input.redemptions.map((r) => r.executionCallData),
+    ],
   });
 
   const callData = encodeFunctionData({
@@ -503,10 +531,10 @@ export async function redeemViaSelfBundler(
    * to the MSCA, and is only realised once several operations ride in one
    * handleOps.
    */
-  const txHash = await withNonce(input.owner.address, input.chainId, publicClient, (n) =>
+  const txHash = await withNonce(payer.address, input.chainId, publicClient, (n) =>
     submitter.sendTransaction({
       to: ENTRY_POINT,
-      data: encodeFunctionData({ abi: ENTRY_POINT_ABI, functionName: "handleOps", args: [[op], input.owner.address] }),
+      data: encodeFunctionData({ abi: ENTRY_POINT_ABI, functionName: "handleOps", args: [[op], payer.address] }),
       gas: CALL_GAS + VERIFICATION_GAS + PRE_VERIFICATION_GAS + 200_000n,
       nonce: n,
     })
@@ -551,7 +579,16 @@ export async function redeemViaSelfBundler(
 export interface BatchRedeemItem {
   delegationManager: Address;
   context: Hex;
-  executionCallData: Hex;
+  /**
+   * The calls this item redeems, in ONE redeemDelegations.
+   *
+   * A list because direct settlement splits a period in two — fee to the
+   * treasury, remainder to the creator — and those must stand or fall
+   * together. They share one contract call, so any enforcer refusing either
+   * reverts both. Items remain independent of each other; it is only the
+   * calls WITHIN an item that are atomic.
+   */
+  executionCallDatas: Hex[];
   mode: Hex;
   /** The caller's own identifier, used to hand results back. */
   ref: string;
@@ -598,7 +635,13 @@ export async function redeemBatchViaSelfBundler(input: {
     rpcUrls: { default: { http: [rpc] } },
   });
   const publicClient = createPublicClient({ chain, transport: http(rpc) });
-  const submitter = createWalletClient({ account: input.owner, chain, transport: http(rpc) });
+  /**
+   * The owner SIGNS; the payer PAYS. See getGasRelayerAccount — with a gas
+   * relayer configured the owner key never needs a balance on this chain,
+   * and without one this is the owner, exactly as before.
+   */
+  const payer: LocalAccount = getGasRelayerAccount() ?? input.owner;
+  const submitter = createWalletClient({ account: payer, chain, transport: http(rpc) });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const account = await toCircleSmartAccount({ client: publicClient as any, owner: input.owner as any });
@@ -623,22 +666,22 @@ export async function redeemBatchViaSelfBundler(input: {
     args: [account.address],
   });
   if (deposit < required) {
-    const ownerBalance = await publicClient.getBalance({ address: input.owner.address });
+    const ownerBalance = await publicClient.getBalance({ address: payer.address });
     // Three operations' worth when affordable, so a batch is not one deposit
-    // per op; topUpAmount caps it at what the owner actually holds.
+    // per op; topUpAmount caps it at what the payer actually holds.
     const want = required * 3n;
     const top = topUpAmount({
       required: want > required ? required : want,
       ownerBalance,
       maxFeePerGas,
-      owner: input.owner.address,
+      owner: payer.address,
       chainId: input.chainId,
     });
     console.warn(
       `[delegate/self-bundler] ${account.address} deposit ${formatEther(deposit)} ETH under the ` +
         `${formatEther(required)} needed for ${input.items.length} ops — depositing ${formatEther(top)}`
     );
-    const hash = await withNonce(input.owner.address, input.chainId, publicClient, (nonce) =>
+    const hash = await withNonce(payer.address, input.chainId, publicClient, (nonce) =>
       submitter.sendTransaction({
         to: ENTRY_POINT,
         value: top,
@@ -681,7 +724,11 @@ export async function redeemBatchViaSelfBundler(input: {
     const redeemCall = encodeFunctionData({
       abi: REDEEM_DELEGATIONS_ABI,
       functionName: "redeemDelegations",
-      args: [[item.context], [item.mode], [item.executionCallData]],
+      args: [
+        item.executionCallDatas.map(() => item.context),
+        item.executionCallDatas.map(() => item.mode),
+        item.executionCallDatas,
+      ],
     });
     const callData = encodeFunctionData({
       abi: MSCA_EXECUTE_ABI,
@@ -732,13 +779,13 @@ export async function redeemBatchViaSelfBundler(input: {
   const outerGas =
     (CALL_GAS + VERIFICATION_GAS + PRE_VERIFICATION_GAS) * BigInt(input.items.length) + 300_000n;
 
-  const txHash = await withNonce(input.owner.address, input.chainId, publicClient, (n) =>
+  const txHash = await withNonce(payer.address, input.chainId, publicClient, (n) =>
     submitter.sendTransaction({
       to: ENTRY_POINT,
       data: encodeFunctionData({
         abi: ENTRY_POINT_ABI,
         functionName: "handleOps",
-        args: [ops, input.owner.address],
+        args: [ops, payer.address],
       }),
       gas: outerGas,
       nonce: n,

@@ -23,6 +23,16 @@ import { ok, err, serverError } from "../lib/response";
 import { decodePeriodTransferTerms, delegationIdentity } from "../lib/chain/delegation";
 import { getRelayerAddress, settlementIsSeparate } from "../lib/chain/signers";
 import { delegateAddressForNewGrant } from "../lib/chain/delegate-msca";
+import { directSettlementEnabled, settlementPayees } from "../lib/chain/direct-settlement";
+import { WALLET_SELECT, walletFor, type WalletColumns } from "../lib/merchant-wallet";
+
+/**
+ * A mandate cannot be authorized because the merchant has no usable payout
+ * wallet. Thrown rather than returned so it cannot be ignored by a caller
+ * that only reads `targets`: a grant with no payee is a grant nobody can
+ * redeem.
+ */
+class PayeeUnavailable extends Error {}
 import { sendRailAuthorizationEmail } from "../lib/email/rail-authorization";
 import { notifyGrantAdded } from "../lib/rail-grant-events";
 import { supportedSourceChains } from "../lib/gateway/chains";
@@ -59,7 +69,11 @@ interface MandateForPage {
   returnUrl: string | null;
   sessionToken: string;
   merchantId: string;
-  merchant: { name: string; merchantId: string };
+  /// Scopes the payout wallet: a live mandate must pin the live wallet.
+  isTestMode: boolean;
+  /// WalletColumns, because under direct settlement the merchant's payout
+  /// wallet is the payee pinned into the signed permission.
+  merchant: { name: string; merchantId: string } & WalletColumns;
 }
 
 /// The chains this mandate can actually be granted on, as the grant loop wants
@@ -140,7 +154,26 @@ function targetsFor(m: MandateForPage) {
   // an address the delegate already controls constrains nothing — a thief redeems
   // into it and spends from it with the same key — and would leave a caveat in the
   // signed context implying a protection that is not there.
-  const payee = settlementIsSeparate() ? settlementPayeeAddress() : undefined;
+  /**
+   * WHO THE REDEMPTION MAY PAY.
+   *
+   * Under direct settlement this is the CREATOR's wallet: the payer's
+   * permission can then only move USDC to the merchant they subscribed to,
+   * and the platform is never a recipient. See lib/chain/direct-settlement.ts.
+   *
+   * Otherwise it is the platform's settlement address, which constrains very
+   * little — see settlementIsSeparate() — and is pinned only when settlement
+   * is genuinely a different key from the delegate.
+   */
+  let payees: string[] | undefined;
+  if (directSettlementEnabled()) {
+    const resolved = settlementPayees(walletFor(m.merchant, m.isTestMode));
+    if (!resolved.ok) throw new PayeeUnavailable(resolved.reason);
+    payees = resolved.payees;
+  } else {
+    const legacy = settlementIsSeparate() ? settlementPayeeAddress() : undefined;
+    payees = legacy ? [legacy] : undefined;
+  }
   const targets: {
     chain_id: number;
     chain_key: string;
@@ -149,7 +182,14 @@ function targetsFor(m: MandateForPage) {
     period_amount: string;
     period_duration: number;
     delegate: string;
-    payee?: string;
+    /**
+     * Every address a redemption may pay. ERC-7715 takes a list, which is
+     * what lets direct settlement name the creator AND the treasury on one
+     * permission — see lib/chain/direct-settlement.ts. One entry under the
+     * legacy path, two under direct settlement, absent when nothing is
+     * pinned at all.
+     */
+    payees?: string[];
     /**
      * When this mandate's permission dies, in unix seconds.
      *
@@ -185,7 +225,7 @@ function targetsFor(m: MandateForPage) {
       period_amount: m.maxAmount.toString(),
       period_duration: m.periodDuration,
       delegate,
-      payee,
+      payees,
     });
   }
   return { targets, unavailable };
@@ -201,7 +241,9 @@ async function loadMandate(mandateId: string) {
       maxAmount: true, interval: true, periodDuration: true, chains: true,
       status: true, expiresAt: true, linkExpiresAt: true, returnUrl: true,
       sessionToken: true, merchantId: true, isTestMode: true,
-      merchant: { select: { name: true, merchantId: true } },
+      // The payout wallet comes with the mandate because under direct
+      // settlement it IS the payee pinned into the signed permission.
+      merchant: { select: { name: true, merchantId: true, ...WALLET_SELECT } },
     },
   });
 }
@@ -224,7 +266,28 @@ authorizeRouter.get("/authorize/:mandate_id", async (req, res) => {
     select: { chainId: true, grantId: true },
   });
 
-  const { targets, unavailable } = targetsFor(m);
+  /**
+   * A merchant with no usable payout wallet cannot be subscribed to under
+   * direct settlement, because their wallet IS the payee in the payer's
+   * permission. Said here, on the page the payer is looking at, rather than
+   * as a 500 — and said as the merchant's problem, since the payer can do
+   * nothing about it.
+   */
+  let targets, unavailable;
+  try {
+    ({ targets, unavailable } = targetsFor(m));
+  } catch (e) {
+    if (e instanceof PayeeUnavailable) {
+      return err(
+        res,
+        `${m.merchant.name} cannot accept subscriptions yet: their payout wallet is not set up. ` +
+          `Nothing has been charged. Please contact them.`,
+        409,
+        "payout_wallet_unavailable"
+      );
+    }
+    throw e;
+  }
   const linkExpired = m.linkExpiresAt.getTime() < Date.now();
   const mandateExpired = m.expiresAt.getTime() < Date.now();
 
