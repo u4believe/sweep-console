@@ -428,6 +428,21 @@ export async function readCreatorWalletChains(merchantDbId: string): Promise<
   };
 }
 
+/**
+ * USDC micro-units back to the decimal string Circle and the dashboard use.
+ *
+ * The balance route has always returned Circle's own string, so the web side
+ * reads `usdcBalance` as text. A total summed across chains has to come back
+ * in the same shape or every caller changes at once.
+ */
+export function formatUsdc(micros: bigint): string {
+  const neg = micros < 0n;
+  const abs = neg ? -micros : micros;
+  const whole = abs / 1_000_000n;
+  const frac = (abs % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "");
+  return `${neg ? "-" : ""}${whole}${frac ? `.${frac}` : ""}`;
+}
+
 /** Circle's decimal string -> USDC micro-units, without floating point. */
 export function parseUsdc(amount: string): bigint {
   const [whole = "0", frac = ""] = String(amount).trim().split(".");

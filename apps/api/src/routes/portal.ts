@@ -5,7 +5,8 @@ import { addMinutes } from "date-fns";
 import { verifyMessage } from "viem";
 import type { Prisma } from "@prisma/client";
 import { WALLET_SELECT, walletFor, walletWrite } from "../lib/merchant-wallet";
-import { circleBlockchain, usdcOnSettlementChain } from "../lib/circle";
+import { circleBlockchain, usdcOnSettlementChain, readCreatorWalletChains, formatUsdc, parseUsdc } from "../lib/circle";
+import { directSettlementEnabled } from "../lib/chain/direct-settlement";
 import { portalScope } from "../middleware/portalAuth";
 import { prisma, withRetry } from "../lib/prisma";
 import { ids } from "../lib/ids";
@@ -2609,6 +2610,70 @@ portalRouter.get("/wallet/circle/balance", async (req, res) => {
       });
     }
 
+    /**
+     * DIRECT SETTLEMENT: one balance per chain, plus a total.
+     *
+     * A creator paid on whichever chain each subscriber used holds several
+     * balances, not one. The single-chain read below answers "what is on the
+     * settlement chain", which under direct settlement would show whichever
+     * chain happened to match and silently hide the rest.
+     *
+     * `usdcBalance` stays the string it always was — now the TOTAL — so the
+     * dashboard keeps working unchanged, and `chains` carries the breakdown
+     * for a UI that wants it. `missing` names chains the wallet is not
+     * registered on, which read as zero while holding real USDC.
+     */
+    if (directSettlementEnabled()) {
+      const multi = await readCreatorWalletChains(dbId);
+      if (!multi.ok) {
+        return ok(res, {
+          data: {
+            usdcBalance: w.usdcBalance,
+            updatedAt: w.balanceUpdatedAt?.toISOString() ?? null,
+            fromCache: true,
+            stale: true,
+            error: "We couldn't reach your wallet just now. The balance shown may be out of date.",
+          },
+        });
+      }
+      const total = formatUsdc(multi.total);
+      const unread = multi.chains.filter((c) => !c.read).map((c) => c.blockchain);
+      if (multi.missing.length > 0) {
+        console.warn(
+          `[portal/balance] ${dbId} wallet is not registered on ${multi.missing.join(", ")} — ` +
+            `USDC paid there is invisible to Circle. Run scripts/check-circle-chains.ts`
+        );
+      }
+      await withRetry(() =>
+        prisma.merchant.update({
+          where: { id: dbId },
+          data: walletWrite(portalScope(req).isTestMode, {
+            usdcBalance: total,
+            balanceUpdatedAt: new Date(),
+          }),
+        }),
+      );
+      return ok(res, {
+        data: {
+          usdcBalance: total,
+          tokenId: null,
+          walletId: w.circleWalletId,
+          address: multi.address,
+          chains: multi.chains.map((c) => ({
+            blockchain: c.blockchain,
+            usdcBalance: formatUsdc(c.usdc),
+            walletId: c.walletId,
+            read: c.read,
+          })),
+          // Named so the dashboard can say WHY a chain shows nothing.
+          missingChains: multi.missing,
+          unreadChains: unread,
+          updatedAt: new Date().toISOString(),
+          fromCache: false,
+        },
+      });
+    }
+
     // Fetch live from Circle and update cache
     const read = await getCircleWalletBalances(w.circleWalletId);
 
@@ -2778,6 +2843,16 @@ const withdrawSchema = z.object({
   destinationAddress: z
     .string()
     .regex(/^0x[a-fA-F0-9]{40}$/, "Invalid EVM address"),
+  /**
+   * Which chain to send from, as Circle codes it (BASE, ARB, OP, MONAD).
+   *
+   * Optional, and the route refuses rather than guesses when it is absent
+   * and more than one chain holds USDC. The destination is the same EVM
+   * address on every chain, so a wrong guess does not bounce — it delivers
+   * real money on a chain the creator was not expecting, which is worse than
+   * an error message.
+   */
+  blockchain: z.string().trim().toUpperCase().optional(),
   amount: z
     .string()
     .regex(/^\d+(\.\d+)?$/, "Invalid amount")
@@ -2815,6 +2890,107 @@ portalRouter.post(
       if (w.type !== "circle" || !w.circleWalletId) {
         return err(res, "No Circle wallet found", 404);
       }
+      /**
+       * DIRECT SETTLEMENT: withdraw FROM a chain, not from "the" chain.
+       *
+       * A creator holds a balance per chain their subscribers paid on, so
+       * there is no single wallet to read. Each chain is its own Circle
+       * wallet record — same address, different id — and the transfer has to
+       * name the right one.
+       */
+      if (directSettlementEnabled()) {
+        const multi = await readCreatorWalletChains(dbId);
+        if (!multi.ok) {
+          return err(res, "We couldn't check your balance just now. Try again shortly.", 503, "balance_unavailable");
+        }
+        const funded = multi.chains.filter((c) => c.read && c.usdc > 0n);
+        const unread = multi.chains.filter((c) => !c.read);
+
+        /**
+         * Auto-select ONLY when the view is complete.
+         *
+         * One funded chain out of four read cleanly is an unambiguous answer.
+         * One funded chain while another could not be read is not: the
+         * unreadable one may hold more, and picking the only chain we can see
+         * would move money from somewhere the creator did not choose, on an
+         * incomplete picture. Ask instead.
+         */
+        const chosen = parsed.data.blockchain
+          ? multi.chains.find((c) => c.blockchain === parsed.data.blockchain)
+          : funded.length === 1 && unread.length === 0
+            ? funded[0]
+            : undefined;
+
+        if (!chosen) {
+          if (parsed.data.blockchain) {
+            const known = multi.chains.map((c) => c.blockchain).join(", ");
+            return err(
+              res,
+              `Your wallet is not registered on ${parsed.data.blockchain}. Registered: ${known || "none"}.`,
+              400,
+              "chain_not_registered"
+            );
+          }
+          if (funded.length === 0) {
+            const hint =
+              multi.missing.length > 0
+                ? ` Your wallet is not registered on ${multi.missing.join(", ")}, so USDC paid there is not visible yet.`
+                : "";
+            return err(res, `No USDC balance found in your wallet.${hint}`, 404, "no_balance");
+          }
+          // Either several chains hold money, or one does and another could
+          // not be read. Both mean the caller has to say which.
+          const options = funded.map((c) => `${c.blockchain} (${formatUsdc(c.usdc)})`).join(", ");
+          const caveat =
+            unread.length > 0
+              ? ` We couldn't read ${unread.map((c) => c.blockchain).join(", ")}, so this list may be incomplete.`
+              : "";
+          return err(
+            res,
+            `Choose which chain to withdraw from: ${options}.${caveat}`,
+            400,
+            "chain_required"
+          );
+        }
+
+        if (chosen.usdc < parseUsdc(amount)) {
+          return err(
+            res,
+            `Insufficient balance on ${chosen.blockchain}. Available: ${formatUsdc(chosen.usdc)} USDC`,
+            400
+          );
+        }
+
+        // The token id is per chain, so it comes from THAT wallet's balances.
+        const chainRead = await getCircleWalletBalances(chosen.walletId);
+        if (!chainRead.ok) {
+          return err(res, "We couldn't check your balance just now. Try again shortly.", 503, "balance_unavailable");
+        }
+        const token = chainRead.balances.find((b) => b.token.symbol === "USDC");
+        if (!token) {
+          return err(res, `No USDC on ${chosen.blockchain} to withdraw.`, 404, "no_balance");
+        }
+
+        const { userToken, encryptionKey } = await getCircleUserToken(dbId);
+        const { challengeId } = await createCircleTransferChallenge(
+          userToken,
+          chosen.walletId,
+          token.token.id,
+          destinationAddress,
+          amount
+        );
+        console.log(
+          `[portal/withdraw] ${dbId} withdrawing ${amount} USDC from ${chosen.blockchain}`
+        );
+        return ok(res, {
+          userToken,
+          encryptionKey,
+          challengeId,
+          blockchain: chosen.blockchain,
+          appId: process.env.NEXT_PUBLIC_CIRCLE_APP_ID,
+        });
+      }
+
       const read = await getCircleWalletBalances(w.circleWalletId);
       // Distinguished from an empty wallet on purpose: this guards a withdrawal,
       // and "you have no USDC" is the wrong thing to tell someone whose balance

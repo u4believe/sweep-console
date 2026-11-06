@@ -6,7 +6,17 @@ import { throwApiError } from "@/lib/errors";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
+interface ChainBalance {
+  /** Circle's code: BASE, ARB, OP, MONAD. */
+  blockchain: string;
+  usdcBalance: string;
+  walletId: string;
+  /** False when Circle could not be asked about this chain. Not the same as zero. */
+  read: boolean;
+}
+
 interface BalanceData {
+  /** The TOTAL across chains under direct settlement; one chain's before it. */
   usdcBalance: string;
   tokenId: string | null;
   walletId: string;
@@ -16,7 +26,30 @@ interface BalanceData {
   stale?: boolean;
   /** Why, in words a merchant can act on. Set only when `stale`. */
   error?: string;
+  /**
+   * One entry per chain the wallet is registered on. Absent on the
+   * single-chain path, so every read of it has to tolerate undefined.
+   */
+  chains?: ChainBalance[];
+  /**
+   * Chains this deployment pays on that the wallet is NOT registered for.
+   * USDC paid there is real and arrives — a Circle EOA has one address — but
+   * Circle cannot see it, so it reads as zero. Worth saying out loud.
+   */
+  missingChains?: string[];
+  /** Registered chains Circle could not be asked about just now. */
+  unreadChains?: string[];
 }
+
+/** Human names for Circle's codes; unknown codes show as themselves. */
+const CHAIN_LABEL: Record<string, string> = {
+  BASE: "Base",
+  ARB: "Arbitrum",
+  OP: "Optimism",
+  MONAD: "Monad",
+  ARC: "Arc",
+};
+const chainLabel = (code: string) => CHAIN_LABEL[code] ?? code;
 
 function timeAgo(iso: string): string {
   const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -53,13 +86,38 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
    */
   type Outcome = { kind: "error"; message: string } | { kind: "success" } | null;
   const [outcome, setOutcome] = useState<Outcome>(null);
+  /**
+   * Which chain to withdraw from. "" until a balance says what exists.
+   *
+   * Deliberately NOT defaulted to the first chain: the destination is the
+   * same address on every chain, so sending from the wrong one does not
+   * bounce — it delivers real money somewhere the creator was not expecting.
+   * The API refuses an ambiguous withdrawal for the same reason; this is the
+   * UI half of that.
+   */
+  const [chain, setChain] = useState<string>("");
 
   function loadBalance(force = false) {
     const url = `${API_URL}/portal/wallet/circle/balance${force ? "?refresh=1" : ""}`;
     return fetch(url, { credentials: "include" })
       .then((r) => r.json())
       .then((json: { data?: BalanceData; error?: { message?: string } }) => {
-        if (json.data) setBalance(json.data);
+        if (json.data) {
+          setBalance(json.data);
+          // Pre-select only when there is nothing to choose between: one
+          // funded chain, and every chain read cleanly.
+          const funded = (json.data.chains ?? []).filter(
+            (c) => c.read && parseFloat(c.usdcBalance) > 0
+          );
+          const anyUnread = (json.data.chains ?? []).some((c) => !c.read);
+          setChain((prev) =>
+            prev && funded.some((c) => c.blockchain === prev)
+              ? prev
+              : funded.length === 1 && !anyUnread
+                ? funded[0]!.blockchain
+                : ""
+          );
+        }
         else setBalanceErr(json.error?.message ?? "Failed to fetch balance");
       })
       .catch(() => setBalanceErr("Could not reach the API server"));
@@ -86,7 +144,13 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
       const res = await apiFetch(`/portal/wallet/circle/withdraw`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ destinationAddress: dest, amount }),
+        // Send the chain only when the server offered chains at all, so the
+        // single-chain deployment keeps its exact request shape.
+        body: JSON.stringify({
+          destinationAddress: dest,
+          amount,
+          ...(balance?.chains?.length && chain ? { blockchain: chain } : {}),
+        }),
       });
       if (!res.ok) {
         if (await wasCancelled(res)) { setWithdrawing(false); return; }
@@ -175,6 +239,47 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
               {balance.error ?? "We couldn't refresh this just now."}
             </p>
           )}
+
+          {/* Where the money actually is. A single total hides that 52.75 USDC
+              is two withdrawals on two chains, which is what the creator has
+              to act on. Only rendered when the API sent a breakdown. */}
+          {(balance?.chains?.length ?? 0) > 1 && (
+            <div className="m-0 mt-3" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {balance!.chains!.map((c) => (
+                <span
+                  key={c.blockchain}
+                  style={{
+                    fontSize: 11.5,
+                    padding: "3px 8px",
+                    borderRadius: "var(--radius-sm)",
+                    background: "var(--color-surface)",
+                    border: "1px solid var(--color-neutral-300)",
+                    color: c.read ? "var(--color-neutral-800)" : "var(--color-neutral-600)",
+                  }}
+                >
+                  {chainLabel(c.blockchain)}{" "}
+                  <strong style={{ fontWeight: 600 }}>
+                    {c.read ? parseFloat(c.usdcBalance).toFixed(2) : "—"}
+                  </strong>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Registered nowhere is the failure that reads as an empty wallet
+              over money that is there: a Circle EOA has one address, so USDC
+              arrives whatever Circle knows about. Say so rather than show a
+              zero. */}
+          {(balance?.missingChains?.length ?? 0) > 0 && (
+            <p
+              className="m-0 mt-2"
+              style={{ fontSize: 11.5, color: "var(--color-accent-700)", maxWidth: 340 }}
+            >
+              Your wallet isn't set up for{" "}
+              {balance!.missingChains!.map(chainLabel).join(", ")} yet. USDC paid to you there is
+              safe, but won't show here until you re-run wallet setup.
+            </p>
+          )}
         </div>
         <button
           type="button"
@@ -197,6 +302,41 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
       )}
 
       <form onSubmit={handleWithdraw} className="max-w-lg space-y-3">
+        {/* FIRST, because it decides what the amount means.
+            Only shown when there is a choice — a single-chain wallet has
+            nothing to pick and should not be asked. "Select…" stays selected
+            until the creator chooses, so a mis-send needs a decision rather
+            than a missed glance. */}
+        {(balance?.chains?.length ?? 0) > 1 && (
+          <div className="field">
+            <label htmlFor="wd-chain">Withdraw from</label>
+            <select
+              id="wd-chain"
+              className="input"
+              value={chain}
+              onChange={(e) => setChain(e.target.value)}
+              required
+            >
+              <option value="">Select a chain…</option>
+              {balance!.chains!.map((c) => (
+                <option
+                  key={c.blockchain}
+                  value={c.blockchain}
+                  disabled={!c.read || parseFloat(c.usdcBalance) <= 0}
+                >
+                  {chainLabel(c.blockchain)} —{" "}
+                  {c.read ? `${parseFloat(c.usdcBalance).toFixed(2)} USDC` : "couldn't read"}
+                </option>
+              ))}
+            </select>
+            {chain && (
+              <p className="m-0 mt-1" style={{ fontSize: 11.5, color: "var(--color-neutral-600)" }}>
+                Sending on {chainLabel(chain)}. The address above must be able to receive USDC
+                there.
+              </p>
+            )}
+          </div>
+        )}
         <div className="field">
           <label htmlFor="wd-dest">Destination address</label>
           <input
@@ -229,7 +369,18 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
         <button
           type="submit"
           className="btn btn-primary"
-          disabled={withdrawing || !balance || parseFloat(balance.usdcBalance) === 0}
+          /**
+           * The TOTAL being non-zero is not enough once there are chains: a
+           * creator with money on Base and nothing selected would submit a
+           * withdrawal the API then refuses. Block it here instead, so the
+           * button's state matches what the server will accept.
+           */
+          disabled={
+            withdrawing ||
+            !balance ||
+            parseFloat(balance.usdcBalance) === 0 ||
+            ((balance.chains?.length ?? 0) > 1 && !chain)
+          }
         >
           {withdrawing ? "Awaiting confirmation…" : "Withdraw"}
         </button>
