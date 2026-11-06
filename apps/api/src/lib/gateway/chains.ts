@@ -231,6 +231,31 @@ export function supportedSourceChains(): SourceChain[] {
   return networkChains().filter((c) => wanted.includes(c.key));
 }
 
+/**
+ * Circle's code for a chain -> our key. "BASE" -> "base".
+ *
+ * Circle names chains its own way and its webhooks speak that language, so
+ * anything arriving from Circle has to be translated before it is stored
+ * beside our own rows. Derived from the same table rather than listed again:
+ * a chain added there is translatable here, and one that is not simply
+ * returns null instead of being stored under a key nothing else uses.
+ *
+ * Searches BOTH networks on purpose. A webhook is answered by whichever
+ * deployment Circle calls, and a test-mode wallet's code is a testnet one —
+ * matching only the active table would drop the mode this very row records.
+ */
+export function chainKeyForCircleCode(code: string | null | undefined): string | null {
+  if (!code) return null;
+  const want = code.trim().toUpperCase();
+  for (const c of [...MAINNET_CHAINS, ...TESTNET_CHAINS]) {
+    if (c.circle.toUpperCase() === want) return c.key;
+  }
+  // Arc is not a source chain, so it is in neither table, but it is where
+  // every Circle wallet lived before this migration.
+  if (want === "ARC" || want === "ARC-TESTNET") return "arc";
+  return null;
+}
+
 export function getSourceChain(key: string): SourceChain {
   const chain = supportedSourceChains().find((c) => c.key === key);
   if (!chain) throw new Error(`Unsupported source chain: ${key}`);

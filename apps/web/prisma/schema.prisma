@@ -995,6 +995,16 @@ model WalletWithdrawal {
   /// The Circle wallet it left, so a merchant with both can be told apart.
   circleWalletId String
   isTestMode     Boolean
+  /// The chain it went out on, as WE key chains ("base"), not as Circle codes
+  /// them ("BASE").
+  ///
+  /// Nullable because every row written before direct settlement predates the
+  /// question: a Circle wallet was registered on Arc and there was one chain a
+  /// withdrawal could leave from. Those rows read as Arc, which is what they
+  /// were. It is also null when Circle's notification does not name a chain,
+  /// and the explorer link then falls back the same way — a link to the wrong
+  /// chain is worse than the old behaviour, which was at least right for Arc.
+  chain          String?
 
   createdAt   DateTime @default(now())
   confirmedAt DateTime?

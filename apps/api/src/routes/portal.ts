@@ -1893,8 +1893,11 @@ portalRouter.get("/withdrawals", async (req, res) => {
         state: w.state,
         destination: w.destination,
         tx_hash: w.txHash,
-        // Null rather than a dead link when there is no hash yet.
-        explorer_url: explorerTxUrl(w.txHash),
+        // Null rather than a dead link when there is no hash yet — and now
+        // the right chain, because a withdrawal from Base has no Arc
+        // transaction. Rows written before direct settlement carry no
+        // chain and fall back to Arc, which is where they actually went.
+        explorer_url: explorerTxUrl(w.txHash, w.chain ?? "arc"),
         test_mode: w.isTestMode,
         created_at: w.createdAt.toISOString(),
         confirmed_at: w.confirmedAt?.toISOString() ?? null,

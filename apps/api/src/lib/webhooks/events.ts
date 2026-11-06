@@ -47,7 +47,7 @@ export const WEBHOOK_EVENT_DESCRIPTIONS: Record<WebhookEventType, string> = {
   "subscription.renewed": "A recurring charge succeeded and the period rolled forward.",
   "subscription.past_due": "A renewal failed; the subscription is awaiting payment.",
   "subscription.cancelled": "Billing stopped — by the subscriber, by you, or by a closed plan.",
-  "payment.succeeded": "USDC settled on Arc for a charge.",
+  "payment.succeeded": "USDC settled for a charge, on the chain it was paid from.",
   "payment.failed": "A renewal charge could not be collected.",
   "mandate.authorized":
     "A subscriber authorized recurring payments from their wallet on the external rail.",
@@ -61,7 +61,7 @@ export const WEBHOOK_EVENT_DESCRIPTIONS: Record<WebhookEventType, string> = {
     "A mandate reaches its expiry date soon. Ask the payer to re-authorize before charges start failing.",
   "mandate.expired":
     "A mandate passed its expiry date and can no longer be charged. Only a new authorization revives it.",
-  "charge.succeeded": "USDC settled on Arc for a charge you requested.",
+  "charge.succeeded": "USDC settled for a charge you requested, on the chain it was paid from.",
   "charge.failed": "A charge could not be collected.",
 };
 

@@ -100,6 +100,20 @@ export async function sendRailChargeReceipt(chargeDbId: string): Promise<void> {
       authorizationExpiresAt: charge.mandate.expiresAt,
     };
 
+    /**
+     * Where the money landed, in the payer's own receipt.
+     *
+     * This said ", settled on Arc" unconditionally. A payer whose USDC never
+     * left Base reads that, clicks the hash and finds nothing — and a receipt
+     * is the one place a wrong chain costs most, because it is the only thing
+     * they were sent. A charge with no chain recorded predates the migration
+     * and did settle on Arc.
+     */
+    const settledOn =
+      charge.chain && charge.chain !== "arc"
+        ? `, settled on ${CHAIN_NAMES[charge.chain] ?? charge.chain}`
+        : ", settled on Arc";
+
     console.log(`[rail-receipt] sending ${charge.chargeId} to ${to}`);
 
     await sendEmail({
@@ -109,7 +123,7 @@ export async function sendRailChargeReceipt(chargeDbId: string): Promise<void> {
       text:
         `${charge.merchant.name} charged ${amount} ${charge.currency} from your wallet` +
         (charge.description ? ` for ${charge.description}` : "") +
-        `, settled on Arc${charge.txHash ? ` (tx ${charge.txHash})` : ""}. ` +
+        `${settledOn}${charge.txHash ? ` (tx ${charge.txHash})` : ""}. ` +
         `You authorized up to ${data.ceiling} ${charge.currency} per ` +
         `${{ daily: "day", weekly: "week", monthly: "month", yearly: "year" }[charge.mandate.interval] ?? charge.mandate.interval}. ` +
         `To stop future charges, go to ${manageUrl()} or revoke the permission in your wallet. ` +

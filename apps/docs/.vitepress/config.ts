@@ -121,7 +121,7 @@ export default defineConfig({
     // platform's code lives while doing it.
 
     footer: {
-      message: "Recurring USDC payments, settled on Arc.",
+      message: "Recurring USDC payments, settled wallet to wallet.",
       copyright: "© 2026 Sweep Console",
     },
 

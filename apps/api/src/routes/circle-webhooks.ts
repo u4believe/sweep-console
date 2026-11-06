@@ -6,6 +6,7 @@ import { IS_PRODUCTION } from "../lib/env";
 import { getWebhookPublicKey, getCircleWalletBalances, circleBlockchain, usdcOnSettlementChain } from "../lib/circle";
 import { ids } from "../lib/ids";
 import { walletWrite } from "../lib/merchant-wallet";
+import { chainKeyForCircleCode } from "../lib/gateway/chains";
 
 export const circleWebhooksRouter = Router();
 
@@ -34,7 +35,17 @@ interface TransferNotification {
   txHash: string;
   state: string;        // "CONFIRMED" | "COMPLETE"
   operation: string;    // "INBOUND" | "OUTBOUND"
-  token: { id: string; symbol: string; decimals: number };
+  token: { id: string; symbol: string; decimals: number; blockchain?: string };
+  /**
+   * Circle's own code for the chain — "BASE", "ARB", "MONAD".
+   *
+   * Optional because this interface is OUR declaration of what we read, not
+   * Circle's contract, and a field we have not seen is better absent than
+   * assumed. The token carries one too; either will do, and the withdrawal
+   * falls back to Arc when neither arrives — which is what every row written
+   * before direct settlement actually was.
+   */
+  blockchain?: string;
 }
 
 interface WebhookPayload {
@@ -250,6 +261,22 @@ async function handleOutboundWithdrawal(n: TransferNotification): Promise<void> 
     const micro = BigInt(Math.round(parseFloat(raw) * 1_000_000));
     const settled = state === "CONFIRMED" || state === "COMPLETE";
 
+    /**
+     * The chain, translated out of Circle's vocabulary into ours.
+     *
+     * Logged when it is missing rather than silently defaulting: a wallet
+     * registered on four chains whose notifications name none of them is a
+     * thing worth knowing about, and the symptom otherwise is one explorer
+     * link quietly pointing at Arc.
+     */
+    const withdrawalChain = chainKeyForCircleCode(n.blockchain ?? n.token?.blockchain);
+    if (!withdrawalChain) {
+      console.warn(
+        `[circle/webhook] transfer ${txHash} names no chain we recognise ` +
+          `(blockchain=${n.blockchain ?? "absent"}); its explorer link will assume Arc`
+      );
+    }
+
     await withRetry(() =>
       prisma.walletWithdrawal.upsert({
         where: { txHash },
@@ -262,6 +289,9 @@ async function handleOutboundWithdrawal(n: TransferNotification): Promise<void> 
           txHash,
           circleWalletId: walletId,
           isTestMode,
+          // Which chain the money left on, so its receipt links to an
+          // explorer that has the transaction. Null when Circle does not say.
+          chain: withdrawalChain,
           confirmedAt: settled ? new Date() : null,
         },
         // Only the state moves. The amount, destination and mode were settled
