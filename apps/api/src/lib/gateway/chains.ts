@@ -177,8 +177,12 @@ const MAINNET_CHAINS: SourceChain[] = [
    * Direct settlement is what makes this additive at all. The old path
    * required a CCTP route from here to Arc; this one pays the creator on the
    * chain the payer used, so a new chain needs USDC, an ERC-7710 delegation
-   * and nothing else. The domain below is recorded for completeness and is
-   * unused while DIRECT_SETTLEMENT_ENABLED is on.
+   * and nothing else. The domain below is unused while
+   * DIRECT_SETTLEMENT_ENABLED is on, and correct if it is ever off: CCTP's
+   * TokenMessengerV2 is deployed on Monad at the same address as everywhere
+   * else (checked on chain, same bytecode length as Base), so the bridged
+   * path would work here too rather than failing after the funds were
+   * pulled.
    *
    * BEING IN THIS TABLE DOES NOT OFFER IT. supportedSourceChains() filters by
    * SUPPORTED_SOURCE_CHAINS, whose default deliberately omits monad, so a

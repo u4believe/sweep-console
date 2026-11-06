@@ -46,11 +46,19 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Chain names for the confirmation receipt. */
+/**
+ * Short display names, preferred over the API's.
+ *
+ * /config calls them "Arbitrum One" and "OP Mainnet" — correct, and too long
+ * for a row a payer scans. A chain missing here falls back to whatever the
+ * API calls it, so a new one shows up named rather than not at all.
+ */
 const CHAIN_NAMES: Record<string, string> = {
   arc: "Arc",
   base: "Base",
   arbitrum: "Arbitrum",
   optimism: "Optimism",
+  monad: "Monad",
 };
 
 interface Plan {
@@ -251,7 +259,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
    * nothing touches. Served by /config rather than baked in, because one
    * bundle serves a deployment whose flag can change under it.
    */
-  const { settlementModel } = useSweepConfig();
+  const { settlementModel, sourceChains } = useSweepConfig();
   const { address, isConnected, status: accountStatus } = useAccount();
   const { openConnectModal } = useConnectModal();
   const { disconnect } = useDisconnect();
@@ -491,11 +499,27 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
    * button did all of that — neither is true, and believing it is how you end
    * up with a row that shows no sign of the wallet prompt it just triggered.
    */
-  const PAY_CHAINS = [
-    { key: "base", name: "USDC on Base", note: settlementNote(settlementModel, "Base") },
-    { key: "arbitrum", name: "USDC on Arbitrum", note: settlementNote(settlementModel, "Arbitrum") },
-    { key: "optimism", name: "USDC on Optimism", note: settlementNote(settlementModel, "Optimism") },
-  ] as const;
+  /**
+   * FROM THE DEPLOYMENT, NOT FROM THIS FILE.
+   *
+   * This was a literal three. The API grew a fourth and nothing here broke —
+   * Monad simply was not offered, which is the quietest way for a chain to be
+   * unavailable: it works end to end and no payer can reach it.
+   *
+   * "arc" is filtered even though /config does not list it among source
+   * chains: it settles payments, it never funds one, and a defensive filter
+   * costs nothing against an API that starts including it.
+   */
+  const PAY_CHAINS = sourceChains
+    .filter((c) => c.key !== "arc")
+    .map((c) => {
+      const label = CHAIN_NAMES[c.key] ?? c.name;
+      return {
+        key: c.key,
+        name: `USDC on ${label}`,
+        note: settlementNote(settlementModel, label),
+      };
+    });
 
   const [payChain, setPayChain] = useState<string>("base");
 

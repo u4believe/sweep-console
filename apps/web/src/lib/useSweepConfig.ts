@@ -41,6 +41,15 @@ export interface SweepConfig {
    * same reason.
    */
   settlementModel: "direct" | "bridged";
+  /**
+   * The chains a payer may pay from, as THIS deployment serves them.
+   *
+   * The hosted checkout hardcoded three, which was fine while the list had
+   * not moved in a year. Adding Monad to the API's table made that list
+   * wrong in the quietest way available: the chain works end to end and a
+   * payer simply never sees it offered.
+   */
+  sourceChains: Array<{ key: string; name: string }>;
   /** False until the API has answered; the values above are build-time until then. */
   loaded: boolean;
 }
@@ -58,11 +67,26 @@ const FALLBACK_BPS = Number(import.meta.env.VITE_PLATFORM_FEE_BPS ?? "200");
  */
 const FALLBACK_MODEL: "direct" | "bridged" = "direct";
 
+/**
+ * What to offer before /config answers.
+ *
+ * The three that have been there throughout. A chain added later appears the
+ * moment config resolves, which is the right way round: showing a chain this
+ * deployment does not serve would send a payer to a dead end, while showing
+ * one late costs a few hundred milliseconds.
+ */
+const FALLBACK_CHAINS: Array<{ key: string; name: string }> = [
+  { key: "base", name: "Base" },
+  { key: "arbitrum", name: "Arbitrum" },
+  { key: "optimism", name: "Optimism" },
+];
+
 export function useSweepConfig(): SweepConfig {
   const [cfg, setCfg] = useState<SweepConfig>({
     platformFeeBps: FALLBACK_BPS,
     isTest: isSandboxBuild(),
     settlementModel: FALLBACK_MODEL,
+    sourceChains: FALLBACK_CHAINS,
     loaded: false,
   });
 
@@ -76,6 +100,7 @@ export function useSweepConfig(): SweepConfig {
           platform_fee_bps?: number;
           mode?: string;
           settlement_model?: string;
+          source_chains?: Array<{ key: string; name: string }>;
         };
         if (typeof d.platform_fee_bps !== "number") return;
         setCfg({
@@ -84,6 +109,9 @@ export function useSweepConfig(): SweepConfig {
           // Only "bridged" turns it back; anything else, including an older
           // API that does not send the field, reads as direct.
           settlementModel: d.settlement_model === "bridged" ? "bridged" : "direct",
+          // An empty list would leave a payer no way to pay, so an API that
+          // sends none keeps the fallback rather than blanking the picker.
+          sourceChains: d.source_chains?.length ? d.source_chains : FALLBACK_CHAINS,
           loaded: true,
         });
       })
