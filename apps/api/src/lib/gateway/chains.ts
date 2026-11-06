@@ -91,6 +91,22 @@ export interface SourceChain {
   domain: number; // CCTP domain ID
   chain: Chain;
   usdc: Hex;
+  /**
+   * Circle's own code for this chain, as its API wants it.
+   *
+   * Here rather than in lib/circle.ts because a chain is defined once. The
+   * previous arrangement — one CIRCLE_BLOCKCHAIN for the whole deployment —
+   * was correct only while every creator was paid on Arc. Under direct
+   * settlement a creator is paid on whichever chain their subscriber used, so
+   * a wallet registered on one chain reads empty on the other three.
+   *
+   * And it reads empty while holding money: a Circle EOA has ONE EVM address,
+   * so USDC arrives whatever is registered. It is Circle's /balances and its
+   * withdrawal that are per-chain. That is the failure this field exists to
+   * stop — the same shape as the ETH-SEPOLIA default described in
+   * lib/circle.ts, wrong in a way that succeeds.
+   */
+  circle: string;
 }
 
 const TESTNET_CHAINS: SourceChain[] = [
@@ -100,6 +116,7 @@ const TESTNET_CHAINS: SourceChain[] = [
     domain: 2,
     chain: optimismSepolia,
     usdc: "0x5fd84259d66Cd46123540766Be93DFE6D43130D7",
+    circle: "OP-SEPOLIA",
   },
   {
     key: "arbitrum",
@@ -107,6 +124,7 @@ const TESTNET_CHAINS: SourceChain[] = [
     domain: 3,
     chain: arbitrumSepolia,
     usdc: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
+    circle: "ARB-SEPOLIA",
   },
   {
     key: "base",
@@ -114,6 +132,7 @@ const TESTNET_CHAINS: SourceChain[] = [
     domain: 6,
     chain: baseSepolia,
     usdc: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    circle: "BASE-SEPOLIA",
   },
 ];
 
@@ -127,6 +146,7 @@ const MAINNET_CHAINS: SourceChain[] = [
     domain: 2,
     chain: optimism,
     usdc: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+    circle: "OP",
   },
   {
     key: "arbitrum",
@@ -134,6 +154,7 @@ const MAINNET_CHAINS: SourceChain[] = [
     domain: 3,
     chain: arbitrum,
     usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+    circle: "ARB",
   },
   {
     key: "base",
@@ -141,6 +162,7 @@ const MAINNET_CHAINS: SourceChain[] = [
     domain: 6,
     chain: base,
     usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    circle: "BASE",
   },
   /**
    * MAINNET ONLY, AND NOT BY OVERSIGHT.
@@ -178,6 +200,7 @@ const MAINNET_CHAINS: SourceChain[] = [
     domain: 15,
     chain: monad,
     usdc: "0x754704Bc059F8C67012fEd69BC8A327a5aafb603",
+    circle: "MONAD",
   },
 ];
 

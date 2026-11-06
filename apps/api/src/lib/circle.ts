@@ -5,6 +5,8 @@ function normalizeBaseUrl(raw: string): string {
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 import { isMainnet } from "./gateway/chains";
+import { supportedSourceChains } from "./gateway/chains";
+import { directSettlementEnabled } from "./chain/direct-settlement";
 
 const BASE = normalizeBaseUrl(process.env.CIRCLE_BASE_URL ?? "https://api.circle.com");
 
@@ -131,7 +133,7 @@ export async function createCircleWalletChallenge(
   // EOA = standard Externally Owned Account; SCA requires special Circle feature flag
   return circlePost<{ challengeId: string }>(
     "/v1/w3s/user/initialize",
-    { idempotencyKey: randomUUID(), blockchains: [CIRCLE_BLOCKCHAIN], accountType: "EOA" },
+    { idempotencyKey: randomUUID(), blockchains: circleBlockchains(), accountType: "EOA" },
     userToken
   );
 }
@@ -143,7 +145,14 @@ export async function createCircleWalletForExistingUser(
   const { randomUUID } = await import("crypto");
   return circlePost<{ challengeId: string }>(
     "/v1/w3s/user/wallets",
-    { idempotencyKey: randomUUID(), blockchains: [CIRCLE_BLOCKCHAIN], accountType: "EOA", count: 1 },
+    {
+      idempotencyKey: randomUUID(),
+      blockchains: circleBlockchains(),
+      // One wallet PER BLOCKCHAIN named, not one wallet in total — Circle
+      // returns a record per chain, all sharing the EOA's single address.
+      accountType: "EOA",
+      count: 1,
+    },
     userToken
   );
 }
@@ -275,6 +284,30 @@ export function circleBlockchain(): string {
 }
 
 /**
+ * Every chain a creator's wallet must be registered on.
+ *
+ * Under direct settlement a creator is paid on whichever chain their
+ * subscriber holds USDC on, so a payout wallet has to be legible on all of
+ * them. Derived from supportedSourceChains() rather than listed again here —
+ * adding Monad to that table is what put Monad in this list, and a second
+ * list would be a second thing to forget.
+ *
+ * Arc is deliberately absent: nothing settles there any more, and
+ * registering a chain Circle must then be asked about on every balance read
+ * costs a round trip for an answer that is always zero.
+ *
+ * With the flag off this stays the single configured chain, so a rollback
+ * registers wallets exactly as before.
+ */
+export function circleBlockchains(): string[] {
+  if (!directSettlementEnabled()) return [CIRCLE_BLOCKCHAIN];
+  const codes = supportedSourceChains().map((c) => c.circle);
+  // Never return an empty list: Circle rejects it, and a deployment with no
+  // configured source chains has bigger problems than a wallet's registration.
+  return codes.length > 0 ? codes : [CIRCLE_BLOCKCHAIN];
+}
+
+/**
  * The USDC balance on the chain this deployment settles to.
  *
  * Matching on symbol alone is wrong in both directions. A wallet registered
@@ -291,9 +324,114 @@ export function circleBlockchain(): string {
 export function usdcOnSettlementChain(balances: TokenBalance[]):
   | { found: TokenBalance }
   | { found: null; elsewhere: TokenBalance[] } {
-  const want = CIRCLE_BLOCKCHAIN.toUpperCase();
+  const want = circleBlockchains().map((c) => c.toUpperCase());
   const usdc = balances.filter((b) => b.token.symbol === "USDC");
-  const here = usdc.find((b) => (b.token.blockchain ?? "").toUpperCase() === want);
+  const here = usdc.find((b) => want.includes((b.token.blockchain ?? "").toUpperCase()));
   if (here) return { found: here };
   return { found: null, elsewhere: usdc };
+}
+
+/**
+ * USDC per chain, for a creator paid on whichever chain each subscriber used.
+ *
+ * The single-chain read above answers "can this wallet be withdrawn from
+ * here", which was the only question while everything settled on Arc. It is
+ * the wrong question now: a creator with 40 USDC on Base and 12 on Arbitrum
+ * has two balances and two withdrawals, and a function returning the first
+ * match would show 40 and silently hide the rest.
+ *
+ * `elsewhere` keeps its old meaning — USDC on a chain this deployment does
+ * not settle on — because that still diagnoses a misregistered wallet, which
+ * is the failure that reads as an empty wallet over money that is there.
+ */
+export function usdcByChain(balances: TokenBalance[]): {
+  perChain: { blockchain: string; balance: TokenBalance }[];
+  total: bigint;
+  elsewhere: TokenBalance[];
+} {
+  const want = new Set(circleBlockchains().map((c) => c.toUpperCase()));
+  const usdc = balances.filter((b) => b.token.symbol === "USDC");
+  const perChain: { blockchain: string; balance: TokenBalance }[] = [];
+  const elsewhere: TokenBalance[] = [];
+  for (const b of usdc) {
+    const code = (b.token.blockchain ?? "").toUpperCase();
+    if (want.has(code)) perChain.push({ blockchain: code, balance: b });
+    else elsewhere.push(b);
+  }
+  // Circle reports amounts as decimal strings; USDC is 6dp on every chain we
+  // settle on, so parse rather than trust a float.
+  const total = perChain.reduce((sum, p) => sum + parseUsdc(p.balance.amount), 0n);
+  return { perChain, total, elsewhere };
+}
+
+/**
+ * Every chain this creator's Circle wallet is registered on, and what is on it.
+ *
+ * NO SCHEMA CHANGE, AND THAT IS THE POINT. A merchant row stores one
+ * circleWalletId, which was right when one chain mattered. Circle returns one
+ * wallet record PER CHAIN — same EOA address, different id — and a user token
+ * is mintable from the merchant's id alone, with no merchant session. So the
+ * per-chain ids are derivable on demand rather than something to store,
+ * migrate and keep in step with Circle.
+ *
+ * `missing` is what step 6 of the migration acts on: chains this deployment
+ * settles on that the wallet is NOT registered for. Those read as zero while
+ * holding real USDC, because a Circle EOA has one address and money arrives
+ * whatever is registered — see circleBlockchains().
+ */
+export async function readCreatorWalletChains(merchantDbId: string): Promise<
+  | {
+      ok: true;
+      address: string | null;
+      chains: { blockchain: string; walletId: string; usdc: bigint; read: boolean }[];
+      missing: string[];
+      total: bigint;
+    }
+  | { ok: false; reason: string }
+> {
+  let wallets: CircleWallet[];
+  try {
+    const { userToken } = await getCircleUserToken(merchantDbId);
+    wallets = await getCircleWallets(userToken);
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+
+  const want = circleBlockchains().map((c) => c.toUpperCase());
+  const byCode = new Map(wallets.map((w) => [(w.blockchain ?? "").toUpperCase(), w]));
+
+  const chains: { blockchain: string; walletId: string; usdc: bigint; read: boolean }[] = [];
+  let total = 0n;
+  for (const code of want) {
+    const w = byCode.get(code);
+    if (!w) continue;
+    const read = await getCircleWalletBalances(w.id);
+    if (!read.ok) {
+      // A failed read is not a zero balance — the same distinction the portal
+      // already draws. Report it unread rather than reporting zero.
+      chains.push({ blockchain: code, walletId: w.id, usdc: 0n, read: false });
+      continue;
+    }
+    const usdc = read.balances
+      .filter((b) => b.token.symbol === "USDC")
+      .reduce((sum, b) => sum + parseUsdc(b.amount), 0n);
+    chains.push({ blockchain: code, walletId: w.id, usdc, read: true });
+    total += usdc;
+  }
+
+  return {
+    ok: true,
+    address: wallets[0]?.address ?? null,
+    chains,
+    missing: want.filter((c) => !byCode.has(c)),
+    total,
+  };
+}
+
+/** Circle's decimal string -> USDC micro-units, without floating point. */
+export function parseUsdc(amount: string): bigint {
+  const [whole = "0", frac = ""] = String(amount).trim().split(".");
+  const micros = (frac + "000000").slice(0, 6);
+  const sign = whole.startsWith("-") ? -1n : 1n;
+  return sign * (BigInt(whole.replace("-", "") || "0") * 1_000_000n + BigInt(micros || "0"));
 }
