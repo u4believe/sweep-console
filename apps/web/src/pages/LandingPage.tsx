@@ -32,7 +32,7 @@ import { Fragment, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/auth";
 import { DOCS_URL } from "@/lib/docs";
-import { feeOnAmount, formatFeePercent, keepsOfAmount, useSweepConfig } from "@/lib/useSweepConfig";
+import { feeOnAmount, formatFeePercent, keepsOfAmount, settlementNote, useSweepConfig } from "@/lib/useSweepConfig";
 import { isSandboxBuild, keyPrefix, sessionPrefix } from "@/lib/mode";
 import { HoloScene } from "@/components/landing/HoloScene";
 import {
@@ -99,8 +99,11 @@ const STEPS = [
   },
   {
     n: "03",
-    title: "Settled on Arc",
-    body: "USDC is swept over CCTP straight to your payout wallet. Renewals repeat on their own.",
+    // Filled per deployment at render — see HowItWorks. A module constant
+    // cannot read /config, and this is the page's loudest claim about where
+    // a creator's money ends up.
+    title: "",
+    body: "",
     bg: "#0D1446",
     ink: "#fff",
     sub: "rgba(255,255,255,0.76)",
@@ -648,6 +651,7 @@ const NAV_CTA: CSSProperties = {
  * 700/800.
  */
 function Hero() {
+  const { settlementModel } = useSweepConfig();
   const reducedCoin = usePrefersReducedMotion();
   return (
     <section
@@ -777,7 +781,10 @@ function Hero() {
             }}
           >
             Subscribers approve a USDC spending limit with one wallet signature. Renewals charge themselves from
-            Base, Arbitrum or Optimism, and settle to you on Arc. Gas is on us.
+            {settlementModel === "direct"
+              ? " Base, Arbitrum, Optimism or Monad, and land in your wallet on that same chain."
+              : " Base, Arbitrum or Optimism, and settle to you on Arc."}{" "}
+            Gas is on us.
           </p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 28 }}>
             <Link
@@ -833,6 +840,8 @@ function Hero() {
 /* ── how it works ─────────────────────────────────────────────────────── */
 
 function HowItWorks() {
+  const { settlementModel } = useSweepConfig();
+  const direct = settlementModel === "direct";
   return (
     <Section id="how" dark background="#121A5C">
       <div data-reveal="" style={{ textAlign: "center", marginBottom: 52 }}>
@@ -858,7 +867,23 @@ function HowItWorks() {
           gap: 20,
         }}
       >
-        {STEPS.map((s) => (
+        {STEPS.map((step) => {
+          /**
+           * Step 03's wording is the page's loudest claim about where money
+           * goes, so it follows the deployment rather than the bundle. The
+           * others are the same whichever way settlement works.
+           */
+          const s =
+            step.n === "03"
+              ? {
+                  ...step,
+                  title: direct ? "Settled on their chain" : "Settled on Arc",
+                  body: direct
+                    ? "USDC goes straight to your payout wallet on the chain they paid from. Renewals repeat on their own."
+                    : "USDC is swept over CCTP straight to your payout wallet. Renewals repeat on their own.",
+                }
+              : step;
+          return (
           <div
             key={s.n}
             data-reveal=""
@@ -920,7 +945,8 @@ function HowItWorks() {
             </h3>
             <p style={{ margin: 0, fontSize: 15, lineHeight: 1.6, color: s.sub, textWrap: "pretty" }}>{s.body}</p>
           </div>
-        ))}
+          );
+        })}
       </div>
     </Section>
   );
@@ -964,7 +990,10 @@ const FB_LINES: Array<[string, string, string]> = [
   ["Checking Base balance…", "#7C7FFF", "rgba(124,127,255,0.25)"],
   ["Base is short by $24.88 — no charge made", "#E5484D", "rgba(229,72,77,0.25)"],
   ["Falling back to Arbitrum, same signature", "#7C7FFF", "rgba(124,127,255,0.25)"],
-  ["Charged $29.00 from Arbitrum — settled on Arc", "#7C7FFF", "rgba(124,127,255,0.25)"],
+  // This sequence is about falling back to a funded chain, so it does not
+  // name a settlement chain at all — true whichever way the deployment
+  // settles, and one less claim to keep in step.
+  ["Charged $29.00 from Arbitrum — renewal settled", "#7C7FFF", "rgba(124,127,255,0.25)"],
   ["Renewal complete. Nothing for anyone to do.", "#2BA06B", "rgba(31,138,91,0.3)"],
 ];
 
@@ -984,6 +1013,7 @@ function fbStateFor(i: number, st: number): FbState {
 
 
 function Fallback() {
+  const { settlementModel } = useSweepConfig();
   const reduced = usePrefersReducedMotion();
   // 4 is the resolved frame: Arbitrum paid, Optimism untouched. Stage 5 is
   // only the closing line, so a still of 4 tells the whole story.
@@ -1080,7 +1110,7 @@ function Fallback() {
             {[
               ["var(--color-danger)", "Short balance detected before anything is charged"],
               ["#CD94E6", "Charged from the next funded chain, same signature"],
-              ["#8F90A6", "Settled on Arc like any other renewal"],
+              ["#8F90A6", `${settlementNote(settlementModel)} like any other renewal`],
             ].map(([c, t]) => (
               <span key={t} style={{ display: "flex", gap: 12, alignItems: "center" }}>
                 <span style={{ width: 18, height: 4, borderRadius: 2, background: c, flex: "none" }} />
@@ -1310,7 +1340,7 @@ const RENEW_NOTE: Record<RenewState, string> = {
 function Demo() {
   const reduced = usePrefersReducedMotion();
   // The API's mode when it has answered, the build-time guess until then.
-  const { isTest } = useSweepConfig();
+  const { isTest, settlementModel } = useSweepConfig();
   const [chain, setChain] = useState<ChainKey>("base");
   const [stage, setStage] = useState<DemoStage>(null);
   const [done, setDone] = useState(false);
@@ -1531,7 +1561,7 @@ function Demo() {
                             : "Processing payment…"
                         : renew === "on"
                           ? "Authorized · renewals can charge from here"
-                          : "Settled on Arc";
+                          : settlementNote(settlementModel);
                       return (
                         <button
                           key={c.key}
@@ -1659,7 +1689,7 @@ function Demo() {
             ) : (
               <div style={{ padding: "30px 22px 24px" }}>
                 <p className="m-0" style={{ marginBottom: 8, fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--color-accent)" }}>
-                  Confirmed on Arc
+                  {settlementModel === "direct" ? "Payment confirmed" : "Confirmed on Arc"}
                 </p>
                 <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 32, lineHeight: 1.05, letterSpacing: "-0.03em" }}>
                   You&rsquo;re subscribed to Pro.
@@ -1671,7 +1701,12 @@ function Demo() {
                   {[
                     ["Plan", "Pro"],
                     ["Amount", "$29.00 USDC / month"],
-                    ["Network", `${prettyName[paidFrom]} → settled on Arc`],
+                    [
+                      "Network",
+                      settlementModel === "direct"
+                        ? `${prettyName[paidFrom]} — paid and settled`
+                        : `${prettyName[paidFrom]} → settled on Arc`,
+                    ],
                     ["Wallet", "0x7a3f…91c2"],
                   ].map(([k, v]) => (
                     <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 16, padding: "11px 14px", borderBottom: LINE }}>
@@ -1807,7 +1842,7 @@ function Compare() {
   // The deployment's own fee, not the one baked into this bundle — see
   // useSweepConfig. Both the rate and the two amounts come from one number,
   // so the card cannot quote a rate it does not then apply.
-  const { platformFeeBps: bps } = useSweepConfig();
+  const { platformFeeBps: bps, settlementModel } = useSweepConfig();
   const ROW: CSSProperties = {
     display: "flex",
     justifyContent: "space-between",
@@ -2075,7 +2110,7 @@ function Compare() {
                 color: "var(--color-neutral-600)",
               }}
             >
-              <span style={{ fontWeight: 700, color: "var(--color-accent)" }}>Settled on Arc &middot; seconds</span>
+              <span style={{ fontWeight: 700, color: "var(--color-accent)" }}>{settlementNote(settlementModel)} &middot; seconds</span>
               <span>Already in your wallet</span>
             </div>
           </div>
@@ -2395,6 +2430,7 @@ function Developers() {
 /* ── closing call ──────────────────────────────────────────────────────── */
 
 function StartCta() {
+  const { settlementModel } = useSweepConfig();
   return (
     <section
       id="start"
@@ -2489,7 +2525,8 @@ function StartCta() {
             maxWidth: "44ch",
           }}
         >
-          Create a plan, share the checkout, and let renewals settle themselves on Arc.
+          Create a plan, share the checkout, and let renewals settle themselves
+          {settlementModel === "direct" ? " on the chain each subscriber pays from." : " on Arc."}
         </p>
         <div data-reveal="" style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 12, marginTop: 34 }}>
           <Link to="/signup" style={{ ...CTA_STYLE, fontSize: 15, padding: "14px 28px" }}>

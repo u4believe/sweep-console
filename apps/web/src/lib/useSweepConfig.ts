@@ -28,16 +28,41 @@ export interface SweepConfig {
   platformFeeBps: number;
   /** True when this deployment is the sandbox. */
   isTest: boolean;
+  /**
+   * How settlement works here, and therefore what the page may claim.
+   *
+   *   "direct"  — paid and settled on the payer's own chain, one transaction
+   *   "bridged" — pulled on the payer's chain, bridged, minted on Arc
+   *
+   * The page cannot know this at build time: one bundle serves a deployment
+   * whose flag can change under it, and "Settled on Arc" baked into the
+   * landing page would keep promising a chain nothing touches. So it is
+   * served by /config beside the fee, which already works this way for the
+   * same reason.
+   */
+  settlementModel: "direct" | "bridged";
   /** False until the API has answered; the values above are build-time until then. */
   loaded: boolean;
 }
 
 const FALLBACK_BPS = Number(import.meta.env.VITE_PLATFORM_FEE_BPS ?? "200");
 
+/**
+ * What to assume before /config answers.
+ *
+ * "direct" on purpose. The two readings fail differently: assuming direct and
+ * being wrong understates a bridge the payer never sees anyway, while
+ * assuming bridged and being wrong names Arc on a page where no transaction
+ * will ever appear there. One is vague for a moment; the other is wrong in a
+ * way a payer could act on.
+ */
+const FALLBACK_MODEL: "direct" | "bridged" = "direct";
+
 export function useSweepConfig(): SweepConfig {
   const [cfg, setCfg] = useState<SweepConfig>({
     platformFeeBps: FALLBACK_BPS,
     isTest: isSandboxBuild(),
+    settlementModel: FALLBACK_MODEL,
     loaded: false,
   });
 
@@ -47,11 +72,18 @@ export function useSweepConfig(): SweepConfig {
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
         if (!alive || !json) return;
-        const d = (json.data ?? json) as { platform_fee_bps?: number; mode?: string };
+        const d = (json.data ?? json) as {
+          platform_fee_bps?: number;
+          mode?: string;
+          settlement_model?: string;
+        };
         if (typeof d.platform_fee_bps !== "number") return;
         setCfg({
           platformFeeBps: d.platform_fee_bps,
           isTest: d.mode === "test",
+          // Only "bridged" turns it back; anything else, including an older
+          // API that does not send the field, reads as direct.
+          settlementModel: d.settlement_model === "bridged" ? "bridged" : "direct",
           loaded: true,
         });
       })
@@ -80,4 +112,32 @@ export function feeOnAmount(amount: number, bps: number): string {
 /** What the creator keeps from `amount`, to two decimals. */
 export function keepsOfAmount(amount: number, bps: number): string {
   return (amount - (amount * bps) / 10_000).toFixed(2);
+}
+
+/**
+ * How to say where a payment settles, for a given deployment.
+ *
+ * ONE PLACE, because the alternative was nine. "Settled on Arc" appeared on
+ * the landing page, in both checkouts, on the dashboard and in the manage
+ * screens, each written out by hand — so making it true again would have
+ * meant finding all of them and agreeing with myself nine times.
+ *
+ * `chain` is the chain a payer actually used, where the caller knows it.
+ * Without it the phrasing stays general, which is what a landing page needs
+ * before anyone has chosen anything.
+ */
+export function settlementNote(
+  model: "direct" | "bridged",
+  chain?: string | null
+): string {
+  if (model === "bridged") return "Settled on Arc";
+  if (!chain) return "Settled on the chain you pay from";
+  return `Settled on ${chain}`;
+}
+
+/** The same fact as a sentence, for body copy rather than a label. */
+export function settlementSentence(model: "direct" | "bridged"): string {
+  return model === "bridged"
+    ? "They pay from Base, Arbitrum or Optimism, and it settles to you on Arc."
+    : "They pay from Base, Arbitrum, Optimism or Monad, and it lands in your wallet on that same chain.";
 }

@@ -76,9 +76,6 @@ function chainLabel(chainId: number, s: PortalSubscription): string {
 }
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/// Every settlement lands on Arc, so one explorer covers every receipt here.
-/// Mirrors lib/chain/config.ts — kept as a constant because this page never has
-/// a viem chain object to read it from.
 const INTERVAL_LABELS: Record<string, string> = {
   daily: "/ day",
   weekly: "/ week",

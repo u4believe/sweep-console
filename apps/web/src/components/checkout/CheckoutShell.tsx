@@ -27,6 +27,7 @@ import {
 } from "@/lib/gateway";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import { friendlyError } from "@/lib/errors";
+import { settlementNote, useSweepConfig } from "@/lib/useSweepConfig";
 
 /** An Arc EIP-2612 permit the subscriber has already signed, ready to submit. */
 export interface SignedPermit {
@@ -245,6 +246,12 @@ function StepRow({
 }
 
 export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, isTestMode, cancelUrl, onchain }: Props) {
+  /**
+   * How this deployment settles, so the checkout does not promise a chain
+   * nothing touches. Served by /config rather than baked in, because one
+   * bundle serves a deployment whose flag can change under it.
+   */
+  const { settlementModel } = useSweepConfig();
   const { address, isConnected, status: accountStatus } = useAccount();
   const { openConnectModal } = useConnectModal();
   const { disconnect } = useDisconnect();
@@ -485,9 +492,9 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
    * up with a row that shows no sign of the wallet prompt it just triggered.
    */
   const PAY_CHAINS = [
-    { key: "base", name: "USDC on Base", note: "Settled on Arc" },
-    { key: "arbitrum", name: "USDC on Arbitrum", note: "Settled on Arc" },
-    { key: "optimism", name: "USDC on Optimism", note: "Settled on Arc" },
+    { key: "base", name: "USDC on Base", note: settlementNote(settlementModel, "Base") },
+    { key: "arbitrum", name: "USDC on Arbitrum", note: settlementNote(settlementModel, "Arbitrum") },
+    { key: "optimism", name: "USDC on Optimism", note: settlementNote(settlementModel, "Optimism") },
   ] as const;
 
   const [payChain, setPayChain] = useState<string>("base");
@@ -637,7 +644,9 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
         v:
           paidFromChain === "arc"
             ? "Arc"
-            : `${CHAIN_NAMES[paidFromChain] ?? paidFromChain} → settled on Arc`,
+            : settlementModel === "direct"
+              ? `${CHAIN_NAMES[paidFromChain] ?? paidFromChain} — paid and settled`
+              : `${CHAIN_NAMES[paidFromChain] ?? paidFromChain} → settled on Arc`,
       },
       ...(address ? [{ k: "Wallet", v: address, mono: true }] : []),
       ...(txHashDisplay ? [{ k: "Transaction", v: txHashDisplay, mono: true }] : []),
@@ -663,7 +672,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
             className="m-0 uppercase"
             style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", color: "var(--color-accent)", marginBottom: 8 }}
           >
-            Confirmed on Arc
+            {settlementModel === "direct" ? "Payment confirmed" : "Confirmed on Arc"}
           </p>
           <h1
             className="m-0"
@@ -792,7 +801,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
 
           "Payment details" duplicated the step rail directly above it, which
           already reads "02 Payment details" and is the thing telling the payer
-          where they are. "One signature. No gas. Settled on Arc." is a promise
+          where they are. "One signature. No gas." is a promise
           that belongs on the landing page; at the point of paying, the payer
           has decided, and the card below answers the only remaining questions —
           what, how much, how often.

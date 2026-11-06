@@ -6,6 +6,7 @@ import { useAuth } from "@/context/auth";
 import { PageHeader } from "@/components/portal/PageHeader";
 import { ErrorNote, Kicker, Mono, Section } from "@/components/portal/primitives";
 import { ApiError, friendlyError } from "@/lib/errors";
+import { useSweepConfig } from "@/lib/useSweepConfig";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -508,6 +509,9 @@ function AccountTab({
 /* ── Payout wallet ───────────────────────────────────────────────────────── */
 
 function WalletTab({ profile }: { profile: MerchantProfile }) {
+  // This section describes where money lands, so it follows the deployment
+  // rather than the bundle.
+  const { settlementModel } = useSweepConfig();
   return (
     <section style={{ padding: "26px 32px", maxWidth: 820 }}>
       <WalletSettings
@@ -528,13 +532,25 @@ function WalletTab({ profile }: { profile: MerchantProfile }) {
               fill="var(--color-text)"
             />
           </svg>
-          <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 16 }}>Arc</span>
+          <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 16 }}>
+            {settlementModel === "direct" ? "The chain they pay from" : "Arc"}
+          </span>
           <span className="tag tag-neutral">Fixed</span>
         </div>
         <p className="m-0" style={{ fontSize: 12, color: "var(--color-neutral-700)", marginTop: 10, maxWidth: "64ch", lineHeight: 1.6 }}>
-          Every settlement lands on Arc — it isn&apos;t a choice, and there is nothing to configure.
-          Customers pay from Base, Arbitrum or Optimism and it is bridged to Arc automatically, so
-          you always reconcile in one place.
+          {settlementModel === "direct" ? (
+            <>
+              Settlement isn&apos;t a choice, and there is nothing to configure. A customer pays
+              from Base, Arbitrum, Optimism or Monad and it lands in your payout wallet on that
+              same chain — so you may hold a balance on more than one.
+            </>
+          ) : (
+            <>
+              Every settlement lands on Arc — it isn&apos;t a choice, and there is nothing to
+              configure. Customers pay from Base, Arbitrum or Optimism and it is bridged to Arc
+              automatically, so you always reconcile in one place.
+            </>
+          )}
         </p>
       </div>
     </section>

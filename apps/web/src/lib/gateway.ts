@@ -527,7 +527,7 @@ export interface WalletBalances {
   chains: { chain: string; name: string; domain: number; wallet_balance: string }[];
 }
 
-/** USDC the wallet holds on Arc and on every supported source chain. */
+/** USDC the wallet holds on every supported source chain (and Arc, while it remains). */
 export function fetchWalletBalances(address: string): Promise<WalletBalances> {
   return request<WalletBalances>(`/v1/wallet/balances?address=${address}`);
 }

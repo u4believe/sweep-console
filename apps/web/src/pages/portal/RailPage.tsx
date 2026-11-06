@@ -3,6 +3,7 @@ import { EnrolmentGate, useEnrolmentRequired } from "@/components/portal/Enrolme
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
 import { PageHeader } from "@/components/portal/PageHeader";
+import { useSweepConfig } from "@/lib/useSweepConfig";
 import {
   EmptyNote,
   ErrorNote,
@@ -87,6 +88,9 @@ const usdc = (v: number) => formatUnits(BigInt(v), 6);
 type Tab = "charges" | "mandates";
 
 export function RailPage() {
+  // The fee/settlement note below describes where money lands, so it follows
+  // the deployment rather than the bundle.
+  const { settlementModel } = useSweepConfig();
   const [data, setData] = useState<RailData | null>(null);
   const [error, setError] = useState("");
   /**
@@ -443,7 +447,10 @@ export function RailPage() {
       <Section bordered={false}>
         <p className="m-0" style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
           Collected is what payers were charged. Your share is that less the platform fee, which is taken on the
-          source chain before the bridge — settlement lands on Arc
+          source chain
+          {settlementModel === "direct"
+            ? " in the same transaction that pays you — both land on the chain the payer used"
+            : " before the bridge — settlement lands on Arc"}
           {data?.payoutWallet ? (
             <>
               {" "}

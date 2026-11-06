@@ -310,7 +310,8 @@ export function DashboardPage() {
    * public-ish contract several screens read. A union type here costs one sort;
    * a union endpoint would cost every caller of payments.
    *
-   * Payments now link their hash too. They settle on Arc like a payout does,
+   * Payments now link their hash too. They carry a hash on whichever chain they
+   * settled on,
    * so an unlinked payment hash beside a linked withdrawal one would look
    * broken rather than deliberate — and the explorer is the same.
    */
