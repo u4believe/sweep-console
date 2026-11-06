@@ -9,7 +9,7 @@ fee       = amount × platformFeeBps / 10000
 you get   = amount − fee
 ```
 
-Your share goes to your payout wallet on Arc; the fee goes to the platform
+Your share goes to your payout wallet on the chain the payer used; the fee goes to the platform
 treasury. The split is computed **off-chain as the charge settles** and paid out
 in the same bridge, so your share never sits in a contract.
 
@@ -32,8 +32,10 @@ it does not reverse past ones.
 
 ## Renewals
 
-Each cycle the relayer redeems one period of the subscriber's grant on the
-source chain, splits it, and bridges your share to Arc.
+Each cycle one redemption takes a period of the subscriber's grant on the
+chain they hold USDC on and pays it out in the same transaction — your share
+to your payout wallet, the fee to the platform. Nothing is bridged and nothing
+is held in between.
 
 A failed renewal is retried **daily for about seven days** before the
 subscription is closed. Each failure fires `subscription.past_due` and

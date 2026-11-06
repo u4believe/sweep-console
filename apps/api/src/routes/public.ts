@@ -33,6 +33,7 @@ import { WALLET_SELECT, walletFor } from "../lib/merchant-wallet";
 import { payerScope } from "../lib/payer-scope";
 import { chargeFloorMicros, formatFloor } from "../lib/charge-floor";
 import { isMainnet, supportedSourceChains } from "../lib/gateway/chains";
+import { directSettlementEnabled } from "../lib/chain/direct-settlement";
 
 
 export const publicRouter = Router();
@@ -408,7 +409,27 @@ publicRouter.get("/config", (_req, res) => {
   return ok(res, {
     platform_fee_bps: Number(platformFeeBps()),
     source_chains: supportedSourceChains().map((c) => ({ key: c.key, name: c.name })),
-    settlement_chain: "arc",
+    /**
+     * THERE IS NO SINGLE SETTLEMENT CHAIN UNDER DIRECT SETTLEMENT.
+     *
+     * A payer is charged on the chain they hold USDC on and the creator is
+     * paid on that same chain, so settlement is per-payment. Naming one chain
+     * here would be a promise the next payment breaks, and "Settled on Arc"
+     * is exactly the copy this field drove.
+     *
+     * null rather than a removed key: a client reading it gets a falsy value
+     * and can say "the chain you paid on" instead of a chain name, where a
+     * missing key would read as an older API that simply did not say.
+     */
+    settlement_chain: directSettlementEnabled() ? null : "arc",
+    /**
+     * How settlement works, so a client can phrase it without inferring from
+     * the absence of a chain name.
+     *
+     *   "direct"  — paid and settled on the payer's own chain, one transaction
+     *   "bridged" — pulled on the payer's chain, bridged, minted on Arc
+     */
+    settlement_model: directSettlementEnabled() ? "direct" : "bridged",
     currency: "USDC",
     /**
      * Which network this deployment serves, and therefore which key it takes.

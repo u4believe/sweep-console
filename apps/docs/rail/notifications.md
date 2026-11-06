@@ -3,8 +3,8 @@
 Sweep emails a receipt whenever a charge settles, to the email on the mandate —
 the one they proved, if it differs from the one you sent.
 
-It states what was taken, by whom, which chain it came from, the Arc
-transaction, and the ceiling it was collected under. A standing debit the payer
+It states what was taken, by whom, which chain it came from, the
+transaction on that chain, and the ceiling it was collected under. A standing debit the payer
 never sees coming reads as an unexplained withdrawal otherwise.
 
 ## Two things it deliberately does not say
@@ -21,8 +21,8 @@ payer supplies their own at the authorization step.
 ## What is still yours to send
 
 Product mail beyond the receipt — dunning, renewal reminders, anything tied to
-your plans. `charge.succeeded` carries `amount`, `source_chain`, the Arc
-`tx_hash` and your `external_ref`.
+your plans. `charge.succeeded` carries `amount`, `source_chain`, a
+`tx_hash` on that same chain and your `external_ref`.
 
 ## Trials are yours too
 

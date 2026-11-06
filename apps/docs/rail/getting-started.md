@@ -13,8 +13,9 @@ called out below.
 
 1. **Create an account and verify your email.** The same signup as any creator.
 
-2. **Link a payout wallet** — Dashboard → Settings → Payout wallet. An Arc
-   address, verified by signing a nonce.
+2. **Link a payout wallet** — Dashboard → Settings → Payout wallet. An EVM
+   address, verified by signing a nonce. It receives USDC on whichever chain
+   each payer paid from.
 
    ::: warning Do this before anything else
    A mandate will be created and authorized perfectly happily without one, and

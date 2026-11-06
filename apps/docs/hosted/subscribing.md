@@ -11,9 +11,10 @@ The flow your payers go through on the hosted checkout. You build none of it.
 3. **They connect a wallet.** Never automatically; connecting is always an
    explicit action.
 
-4. **They pay in USDC on Base, Arbitrum or Optimism** — gasless. One signature
-   authorizes the recurring charge; the platform submits the transaction, pays
-   the gas, and bridges to Arc over CCTP.
+4. **They pay in USDC on Base, Arbitrum, Optimism or Monad** — gasless. One
+   signature authorizes the recurring charge; the platform submits the
+   transaction and pays the gas. The money goes straight to your payout
+   wallet on that same chain.
 
 5. **The first charge settles to you immediately.** A trial starts free and
    takes nothing. After that, renewals are automatic and gasless, with no
@@ -29,9 +30,14 @@ The flow your payers go through on the hosted checkout. You build none of it.
   "tier_name": "Monthly", "amount": 29000000, "currency": "USDC",
   "interval": "monthly", "status": "active",
   "customer_id": "cus_…", "subscriber_email": "ada@example.com",
-  "wallet_address": "0x…", "chain": "base", "settlement_chain": "arc"
+  "wallet_address": "0x…", "chain": "base", "settlement_chain": "base"
 }
 ```
+
+`settlement_chain` is the chain the money actually landed on, and `tx_hash` is
+a transaction on it. On deployments that still bridge to Arc it reads `"arc"`
+and the hash is the Arc mint, so look it up there instead. `GET /config` says
+which applies: `settlement_model` is `"direct"` or `"bridged"`.
 
 `customer_id` is stable across every wallet that person ever pays from, which
 makes it the better key if you are storing one.

@@ -14,7 +14,7 @@ link. You call no API for these; the webhook is the whole integration.
 | `subscription.renewed` | A recurring charge succeeded. Carries `current_period_end` — use it rather than adding a month yourself |
 | `subscription.past_due` | A renewal failed. Not cancelled yet; retried daily for seven days |
 | `subscription.cancelled` | Billing stopped — by the subscriber, by you, or by a closed plan. `cancel_reason` says why |
-| `payment.succeeded` | USDC settled on Arc for a charge |
+| `payment.succeeded` | USDC settled for a charge, on the chain it was paid from |
 | `payment.failed` | A renewal charge could not be collected. Carries `attempt` and `reason`, and arrives alongside `subscription.past_due` — subscribe to whichever you act on |
 
 ## The payment rail
@@ -29,7 +29,7 @@ These only fire for accounts the rail is enabled on.
 | `grant.added` | A payer authorized an **extra chain** on a live mandate, from the link or their portal. More ways for a charge to succeed; nothing to stop. Carries `granted_chains` |
 | `mandate.expiring` | Within the warning window of `expires_at` (7 days by default). Carries `days_remaining`. Sent once, not daily |
 | `mandate.expired` | Passed its expiry and can no longer be charged. Sent once |
-| `charge.succeeded` | A pull settled on Arc. Carries `source_chain` and the Arc `tx_hash` |
+| `charge.succeeded` | A pull settled. Carries `source_chain` and a `tx_hash` on that same chain |
 | `charge.failed` | A pull could not be collected. Carries `failure_code` — `insufficient_funds`, `mandate_period_consumed` and so on |
 
 ## On `mandate.revoked` and `grant.revoked`

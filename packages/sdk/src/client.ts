@@ -218,7 +218,8 @@ export class Sweep {
       mode?: string;
       platform_fee_bps?: number;
       source_chains?: Array<{ key: string; name: string }>;
-      settlement_chain?: string;
+      settlement_chain?: string | null;
+      settlement_model?: string;
       currency?: string;
       live_keys_available?: boolean;
       min_charge_usdc?: string;
@@ -227,7 +228,17 @@ export class Sweep {
       mode: raw.mode === "live" ? "live" : "test",
       platformFeeBps: raw.platform_fee_bps ?? 0,
       sourceChains: raw.source_chains ?? [],
-      settlementChain: raw.settlement_chain ?? "arc",
+      /**
+       * NULL IS A REAL ANSWER, NOT A MISSING ONE.
+       *
+       * This defaulted to "arc", which was true while every payment bridged
+       * there. Under direct settlement each payment settles on the chain it
+       * was paid from, so there is no single settlement chain — and a client
+       * that fell back to "arc" would print a chain name no transaction
+       * matches. Read `settlementModel` to tell the two apart.
+       */
+      settlementChain: raw.settlement_chain ?? null,
+      settlementModel: raw.settlement_model === "bridged" ? "bridged" : "direct",
       currency: raw.currency ?? "USDC",
       liveKeysAvailable: !!raw.live_keys_available,
       minChargeUsdc: raw.min_charge_usdc ?? null,

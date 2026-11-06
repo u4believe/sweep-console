@@ -32,6 +32,7 @@ import { belowChargeFloor, chargeFloorRefusal } from "../lib/charge-floor";
 import { claimKey, completeKey, releaseKey, hashRequest } from "../lib/idempotency";
 import { executeCharge } from "../billing/direct-charge";
 import { mandatePeriodStart, periodCommitted } from "../lib/rail";
+import { directSettlementEnabled } from "../lib/chain/direct-settlement";
 
 export const chargesRouter = Router();
 
@@ -71,11 +72,21 @@ function serialize(c: ChargeRow) {
     external_ref: c.externalRef,
     metadata: c.metadata,
     test_mode: c.isTestMode,
-    // The chain the funds came FROM. Settlement is always on Arc, so tx_hash is
-    // the Arc mint — reporting one without the other is how a developer ends up
-    // looking for a Base transaction that does not exist.
+    /**
+     * WHERE IT CAME FROM, AND WHERE IT LANDED — which are now the same chain.
+     *
+     * This said settlement is always Arc, so tx_hash was the Arc mint, and
+     * reporting one without the other was how a developer ended up looking
+     * for a Base transaction that did not exist.
+     *
+     * Under direct settlement the opposite trap applies: the funds never
+     * leave the payer's chain, so claiming Arc would send that same developer
+     * to an explorer where the hash cannot be found. Both fields therefore
+     * report c.chain, and tx_hash is a transaction on it.
+     */
     source_chain: c.chain,
-    settlement_chain: c.status === "succeeded" ? "arc" : null,
+    settlement_chain:
+      c.status === "succeeded" ? (directSettlementEnabled() ? c.chain : "arc") : null,
     tx_hash: c.txHash,
     failure_reason: c.failureReason,
     created_at: c.createdAt.toISOString(),

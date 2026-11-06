@@ -63,8 +63,8 @@ the mandate — a `maxAmount` sized for the old price will not cover the new one
 
 ## It answers 202, never 200
 
-Every charge is cross-chain — Arc cannot back a mandate — so collecting is a
-pull, a burn, an attestation and a mint: seconds to minutes.
+Collecting is one transaction on the chain the payer authorized on — Arc
+cannot back a mandate, so a charge is never collected there. Seconds, usually.
 
 The charge row exists the moment we answer. **The money arrives later.** Learn
 the outcome from `charge.succeeded` / `charge.failed`, or by polling

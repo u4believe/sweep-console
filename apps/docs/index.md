@@ -4,7 +4,7 @@ layout: home
 hero:
   name: Sweep Console
   text: Recurring USDC, straight from a wallet
-  tagline: Hosted plans with no billing code, or a rail you drive yourself. Paid on Base, Arbitrum or Optimism; settled on Arc.
+  tagline: Hosted plans with no billing code, or a rail you drive yourself. Paid and settled on Base, Arbitrum, Optimism or Monad — wallet to wallet.
   image:
     src: /logo.svg
     alt: Sweep Console
@@ -22,8 +22,8 @@ hero:
 features:
   - title: One signature, then nothing
     details: The payer signs once in their wallet. Every renewal after that is gasless — the platform submits each transaction and covers the gas and the bridge fee.
-  - title: Paid anywhere, settled on Arc
-    details: They pay from Base, Arbitrum or Optimism. It arrives in your payout wallet on Arc, bridged over CCTP, netting you the same amount whichever chain it came from.
+  - title: Paid and settled on the same chain
+    details: They pay from Base, Arbitrum, Optimism or Monad, and it arrives in your payout wallet on that same chain. One transaction, no bridge, nothing held in between.
   - title: You keep the ceiling honest
     details: What a payer signs is a cap per period, not a price. Charge under it as often as your billing says; go over it and we ask them to re-authorize rather than charge them anyway.
 ---

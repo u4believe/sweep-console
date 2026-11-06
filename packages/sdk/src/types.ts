@@ -89,8 +89,15 @@ export interface Charge {
   testMode: boolean;
   /** The chain the funds came FROM. */
   sourceChain: string | null;
-  /** Always "arc" once settled — tx_hash is the Arc mint, not a source-chain tx. */
-  settlementChain: "arc" | null;
+  /**
+   * Where it settled, or null while it has not.
+   *
+   * This was always "arc", and tx_hash was the Arc mint rather than a
+   * source-chain transaction. Under direct settlement the funds never leave
+   * the payer's chain, so this equals `sourceChain` and tx_hash is a
+   * transaction on THAT chain — look the hash up there, not on Arc.
+   */
+  settlementChain: string | null;
   txHash: string | null;
   failureReason: string | null;
   createdAt: Date;
@@ -498,7 +505,21 @@ export interface SweepConfig {
   platformFeeBps: number;
   /** Chains a payer may authorize on, as this deployment serves them. */
   sourceChains: Array<{ key: string; name: string }>;
-  settlementChain: string;
+  /**
+   * The one chain everything settles on, or null when there isn't one.
+   *
+   * null under direct settlement: each payment settles on the chain it was
+   * paid from, so there is no single answer. Phrase it from
+   * `settlementModel` rather than printing a chain name.
+   */
+  settlementChain: string | null;
+  /**
+   * How settlement works on this deployment.
+   *
+   *   "direct"  — paid and settled on the payer's own chain, one transaction
+   *   "bridged" — pulled on the payer's chain, bridged, minted on Arc
+   */
+  settlementModel: "direct" | "bridged";
   currency: string;
   liveKeysAvailable: boolean;
   /**
