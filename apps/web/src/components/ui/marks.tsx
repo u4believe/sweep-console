@@ -28,17 +28,19 @@ export const CHAIN_ASSET: Partial<Record<ChainKey, string>> = {
   optimism: `${BASE}/chain-optimism.svg`,
   arc: `${BASE}/chain-arc.svg`,
   /**
-   * monad: DELIBERATELY ABSENT until the real mark is dropped in beside the
-   * others as `public/design/chain-monad.svg`.
+   * Monad ships as a TOKEN mark, not a chain one, and that is the design's
+   * own choice — the v4 package has token-mon.svg and no chain-monad.svg,
+   * and uses it everywhere the other chains use theirs.
    *
-   * The note on ChainBadge applies here and is the reason this is a gap rather
-   * than something hand-drawn: a payer recognises a chain's own mark, and an
-   * approximation of it on the screen where they commit money is worse than
-   * none. ChainMark renders a neutral monogram in the meantime, which is
-   * visibly a placeholder and keeps the badge the same height as its
-   * neighbours instead of collapsing the row.
+   * The monogram fallback below stays for whatever comes next: a chain can be
+   * added to the API before its artwork arrives, and a row that collapses to
+   * a bare label is worse than one with an obvious placeholder.
    */
+  monad: `${BASE}/token-mon.svg`,
 };
+
+/** NEAR Protocol, which appears in the hero strip rather than as a chain. */
+export const NEAR_TOKEN = `${BASE}/token-near.svg`;
 
 export const SWEEP_MARK = `${BASE}/sweep-mark.png`;
 export const USDC_TOKEN = `${BASE}/token-usdc.svg`;

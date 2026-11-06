@@ -41,6 +41,7 @@ import {
   UsdcMark,
   USDC_TOKEN,
   METAMASK_LOGO_LIGHT,
+  NEAR_TOKEN,
   CIRCLE_LOGO,
   type ChainKey,
 } from "@/components/ui/marks";
@@ -376,12 +377,17 @@ const MARQUEE: Array<{ kind: "chain" | "token" | "logo"; key?: ChainKey; label: 
   { kind: "chain", key: "base", label: "Base" },
   { kind: "chain", key: "arbitrum", label: "Arbitrum" },
   { kind: "chain", key: "optimism", label: "Optimism" },
+  { kind: "chain", key: "monad", label: "Monad" },
   { kind: "token", label: "USDC" },
-  { kind: "chain", key: "arc", label: "Arc" },
+  // Arc is gone from this strip, as it is from the v4 package. It was here as
+  // the settlement chain, and settlement no longer happens there.
   // The light variant: this strip is navy, and the default mark's wordmark
   // is #161616.
   { kind: "logo", label: "MetaMask", src: METAMASK_LOGO_LIGHT, h: 30 },
   { kind: "logo", label: "Circle", src: CIRCLE_LOGO, h: 32 },
+  // NEAR rides the strip as artwork, not a chain: nothing is paid or settled
+  // there. It is where a creator's cross-chain withdrawal would route.
+  { kind: "logo", label: "NEAR Protocol", src: NEAR_TOKEN, h: 40 },
 ];
 
 function Marquee() {

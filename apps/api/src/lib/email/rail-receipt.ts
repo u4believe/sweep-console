@@ -94,7 +94,7 @@ export async function sendRailChargeReceipt(chargeDbId: string): Promise<void> {
       paidFromChain: CHAIN_NAMES[chainKey] ?? chainKey,
       walletAddress: charge.mandate.walletAddress,
       txHash: charge.txHash,
-      explorerUrl: charge.txHash ? explorerTxUrl(charge.txHash) : null,
+      explorerUrl: charge.txHash ? explorerTxUrl(charge.txHash, charge.chain ?? "arc") : null,
       ceiling: usdc(charge.mandate.maxAmount),
       interval: charge.mandate.interval,
       authorizationExpiresAt: charge.mandate.expiresAt,

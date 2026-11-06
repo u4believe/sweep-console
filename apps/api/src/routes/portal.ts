@@ -1957,7 +1957,9 @@ portalRouter.get("/payments", async (req, res) => {
         txHash: p.txHash,
         // Built here for the same reason the withdrawal's is: the deployment
         // knows its network and the client should not have to re-derive it.
-        explorerUrl: explorerTxUrl(p.txHash),
+        // A hash exists on ONE chain, so a payment pulled on Base has no Arc
+        // transaction to link to — and the 161 rows that say "arc" still do.
+        explorerUrl: explorerTxUrl(p.txHash, p.chain),
         createdAt: p.createdAt.toISOString(),
       })),
     });

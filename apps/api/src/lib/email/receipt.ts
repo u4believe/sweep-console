@@ -123,7 +123,7 @@ export async function sendPaymentReceipt(paymentDbId: string): Promise<void> {
       paidFromChain: CHAIN_NAMES[chainKey] ?? chainKey,
       walletAddress: sub.walletAddress,
       txHash: payment.txHash,
-      explorerUrl: payment.txHash ? explorerTxUrl(payment.txHash) : null,
+      explorerUrl: payment.txHash ? explorerTxUrl(payment.txHash, payment.chain) : null,
       // The period end IS the next charge date while the subscription is live.
       nextRenewalAt: sub.status === "cancelled" ? null : sub.currentPeriodEnd,
       isFirstCharge: payment.type === "initial",
