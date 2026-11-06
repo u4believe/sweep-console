@@ -125,15 +125,39 @@ export async function getCircleUserToken(
   );
 }
 
+/**
+ * EOA or SCA for a creator's payout wallet.
+ *
+ * SCA, BECAUSE GAS STATION REQUIRES IT. Circle's docs are explicit: "On EVM
+ * chains, the Programmable Wallet must be an ERC-4337-compliant smart
+ * contract account." An EOA creator cannot have their withdrawal gas
+ * sponsored, and under direct settlement a creator is paid on four chains and
+ * would otherwise need native token on each to move their own money.
+ *
+ * AN SCA IS A DIFFERENT ADDRESS FROM AN EOA, which is why this is a decision
+ * and not a detail. The payout address is pinned into every subscriber's
+ * grant, so a creator who switches needs every subscriber to re-authorize.
+ * It therefore has to be settled BEFORE step 9 of the migration, not after.
+ *
+ * The old comment here said SCA "requires special Circle feature flag". That
+ * may still be true of a given Circle account even though the supported-chains
+ * table now lists SCA for user-controlled wallets on every chain we settle on
+ * (Base, Arbitrum, Optimism, Monad and Arc). Overridable for exactly that
+ * reason: if Circle refuses SCA for this account, CIRCLE_ACCOUNT_TYPE=EOA
+ * restores the old behaviour without a release.
+ */
+export function creatorAccountType(): "EOA" | "SCA" {
+  return process.env.CIRCLE_ACCOUNT_TYPE?.trim().toUpperCase() === "EOA" ? "EOA" : "SCA";
+}
+
 export async function createCircleWalletChallenge(
   userToken: string
 ): Promise<{ challengeId: string }> {
   const { randomUUID } = await import("crypto");
   // /initialize creates the PIN challenge + wallet in one step (first-time setup only)
-  // EOA = standard Externally Owned Account; SCA requires special Circle feature flag
   return circlePost<{ challengeId: string }>(
     "/v1/w3s/user/initialize",
-    { idempotencyKey: randomUUID(), blockchains: circleBlockchains(), accountType: "EOA" },
+    { idempotencyKey: randomUUID(), blockchains: circleBlockchains(), accountType: creatorAccountType() },
     userToken
   );
 }
@@ -150,7 +174,7 @@ export async function createCircleWalletForExistingUser(
       blockchains: circleBlockchains(),
       // One wallet PER BLOCKCHAIN named, not one wallet in total — Circle
       // returns a record per chain, all sharing the EOA's single address.
-      accountType: "EOA",
+      accountType: creatorAccountType(),
       count: 1,
     },
     userToken
@@ -162,6 +186,16 @@ export interface CircleWallet {
   address: string;
   blockchain: string;
   state: string;
+  /**
+   * "EOA" or "SCA". Present on Circle's reply; optional here because a reply
+   * from before we asked for it would not carry one.
+   *
+   * It matters because a merchant can hold BOTH on the same chain — an EOA
+   * from before this migration and an SCA created after — and they are
+   * different addresses. Picking whichever Circle happens to list first would
+   * read a balance from one wallet and withdraw from another.
+   */
+  accountType?: string;
 }
 
 export async function getCircleWallets(userToken: string): Promise<CircleWallet[]> {
@@ -383,9 +417,18 @@ export async function readCreatorWalletChains(merchantDbId: string): Promise<
   | {
       ok: true;
       address: string | null;
-      chains: { blockchain: string; walletId: string; usdc: bigint; read: boolean }[];
+      chains: {
+        blockchain: string;
+        walletId: string;
+        address: string;
+        accountType: string | null;
+        usdc: bigint;
+        read: boolean;
+      }[];
       missing: string[];
       total: bigint;
+      oneAddress: boolean;
+      addresses: string[];
     }
   | { ok: false; reason: string }
 > {
@@ -398,9 +441,44 @@ export async function readCreatorWalletChains(merchantDbId: string): Promise<
   }
 
   const want = circleBlockchains().map((c) => c.toUpperCase());
-  const byCode = new Map(wallets.map((w) => [(w.blockchain ?? "").toUpperCase(), w]));
 
-  const chains: { blockchain: string; walletId: string; usdc: bigint; read: boolean }[] = [];
+  /**
+   * One wallet per chain, and the RIGHT one where there are two.
+   *
+   * A merchant who had an EOA before this migration and creates an SCA after
+   * holds both on the same chain, at different addresses. `new Map(...)` kept
+   * whichever Circle listed last, which is not a decision — it is a coin
+   * toss that decides which address a balance is read from and which a
+   * withdrawal leaves.
+   *
+   * USABLE BEATS PREFERRED. A LIVE wallet outranks a preferred one in any
+   * other state, because a wallet still initialising cannot be read or
+   * withdrawn from: choosing a PENDING SCA over a LIVE EOA would show a
+   * creator nothing while their money sat in the EOA. Among equally usable
+   * wallets, the configured account type wins.
+   */
+  const preferred = creatorAccountType();
+  const byCode = new Map<string, CircleWallet>();
+  for (const w of wallets) {
+    const code = (w.blockchain ?? "").toUpperCase();
+    const held = byCode.get(code);
+    if (!held) {
+      byCode.set(code, w);
+      continue;
+    }
+    const score = (x: CircleWallet) =>
+      (x.state === "LIVE" ? 4 : 0) + (x.accountType?.toUpperCase() === preferred ? 2 : 0);
+    if (score(w) > score(held)) byCode.set(code, w);
+  }
+
+  const chains: {
+    blockchain: string;
+    walletId: string;
+    address: string;
+    accountType: string | null;
+    usdc: bigint;
+    read: boolean;
+  }[] = [];
   let total = 0n;
   for (const code of want) {
     const w = byCode.get(code);
@@ -409,22 +487,54 @@ export async function readCreatorWalletChains(merchantDbId: string): Promise<
     if (!read.ok) {
       // A failed read is not a zero balance — the same distinction the portal
       // already draws. Report it unread rather than reporting zero.
-      chains.push({ blockchain: code, walletId: w.id, usdc: 0n, read: false });
+      chains.push({
+        blockchain: code,
+        walletId: w.id,
+        address: w.address,
+        accountType: w.accountType ?? null,
+        usdc: 0n,
+        read: false,
+      });
       continue;
     }
     const usdc = read.balances
       .filter((b) => b.token.symbol === "USDC")
       .reduce((sum, b) => sum + parseUsdc(b.amount), 0n);
-    chains.push({ blockchain: code, walletId: w.id, usdc, read: true });
+    chains.push({
+      blockchain: code,
+      walletId: w.id,
+      address: w.address,
+      accountType: w.accountType ?? null,
+      usdc,
+      read: true,
+    });
     total += usdc;
   }
 
+  /**
+   * Whether every chain really is one address.
+   *
+   * For an EOA it is: Circle derives one key per identity, so the address
+   * repeats across EVM chains. For an SCA, Circle's unified-addressing doc
+   * says the same of "Circle Wallets on EVM" but every example it gives is an
+   * EOA and it never mentions SCA — so this is measured rather than assumed.
+   *
+   * It matters because the payout address is pinned into each subscriber's
+   * grant. One address means one pin. Several would mean the pin has to be
+   * per chain, which the grant targets already are — but settlementPayees()
+   * is not, and would have to become so BEFORE any grant is signed.
+   */
+  const addresses = [...new Set(chains.map((c) => c.address.toLowerCase()))];
+
   return {
     ok: true,
-    address: wallets[0]?.address ?? null,
+    address: chains[0]?.address ?? wallets[0]?.address ?? null,
     chains,
     missing: want.filter((c) => !byCode.has(c)),
     total,
+    /** True when one address serves every chain — the assumption elsewhere. */
+    oneAddress: addresses.length <= 1,
+    addresses,
   };
 }
 

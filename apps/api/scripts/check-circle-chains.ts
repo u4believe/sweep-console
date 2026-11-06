@@ -44,6 +44,8 @@ async function main(): Promise<void> {
 
   let needRepair = 0;
   let unread = 0;
+  let splitAddresses = 0;
+  let eoaRemaining = 0;
   let strandedTotal = 0n;
 
   for (const m of merchants) {
@@ -57,8 +59,42 @@ async function main(): Promise<void> {
       continue;
     }
     const have = r.chains.map((c) => `${c.blockchain}=${usdc(c.usdc).trim()}${c.read ? "" : "?"}`);
-    const flag = r.missing.length > 0 ? "NEEDS REGISTRATION" : "ok";
+    const flag = r.missing.length > 0 ? "NEEDS REGISTRATION" : !r.oneAddress ? "SPLIT ADDRESSES" : "ok";
     console.log(`  ${who} ${flag.padEnd(19)} total ${usdc(r.total)}  [${have.join(" ") || "none"}]`);
+
+    /**
+     * THE QUESTION THIS CHECK EXISTS TO SETTLE, now that wallets are SCA.
+     *
+     * The payout address is pinned into every subscriber's grant, so one
+     * address per creator means one pin. Circle's unified-addressing doc says
+     * EVM wallets share an address, but every example it gives is an EOA and
+     * it never mentions SCA — so it is measured here rather than believed.
+     *
+     * Several addresses is not a failure of the wallet; it is a finding that
+     * changes settlementPayees(), which pins ONE creator address for every
+     * chain. Grant targets are already per chain, so the fix is contained —
+     * but it has to land before any grant is signed against the wrong one.
+     */
+    const types = [...new Set(r.chains.map((c) => c.accountType ?? "?"))];
+    console.log(
+      `${" ".repeat(29)}address${r.oneAddress ? "" : "es"}: ${r.addresses.join(", ") || "none"}` +
+        `  ·  accountType: ${types.join(", ") || "unknown"}`
+    );
+    if (!r.oneAddress) {
+      splitAddresses++;
+      console.log(
+        `${" ".repeat(29)}^ ONE PIN WILL NOT COVER THESE. settlementPayees() pins a single` +
+          ` creator address for every chain and must become per-chain first.`
+      );
+    }
+    const mixed = r.chains.filter((c) => (c.accountType ?? "").toUpperCase() === "EOA");
+    if (mixed.length > 0) {
+      eoaRemaining++;
+      console.log(
+        `${" ".repeat(29)}^ still EOA on ${mixed.map((c) => c.blockchain).join(", ")} —` +
+          ` Gas Station cannot sponsor those withdrawals`
+      );
+    }
     if (r.missing.length > 0) {
       needRepair++;
       strandedTotal += r.total;
@@ -76,6 +112,20 @@ async function main(): Promise<void> {
         `Fix the read before trusting this check.`
     );
     process.exitCode = 1;
+  }
+  if (splitAddresses > 0) {
+    console.log(
+      `\n${splitAddresses} wallet(s) hold DIFFERENT addresses per chain. A grant pins one payout\n` +
+        `address, so settlementPayees() has to resolve per chain before step 9 re-authorization.`
+    );
+    process.exitCode = 1;
+  }
+  if (eoaRemaining > 0) {
+    console.log(
+      `\n${eoaRemaining} wallet(s) are still EOA. Gas Station needs an ERC-4337 smart contract\n` +
+        `account, so those creators pay their own withdrawal gas until they re-run wallet setup\n` +
+        `— which gives them a NEW address, and so needs their subscribers to re-authorize.`
+    );
   }
   if (needRepair > 0) {
     console.log(
