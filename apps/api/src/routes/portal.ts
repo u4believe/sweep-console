@@ -49,6 +49,7 @@ import {
   createCircleWalletChallenge,
   createCircleWalletForExistingUser,
   getCircleWallets,
+  type CircleWallet,
   getCircleChallengeStatus,
   getCircleWalletById,
   getCircleWalletBalances,
@@ -2447,6 +2448,48 @@ portalRouter.post("/wallet/circle/confirm", async (req, res) => {
         res,
         "Wallet not found — the Circle challenge may not have completed. Please try again.",
         404,
+      );
+    }
+
+    /**
+     * ONE ADDRESS IS STORED, SO ONE ADDRESS HAD BETTER SERVE EVERY CHAIN.
+     *
+     * This row is what gets pinned into every subscriber's grant as the
+     * payee. A wallet registered on four chains that answers a DIFFERENT
+     * address on one of them would be pinned to whichever Circle happened to
+     * return here, and a payer on the odd chain would pay an address the
+     * creator does not control. The grant is signed by then, so there is no
+     * recovering it without every subscriber re-authorizing.
+     *
+     * Circle's unified-addressing doc says EVM wallets share an address, and
+     * it is automatic for user-controlled ones — but every example it gives
+     * is an EOA and it never mentions SCA, which is a contract account.
+     * Circle's own assistant says the same and declines to confirm SCA. So it
+     * is CHECKED HERE, at the only moment where the answer is both knowable
+     * and still cheap: before an address is written and long before a grant
+     * names it.
+     *
+     * Not fatal: the wallet is real and the money is safe either way. It
+     * refuses to STORE a payout address it cannot vouch for on every chain,
+     * and says which chains disagreed.
+     */
+    const siblings: CircleWallet[] = await getCircleWallets(userToken).catch(() => []);
+    const distinct = [...new Set(siblings.map((w) => w.address.toLowerCase()))];
+    if (distinct.length > 1) {
+      const byChain = siblings
+        .map((w) => `${w.blockchain}=${w.address.slice(0, 10)}…`)
+        .join(", ");
+      console.error(
+        `[portal/wallet/circle/confirm] ${dbId} holds ${distinct.length} addresses across chains ` +
+          `(${byChain}). Refusing to store one as the payout address — see ` +
+          `settlementPayees(), which pins a single address for every chain.`
+      );
+      return err(
+        res,
+        "Your wallet came back with a different address on each chain, which we can't use as " +
+          "a single payout address yet. Nothing is lost — please contact support.",
+        409,
+        "split_wallet_addresses"
       );
     }
 
