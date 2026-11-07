@@ -22,8 +22,15 @@ const INTERVALS = [
  * logging failures to the console, so a tier could silently fail to exist while
  * the merchant was told the plan was created.
  *
- * Price and interval are permanent once saved — subscriptions snapshot them at
- * checkout — so they are stated as permanent here rather than after the fact.
+ * INTERVAL AND TRIAL are permanent once saved; the price is not.
+ *
+ * LOCKED_TIER_TERMS in the API is ["interval", "trial_days"], and
+ * refusePriceChange permits any price that is positive and actually different
+ * — a raise included, since a subscriber whose signed cap no longer covers it
+ * is asked to re-authorize rather than refused. This said "price & interval
+ * permanent", which overstated the lock in the one direction a creator would
+ * act on: believing a typo'd price was unfixable and building a second plan
+ * around it.
  */
 export function CreatePlanForm() {
   const navigate = useNavigate();
@@ -146,7 +153,7 @@ export function CreatePlanForm() {
           >
             First tier
           </p>
-          <span className="tag tag-neutral">Price &amp; interval permanent once saved</span>
+          <span className="tag tag-neutral">Interval &amp; trial permanent once saved</span>
         </div>
 
         <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>

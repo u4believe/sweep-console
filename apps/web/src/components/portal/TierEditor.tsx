@@ -9,12 +9,18 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 /**
  * Edits ONE existing tier, independently of every other tier on the plan.
  *
- * The price may be LOWERED, never raised. Every subscriber signed a wallet
- * permission capped at the price they saw, so a cut is always collectable while
- * a rise would be refused by their own wallet and drop them into dunning. The
- * field below is therefore bounded by today's price, and a cut reaches existing
- * subscribers at their next renewal — which is the point of being able to make
- * one.
+ * THE PRICE MAY BE CHANGED, up or down.
+ *
+ * It used to be a cut only: every subscriber signed a wallet permission
+ * capped at the price they saw, so a rise would be refused by their own
+ * wallet and drop them into dunning. That is now handled rather than
+ * forbidden — refusePriceChange permits any positive, actually-different
+ * price, and a subscriber whose cap no longer covers it is asked to
+ * re-authorize instead of being charged and never dunned for it.
+ *
+ * This comment said the field was "bounded by today's price". It is not, and
+ * had not been since that rule went: there is no max on the input below. A
+ * cut still reaches existing subscribers at their next renewal.
  *
  * The interval and trial stay fixed for the life of the tier. The interval is
  * baked into every signed grant's period schedule, so changing it would

@@ -92,7 +92,7 @@ export function AddTierForm({ planId, onAdded }: { planId: string; onAdded: () =
       <div className="mb-3 flex items-baseline gap-3">
         <h4 className="m-0" style={{ fontSize: 17 }}>New tier</h4>
         <p className="m-0" style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>
-          Price and interval are permanent once saved.
+          Interval and trial are permanent once saved. The price can be changed later.
         </p>
       </div>
 

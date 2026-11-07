@@ -621,8 +621,8 @@ portalRouter.patch(
   if (locked) {
     return err(
       res,
-      `A tier's interval and trial are fixed once it exists (${locked}). Its price can be lowered, ` +
-        `never raised. Add a new tier to sell different terms.`,
+      `A tier's interval and trial are fixed once it exists (${locked}). Its price can be ` +
+        `changed. Add a new tier to sell a different interval.`,
       422,
     );
   }
@@ -756,8 +756,10 @@ portalRouter.patch(
 
 // The DEFAULT tier is the plan's own terms — there is no PlanTier row behind it,
 // so it is edited here rather than through /tiers/:tierId. Same contract as a
-// tier: name, trial length and feature copy are presentation and editable; price
-// and interval are the billing terms and are fixed once the plan exists.
+// tier: name and feature copy are presentation and editable, and the price can be
+// changed — see refusePriceChange, which allows a raise and handles the
+// re-authorization it causes. Interval and trial are what LOCKED_TIER_TERMS
+// actually fixes.
 //
 // The name and features live on plan.metadata (defaultTierName / defaultFeatures,
 // which is where the checkout reads them from); the trial is a real plan column.
@@ -775,7 +777,7 @@ portalRouter.patch(
     return err(
       res,
       `The default tier's interval and trial are the plan's own terms and are fixed (${locked}). ` +
-        `Its price can be lowered, never raised. Add a tier to sell different terms.`,
+        `Its price can be changed. Add a tier to sell a different interval.`,
       422,
     );
   }
