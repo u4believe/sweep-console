@@ -152,6 +152,22 @@ const CALL_GAS = 700_000n;
 const VERIFICATION_GAS = 300_000n;
 const PRE_VERIFICATION_GAS = 80_000n;
 
+/**
+ * Extra verification gas when the operation also DEPLOYS the account.
+ *
+ * An MSCA's first operation on a chain carries its initCode, so validation
+ * runs the factory and writes a new account before it validates anything —
+ * work a steady-state redeem never does. VERIFICATION_GAS alone is sized for
+ * the steady state, so the first op on each chain was the one most likely to
+ * run out of it, and the only one that could not be retried into success.
+ *
+ * It matters now because the delegate MSCA is counterfactual on any chain it
+ * has not redeemed on yet, which is where a first live charge would land.
+ * Over-providing costs nothing: unused gas is refunded, and the EntryPoint
+ * charges for what was spent, not what was offered.
+ */
+const DEPLOY_VERIFICATION_GAS = 500_000n;
+
 /** Keep this much ETH deposited at the EntryPoint for each delegate MSCA. */
 function depositFloor(): bigint {
   const raw = process.env.DELEGATE_MSCA_DEPOSIT_FLOOR_ETH;
@@ -443,7 +459,12 @@ export async function redeemViaSelfBundler(
    * owner's own ETH — the same balance that used to pay for this redeem
    * directly — so this moves where the ETH sits without needing a new key.
    */
-  const required = (CALL_GAS + VERIFICATION_GAS + PRE_VERIFICATION_GAS) * maxFeePerGas;
+  // initCode first, because the floor has to cover the deploying op rather
+  // than the one after it.
+  const initCode = await initCodeFor(account, publicClient);
+  const deploying = initCode !== "0x";
+  const verificationGas = deploying ? VERIFICATION_GAS + DEPLOY_VERIFICATION_GAS : VERIFICATION_GAS;
+  const required = (CALL_GAS + verificationGas + PRE_VERIFICATION_GAS) * maxFeePerGas;
   const deposit = await publicClient.readContract({
     address: ENTRY_POINT,
     abi: ENTRY_POINT_ABI,
@@ -502,7 +523,7 @@ export async function redeemViaSelfBundler(
     nonce,
     callData,
     callGasLimit: CALL_GAS,
-    verificationGasLimit: VERIFICATION_GAS,
+    verificationGasLimit: verificationGas,
     preVerificationGas: PRE_VERIFICATION_GAS,
     maxFeePerGas,
     maxPriorityFeePerGas,
@@ -516,9 +537,9 @@ export async function redeemViaSelfBundler(
   const op = {
     sender: p.sender,
     nonce: p.nonce,
-    initCode: (p.initCode ?? (await initCodeFor(account, publicClient))) as Hex,
+    initCode: (p.initCode ?? initCode) as Hex,
     callData: p.callData,
-    accountGasLimits: packTwo(VERIFICATION_GAS, CALL_GAS),
+    accountGasLimits: packTwo(verificationGas, CALL_GAS),
     preVerificationGas: PRE_VERIFICATION_GAS,
     gasFees: packTwo(maxPriorityFeePerGas, maxFeePerGas),
     paymasterAndData: (p.paymasterAndData ?? "0x") as Hex,
@@ -718,6 +739,14 @@ export async function redeemBatchViaSelfBundler(input: {
   // Read once: every op in this batch shares one account, and the answer
   // cannot change mid-loop.
   const batchInitCode = await initCodeFor(account, publicClient);
+  /**
+   * Only the FIRST item in a batch carries initCode — a second would be AA10
+   * — so only that one needs deployment-sized verification gas. They share a
+   * limit here because the cost of over-providing is nil (unused gas is
+   * refunded) and a per-item limit would be a second thing to keep in step.
+   */
+  const verificationGas =
+    batchInitCode !== "0x" ? VERIFICATION_GAS + DEPLOY_VERIFICATION_GAS : VERIFICATION_GAS;
 
   for (let i = 0; i < input.items.length; i++) {
     const item = input.items[i]!;
@@ -768,7 +797,7 @@ export async function redeemBatchViaSelfBundler(input: {
       // initCode deploys the account and a second one would be AA10.
       initCode: (p.initCode ?? (i === 0 ? batchInitCode : "0x")) as Hex,
       callData: p.callData,
-      accountGasLimits: packTwo(VERIFICATION_GAS, CALL_GAS),
+      accountGasLimits: packTwo(verificationGas, CALL_GAS),
       preVerificationGas: PRE_VERIFICATION_GAS,
       gasFees: packTwo(maxPriorityFeePerGas, maxFeePerGas),
       paymasterAndData: (p.paymasterAndData ?? "0x") as Hex,
