@@ -42,20 +42,18 @@ export function useMinCharge(): number | null {
 }
 
 /**
- * Why the floor exists, in the creator's terms.
+ * The floor, as a hint under the amount field.
  *
- * They are not refused for a malformed field — the number they typed is a
- * perfectly good price. They are refused by economics, and a message that
- * does not say so reads as an arbitrary limit. So it names the cause: a
- * payment costs roughly the same to collect whatever its size, which is the
- * one fact that makes a minimum make sense rather than feel invented.
+ * It used to explain itself — that a payment costs about the same to collect
+ * whatever its size, so below the floor the fee outweighs the payment. True,
+ * and three sentences of it above a single number field. The reason belongs
+ * in the docs; the field needs the number.
+ *
+ * minChargeError still explains, because that one appears only after someone
+ * has typed too little and is owed a reason.
  */
 export function minChargeHint(min: number): string {
-  return (
-    `Minimum ${min.toFixed(2)} USDC. Collecting a payment costs about the same ` +
-    `in network fees whatever its size, so below this the fee would take more ` +
-    `than the payment is worth. Test mode has no minimum.`
-  );
+  return `Minimum plan/tier price is ${min.toFixed(2)} USDC.`;
 }
 
 /** The refusal shown against the field itself, once they have typed too little. */
