@@ -5,7 +5,7 @@ import { addMinutes } from "date-fns";
 import { verifyMessage } from "viem";
 import type { Prisma } from "@prisma/client";
 import { WALLET_SELECT, walletFor, walletWrite } from "../lib/merchant-wallet";
-import { circleBlockchain, usdcOnSettlementChain, readCreatorWalletChains, formatUsdc, parseUsdc } from "../lib/circle";
+import { circleBlockchain, circleBlockchains, usdcOnSettlementChain, readCreatorWalletChains, formatUsdc, parseUsdc } from "../lib/circle";
 import { directSettlementEnabled } from "../lib/chain/direct-settlement";
 import { portalScope } from "../middleware/portalAuth";
 import { prisma, withRetry } from "../lib/prisma";
@@ -2748,18 +2748,82 @@ portalRouter.post(
         );
       }
 
-      const { userToken } = await getCircleUserToken(dbId);
+      const isTestMode = portalScope(req).isTestMode;
+      const { userToken, encryptionKey } = await getCircleUserToken(dbId);
       const wallets = await getCircleWallets(userToken);
-      const wallet = wallets.find((w) => w.state === "LIVE") ?? wallets[0];
 
-      if (!wallet) return err(res, "Could not find your Circle wallet.", 404);
+      /**
+       * RELINK MEANS "GIVE ME MY PAYOUT WALLET BACK", and after the migration
+       * the right answer may be one that does not exist yet.
+       *
+       * This returned 404 "Could not find your Circle wallet" when Circle had
+       * none — which is the state a creator is in after unlinking, and the
+       * state the live user was in here: /users/token answered 200 while
+       * /user/wallets had nothing to list. Telling someone their wallet
+       * cannot be found, when the fix is to make one, is a dead end.
+       *
+       * So an empty account falls through to creation, on EVERY chain this
+       * deployment pays on rather than the single chain the old wallet sat
+       * on. It needs the creator's PIN, so it returns a challenge for the
+       * client to execute and /wallet/circle/confirm to finish — the same
+       * pair first-time setup uses.
+       */
+      if (wallets.length === 0) {
+        let challengeId: string;
+        try {
+          ({ challengeId } = await createCircleWalletChallenge(userToken));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          // Already initialized: /user/initialize has nothing to do and says
+          // so with a 409 or a 404. /user/wallets is the endpoint then.
+          if (msg.includes("409") || msg.includes("404")) {
+            ({ challengeId } = await createCircleWalletForExistingUser(userToken));
+          } else {
+            throw e;
+          }
+        }
+        console.log(
+          `[portal/wallet/relink-circle] ${dbId} had no Circle wallet; creating on ` +
+            `${circleBlockchains().join(", ")}`
+        );
+        return ok(res, {
+          created: true,
+          chains: circleBlockchains(),
+          userToken,
+          encryptionKey,
+          challengeId,
+          appId: process.env.NEXT_PUBLIC_CIRCLE_APP_ID,
+        });
+      }
 
+      const wallet = wallets.find((w) => w.state === "LIVE") ?? wallets[0]!;
+
+      /**
+       * walletWrite, not a bare `walletAddress`.
+       *
+       * This wrote the TEST column whatever mode it was in, so relinking a
+       * live wallet pointed the sandbox at it and left live where it was —
+       * the same fault unlink had. It also restored only the address, leaving
+       * circleWalletId and the verification stamp behind, so a relinked
+       * wallet could not be read or withdrawn from.
+       */
       await prisma.merchant.update({
         where: { id: dbId },
-        data: { walletAddress: wallet.address.toLowerCase() },
+        data: walletWrite(isTestMode, {
+          address: wallet.address.toLowerCase(),
+          type: "circle",
+          circleWalletId: wallet.id,
+          verifiedAt: new Date(),
+        }),
       });
 
-      return ok(res, { walletAddress: wallet.address.toLowerCase() });
+      return ok(res, {
+        walletAddress: wallet.address.toLowerCase(),
+        created: false,
+        // Chains it is NOT yet registered on, so the client can offer to add
+        // them rather than leaving the creator to find out from a zero balance.
+        chains: wallets.map((w) => w.blockchain),
+      });
     } catch (e) {
       console.error("[portal/wallet/relink-circle]", e);
       const message =

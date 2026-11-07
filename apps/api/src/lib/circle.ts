@@ -206,8 +206,32 @@ export interface CircleWallet {
   accountType?: string;
 }
 
+/**
+ * This user's wallets, or none.
+ *
+ * CIRCLE SIGNALS "NO WALLETS" WITH A 404, not an empty list. A user who
+ * exists but has never been initialized — /users/token answers 200 for them —
+ * gets `{"code":-1,"message":"Resource not found"}` from this endpoint, and
+ * throwing on it turns the most ordinary state in the whole flow into a
+ * failure the caller cannot act on.
+ *
+ * That is what broke relinking: /wallet/relink-circle called this, the 404
+ * propagated, and a creator with no wallet yet was told "Circle API error
+ * (404): Resource not found" instead of being offered one.
+ *
+ * Any other failure still throws. A network fault and an empty account must
+ * not look the same, or the caller creates a second wallet for someone who
+ * already has one.
+ */
 export async function getCircleWallets(userToken: string): Promise<CircleWallet[]> {
-  const data = await circleGet<{ wallets: CircleWallet[] }>("/v1/w3s/user/wallets", userToken);
+  let data: { wallets?: CircleWallet[] };
+  try {
+    data = await circleGet<{ wallets: CircleWallet[] }>("/v1/w3s/user/wallets", userToken);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("404")) return [];
+    throw e;
+  }
   return data.wallets ?? [];
 }
 
