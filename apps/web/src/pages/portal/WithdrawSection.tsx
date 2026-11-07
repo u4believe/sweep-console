@@ -98,6 +98,15 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
   const [chain, setChain] = useState<string>("");
   /** Set while the add-chains PIN challenge is open. */
   const [addingChains, setAddingChains] = useState(false);
+  /**
+   * The add-chains button's OWN message, shown beside it.
+   *
+   * It used to report through `outcome`, which renders down beside the
+   * withdraw form — far enough from this button that a failure read as
+   * nothing happening at all. A button that can fail silently is a button
+   * people press twice.
+   */
+  const [chainsNote, setChainsNote] = useState<string>("");
 
   /**
    * Register the wallet on the chains it is missing.
@@ -110,6 +119,7 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
    */
   async function handleAddChains() {
     setAddingChains(true);
+    setChainsNote("");
     setOutcome(null);
     try {
       const res = await apiFetch(`/portal/wallet/circle/add-chains`, { method: "POST" });
@@ -124,7 +134,15 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
       const d = body.data ?? {};
       if (d.alreadyComplete) {
         setAddingChains(false);
+        setChainsNote("Already set up on every chain.");
         await loadBalance(true);
+        return;
+      }
+      if (!d.challengeId || !d.userToken || !d.encryptionKey) {
+        // Nothing to run means nothing would visibly happen, which is the
+        // failure this message exists to replace.
+        setAddingChains(false);
+        setChainsNote("We couldn't start wallet setup. Please try again, or contact support.");
         return;
       }
 
@@ -136,7 +154,7 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
       sdk.execute(d.challengeId!, async (err) => {
         if (err) {
           setAddingChains(false);
-          setOutcome({ kind: "error", message: `Couldn't add chains: ${err.message ?? "Unknown error"}` });
+          setChainsNote(`Couldn't add chains: ${err.message ?? "the PIN step was cancelled"}`);
           return;
         }
         // Circle has accepted the PIN; the server now checks the address did
@@ -145,15 +163,16 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
           const done = await apiFetch(`/portal/wallet/circle/confirm-chains`, { method: "POST" });
           if (!done.ok) await throwApiError(done, "Couldn't confirm the new chains");
           await loadBalance(true);
+          setChainsNote("Done — your wallet now covers every chain.");
         } catch (e) {
-          setOutcome({ kind: "error", message: e instanceof Error ? e.message : "Couldn't confirm the new chains" });
+          setChainsNote(e instanceof Error ? e.message : "Couldn't confirm the new chains");
         } finally {
           setAddingChains(false);
         }
       });
     } catch (e) {
       setAddingChains(false);
-      setOutcome({ kind: "error", message: e instanceof Error ? e.message : "Couldn't extend your wallet" });
+      setChainsNote(e instanceof Error ? e.message : "Couldn't extend your wallet");
     }
   }
 
@@ -365,6 +384,9 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
               <span style={{ display: "block", marginTop: 6, color: "var(--color-neutral-600)" }}>
                 Your payout address doesn't change, and your subscribers don't need to do anything.
               </span>
+              {chainsNote && (
+                <span style={{ display: "block", marginTop: 6, fontWeight: 600 }}>{chainsNote}</span>
+              )}
             </p>
           )}
         </div>

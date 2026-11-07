@@ -2513,14 +2513,45 @@ portalRouter.post(
        * exact ambiguity readCreatorWalletChains has to score its way out of.
        */
       const { userToken, encryptionKey } = await getCircleUserToken(dbId);
-      const { challengeId } = await createCircleWalletForExistingUser(
-        userToken,
-        before.missing
-      );
+
+      /**
+       * ADDING TO NOTHING IS NOT ADDING — it is setting up.
+       *
+       * /user/wallets extends a user who already has a PIN. A merchant whose
+       * Circle account holds NO wallets has never been initialized, so that
+       * endpoint issues a challenge there is no PIN to authorize, and the
+       * challenge simply never completes: Circle answers 201, a
+       * challenges.createWallet notification arrives, and /user/wallets still
+       * returns 404. Which is exactly what happened — "adding OP, ARB, BASE,
+       * MONAD (has none)" followed by no wallet and no error.
+       *
+       * A merchant reaches that state because our row and Circle's account
+       * disagree: walletType says "circle" while Circle has nothing. The DB
+       * is not the authority on what Circle holds, so the endpoint follows
+       * CIRCLE's answer, not ours.
+       */
+      const fromScratch = before.chains.length === 0;
+      let challengeId: string;
+      if (fromScratch) {
+        try {
+          ({ challengeId } = await createCircleWalletChallenge(userToken));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          // Already initialized after all: initialize has nothing to do and
+          // says so with a 409 or a 404, and /user/wallets is right again.
+          if (msg.includes("409") || msg.includes("404")) {
+            ({ challengeId } = await createCircleWalletForExistingUser(userToken, before.missing));
+          } else {
+            throw e;
+          }
+        }
+      } else {
+        ({ challengeId } = await createCircleWalletForExistingUser(userToken, before.missing));
+      }
 
       console.log(
-        `[portal/wallet/add-chains] ${dbId} adding ${before.missing.join(", ")} ` +
-          `(has ${before.chains.map((c) => c.blockchain).join(", ") || "none"})`
+        `[portal/wallet/add-chains] ${dbId} ${fromScratch ? "initializing" : "adding"} ` +
+          `${before.missing.join(", ")} (has ${before.chains.map((c) => c.blockchain).join(", ") || "none"})`
       );
 
       return ok(res, {
@@ -2574,6 +2605,42 @@ portalRouter.post("/wallet/circle/confirm-chains", async (req, res) => {
         409,
         "split_wallet_addresses"
       );
+    }
+
+    /**
+     * STORE IT WHEN THERE IS NOTHING STORED.
+     *
+     * This only ever verified, which was right while add-chains could only
+     * extend a wallet whose address was already on the row. It cannot be any
+     * more: a merchant whose Circle account held nothing goes through the
+     * initialize path, and the address that comes back is new — so verifying
+     * it against a null and returning success left the row with no payout
+     * address at all, and the dashboard still showing none.
+     */
+    if (after.address && !w.address) {
+      await withRetry(() =>
+        prisma.merchant.update({
+          where: { id: dbId },
+          data: walletWrite(portalScope(req).isTestMode, {
+            address: after.address!.toLowerCase(),
+            type: "circle",
+            circleWalletId: after.chains[0]?.walletId ?? null,
+            verifiedAt: new Date(),
+          }),
+        })
+      );
+      console.log(
+        `[portal/wallet/confirm-chains] ${dbId} stored a new payout address ${after.address} ` +
+          `on ${after.chains.map((c) => c.blockchain).join(", ")}`
+      );
+      return ok(res, {
+        data: {
+          address: after.address,
+          created: true,
+          chains: after.chains.map((c) => ({ blockchain: c.blockchain, read: c.read })),
+          stillMissing: after.missing,
+        },
+      });
     }
 
     const moved =
