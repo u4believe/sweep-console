@@ -628,7 +628,27 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
       (c) => BigInt(c.wallet_balance) >= planAmount && grantedChains.includes(c.chain)
     );
     if (!funded) {
-      setGrantError("Balance too low for payment. Try other chain");
+      /**
+       * "Try other chain" is step 03's message and it does not belong here.
+       *
+       * That one answers a subscriber who PICKED a chain: another might
+       * work. This path picked none — the master switch authorized them all
+       * and then looked for one holding a full period. Telling someone to
+       * try a different chain when they chose none reads as a fault in the
+       * page rather than an empty wallet, which is the actual situation.
+       *
+       * Their authorizations stand either way: the grants are signed, and
+       * funding any approved chain lets the charge proceed.
+       */
+      const approved = balances.chains
+        .filter((c) => grantedChains.includes(c.chain))
+        .map((c) => CHAIN_NAMES[c.chain] ?? c.chain);
+      setGrantError(
+        approved.length > 0
+          ? `Not enough USDC to start this subscription. Add funds on ${approved.join(", ")} ` +
+            `and try again — your approvals are saved.`
+          : "Not enough USDC to start this subscription. Add funds and try again."
+      );
       return;
     }
     setPayChain(funded.chain);

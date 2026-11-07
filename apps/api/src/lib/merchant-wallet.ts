@@ -91,12 +91,16 @@ export function walletFor(m: WalletColumns, isTestMode: boolean): MerchantWallet
 export interface WalletWrite {
   address?: string | null;
   /**
-   * Nullable so unlink can clear it. A merchant who unlinked still reading as
-   * type "circle" is how a relink gets refused for a wallet that is gone —
-   * walletFor() defaults a null back to "external", which is the honest
-   * answer for an account with no wallet.
+   * NOT nullable, because the column is not.
+   *
+   * walletType is `String @default("external")` and NOT NULL. This was
+   * briefly widened to accept null so unlink could clear it — which compiled,
+   * and then failed at runtime with "Argument `liveWalletType` must not be
+   * null", taking the whole unlink with it. Unlink sets "external" instead,
+   * which is the column's default and what walletFor() reports for a merchant
+   * with no wallet.
    */
-  type?: string | null;
+  type?: string;
   circleWalletId?: string | null;
   verifiedAt?: Date | null;
   usdcBalance?: string;

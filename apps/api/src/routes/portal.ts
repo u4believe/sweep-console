@@ -2317,7 +2317,22 @@ portalRouter.post(
         data: {
           ...walletWrite(portalScope(req).isTestMode, {
             address: null,
-            type: null,
+            /**
+             * "external", NOT null.
+             *
+             * walletType is `String @default("external")` and NOT NULL, so
+             * clearing it to null is refused by Prisma — "Argument
+             * `liveWalletType` must not be null" — and the unlink fails
+             * outright. Widening the TypeScript type to accept null compiled
+             * cleanly and told me nothing, because the constraint is in the
+             * database.
+             *
+             * "external" is the right value anyway: it is the column's own
+             * default, it is what walletFor() reports for a merchant with no
+             * wallet, and it clears the "a Circle wallet already exists"
+             * refusal that blocks relinking.
+             */
+            type: "external",
             circleWalletId: null,
             verifiedAt: null,
           }),
