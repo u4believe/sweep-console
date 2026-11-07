@@ -3,6 +3,7 @@ import { isStaleBuildError, STALE_BUILD_MESSAGE, recoverFromStaleBuild } from "@
 import { ExternalWalletVerify } from "./ExternalWalletVerify";
 import { ChainMark } from "@/components/ui/marks";
 import { friendlyError } from "@/lib/errors";
+import { loadCircleSdk } from "@/lib/circleSdk";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -82,7 +83,7 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
         appId: string;
       };
 
-      const { W3SSdk } = await import("@circle-fin/w3s-pw-web-sdk");
+      const { W3SSdk } = await loadCircleSdk();
       const sdk = new W3SSdk();
       sdk.setAppSettings({ appId: import.meta.env.VITE_CIRCLE_APP_ID ?? appId });
       sdk.setAuthentication({ userToken, encryptionKey });

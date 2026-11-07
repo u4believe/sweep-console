@@ -614,7 +614,9 @@ function Header() {
               </a>
             );
           })}
-          <Link to={user ? "/dashboard" : "/login"} style={item}>Console</Link>
+          {/* The Console link lives in the header CTA, not here. Two links to
+              one place a few pixels apart is a choice a visitor has to read
+              twice to discover there is no choice. */}
           <a href={DOCS_URL} style={item}>Documentation</a>
         </nav>
 

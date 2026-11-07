@@ -3,6 +3,7 @@ import { isStaleBuildError, STALE_BUILD_MESSAGE, recoverFromStaleBuild } from "@
 import { Kicker, Section } from "@/components/portal/primitives";
 import { apiFetch, messageOf, wasCancelled } from "@/lib/stepup";
 import { throwApiError } from "@/lib/errors";
+import { loadCircleSdk } from "@/lib/circleSdk";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -146,7 +147,7 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
         return;
       }
 
-      const { W3SSdk } = await import("@circle-fin/w3s-pw-web-sdk");
+      const { W3SSdk } = await loadCircleSdk();
       const sdk = new W3SSdk();
       sdk.setAppSettings({ appId: import.meta.env.VITE_CIRCLE_APP_ID ?? d.appId ?? "" });
       sdk.setAuthentication({ userToken: d.userToken!, encryptionKey: d.encryptionKey! });
@@ -255,7 +256,7 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
         userToken?: string; encryptionKey?: string; challengeId?: string; appId?: string;
       };
 
-      const { W3SSdk } = await import("@circle-fin/w3s-pw-web-sdk");
+      const { W3SSdk } = await loadCircleSdk();
       const sdk = new W3SSdk();
       const effectiveAppId = import.meta.env.VITE_CIRCLE_APP_ID ?? data.appId ?? "";
       sdk.setAppSettings({ appId: effectiveAppId });

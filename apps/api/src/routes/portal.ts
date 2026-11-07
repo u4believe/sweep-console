@@ -2900,12 +2900,34 @@ portalRouter.post(
       );
       const current = isTestMode ? merchant.circleUserRef : merchant.liveCircleUserRef;
       const target = circleUserIdForType(dbId, "SCA");
+
+      /**
+       * ALREADY POINTED AT THE SCA USER IS NOT ALREADY UPGRADED.
+       *
+       * The upgrade is two halves: this route switches the ref and issues a
+       * challenge, and the BROWSER completes it. If the browser never does —
+       * it did not, on 2026-11-07, when a deploy replaced the Circle SDK
+       * chunk mid-session and the dynamic import 404'd — the ref points at an
+       * SCA user with pinStatus UNSET and no wallets.
+       *
+       * Refusing on the ref alone made that state permanent: the merchant had
+       * no wallet, and the one route that could give them one answered
+       * "already on a smart contract wallet". So the question is not which
+       * user the ref names, it is whether that user has any wallets.
+       */
       if (current === target) {
-        return err(
-          res,
-          "This account is already on a smart contract wallet.",
-          409,
-          "already_sca"
+        const { userToken: probeToken } = await getCircleUserToken(dbId);
+        const existing = await getCircleWallets(probeToken);
+        if (existing.length > 0) {
+          return err(
+            res,
+            "This account is already on a smart contract wallet.",
+            409,
+            "already_sca"
+          );
+        }
+        console.log(
+          `[portal/wallet/upgrade-sca] ${dbId} ref already ${target} with no wallets — resuming`
         );
       }
 

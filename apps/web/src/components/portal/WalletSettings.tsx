@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ExternalWalletVerify } from "./ExternalWalletVerify";
 import { ErrorNote } from "./primitives";
 import { apiFetch, messageOf, wasCancelled } from "@/lib/stepup";
+import { loadCircleSdk } from "@/lib/circleSdk";
 
 interface Props {
   initialAddress: string | null;
@@ -57,7 +58,7 @@ export function WalletSettings({ initialAddress, walletType, addressVerifiedAt }
         return;
       }
 
-      const { W3SSdk } = await import("@circle-fin/w3s-pw-web-sdk");
+      const { W3SSdk } = await loadCircleSdk();
       const sdk = new W3SSdk();
       sdk.setAppSettings({ appId: import.meta.env.VITE_CIRCLE_APP_ID ?? d.appId ?? "" });
       sdk.setAuthentication({ userToken: d.userToken, encryptionKey: d.encryptionKey });
@@ -178,7 +179,7 @@ export function WalletSettings({ initialAddress, walletType, addressVerifiedAt }
       const { userToken, encryptionKey, challengeId, appId } = data as {
         userToken: string; encryptionKey: string; challengeId: string; appId?: string;
       };
-      const { W3SSdk } = await import("@circle-fin/w3s-pw-web-sdk");
+      const { W3SSdk } = await loadCircleSdk();
       const sdk = new W3SSdk();
       sdk.setAppSettings({ appId: import.meta.env.VITE_CIRCLE_APP_ID ?? appId ?? "" });
       sdk.setAuthentication({ userToken, encryptionKey });
