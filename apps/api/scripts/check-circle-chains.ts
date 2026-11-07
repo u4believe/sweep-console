@@ -66,9 +66,12 @@ async function main(): Promise<void> {
      * THE QUESTION THIS CHECK EXISTS TO SETTLE, now that wallets are SCA.
      *
      * The payout address is pinned into every subscriber's grant, so one
-     * address per creator means one pin. Circle's unified-addressing doc says
-     * EVM wallets share an address, but every example it gives is an EOA and
-     * it never mentions SCA — so it is measured here rather than believed.
+     * address per creator means one pin. Confirmed with Circle (7 Nov 2026)
+     * that an SCA shares one address across EVM chains, as an EOA does — the
+     * docs imply it without saying SCA, so it was confirmed directly.
+     *
+     * Reported anyway: a confirmation is about how Circle behaves today, and
+     * this is the fact a wrongly-pinned payee would turn on.
      *
      * Several addresses is not a failure of the wallet; it is a finding that
      * changes settlementPayees(), which pins ONE creator address for every

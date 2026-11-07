@@ -747,6 +747,79 @@ export function priceChangeEmailHtml(d: PriceChangeEmailData): string {
   });
 }
 
+export interface ReauthorizationEmailData {
+  merchantName: string;
+  planName: string | null;
+  /** Already formatted, e.g. "29.00". */
+  amount: string;
+  currency: string;
+  interval: string;
+  chains: string[];
+}
+
+/**
+ * Sent to a payer whose signed permission can no longer be redeemed.
+ *
+ * WHY THIS IS NOT A PAYMENT FAILURE, and must not read like one. A grant
+ * names its delegate at signature time and DelegationManager checks the
+ * caller against it, so moving the delegate leaves the permission intact,
+ * valid and redeemable by nobody. There is no retry that fixes it and no
+ * server-side migration: the payer signs again or the subscription collects
+ * nothing.
+ *
+ * It is also OUR doing, not theirs and not the creator's. A dunning notice
+ * would blame a payer for a change they did not make, so this says plainly
+ * that we changed something, that no money moved, and that nothing can be
+ * taken until they choose to allow it again.
+ *
+ * The one piece of good news is worth leading with: their old permission is
+ * now inert, so doing nothing is safe. That is the opposite of a past-due
+ * notice, where doing nothing costs them their subscription.
+ */
+export function reauthorizationEmailHtml(d: ReauthorizationEmailData): string {
+  const noun = INTERVAL_NOUN[d.interval] ?? d.interval;
+  const what = d.planName ? `${d.planName} with ${d.merchantName}` : `your subscription to ${d.merchantName}`;
+
+  return shell({
+    preheader:
+      `Your payment permission for ${what} needs signing again — we changed how renewals are collected. ` +
+      `Nothing has been charged.`,
+    sender: "notice",
+    merchantName: d.merchantName,
+    kicker: "Action needed",
+    title: "Please re-approve your renewals",
+    footerContact:
+      `This change is ours, not ${esc(d.merchantName)}'s. If you did not expect this email, ` +
+      `you can ignore it — the old permission can no longer take anything.`,
+    body:
+      heroAmount(
+        d.amount,
+        d.currency,
+        `per ${esc(noun)} for ${esc(d.planName ?? "your subscription")}, which is unchanged.`
+      ) +
+      alarm(
+        "Your old permission no longer works",
+        `We moved the account that collects renewals, and a wallet permission names the collector ` +
+          `when you sign it. Yours still exists, but it can no longer be used by anyone — including us. ` +
+          `<strong style="color:#23233B;">No money has moved and none can</strong> until you approve ` +
+          `renewals again. Nothing was charged, and nothing is owed.`
+      ) +
+      detailRows([
+        { k: "Subscription", v: esc(d.planName ?? "Subscription") },
+        { k: "Creator", v: esc(d.merchantName) },
+        { k: "Amount", v: `${esc(d.amount)} ${esc(d.currency)} per ${esc(noun)}`, accent: true },
+        ...(d.chains.length > 0 ? [{ k: "Chains", v: esc(d.chains.join(", ")) }] : []),
+      ]) +
+      button("Re-approve your renewals", manageUrl()) +
+      fineprint(
+        `Re-approving takes one signature per chain and costs you no gas. The amount and the ` +
+          `ceiling you set stay exactly as they were — this does not raise anything. ` +
+          `If you would rather stop, do nothing: the old permission is already inert, and you can ` +
+          `remove it from your wallet whenever you like.`
+      ),
+  });
+}
+
 /**
  * Sent to a creator when an operator grants them the external rail.
  *

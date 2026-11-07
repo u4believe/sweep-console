@@ -514,10 +514,15 @@ export async function readCreatorWalletChains(merchantDbId: string): Promise<
   /**
    * Whether every chain really is one address.
    *
-   * For an EOA it is: Circle derives one key per identity, so the address
-   * repeats across EVM chains. For an SCA, Circle's unified-addressing doc
-   * says the same of "Circle Wallets on EVM" but every example it gives is an
-   * EOA and it never mentions SCA — so this is measured rather than assumed.
+   * CONFIRMED with Circle (7 Nov 2026): an SCA has the same address on every
+   * EVM-compatible chain, as an EOA does. Circle's unified-addressing doc
+   * implies it for "Circle Wallets on EVM" but never says SCA, and its own
+   * assistant declined to confirm — so it was confirmed directly.
+   *
+   * Still reported rather than assumed. It costs one field, and it is the
+   * fact a wrongly-pinned payee would turn on: see the guard in
+   * /wallet/circle/confirm, which refuses to store an address it cannot vouch
+   * for on every chain.
    *
    * It matters because the payout address is pinned into each subscriber's
    * grant. One address means one pin. Several would mean the pin has to be

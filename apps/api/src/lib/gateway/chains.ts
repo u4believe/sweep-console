@@ -275,6 +275,25 @@ export function chainKeyForId(chainId: number): string | undefined {
   return supportedSourceChains().find((c) => c.chain.id === chainId)?.key;
 }
 
+/**
+ * A chain id -> its key, whichever network it belongs to.
+ *
+ * chainKeyForId answers for the ACTIVE network, which is right for anything
+ * serving a request: a testnet deployment should not recognise a mainnet
+ * chain. It is wrong for anything reading rows that span both — an operator
+ * script, a report — where the alternative is printing "8453" and leaving the
+ * reader to translate.
+ */
+export function chainKeyForIdAnyNetwork(chainId: number): string | undefined {
+  if (chainId === 5042 || chainId === 5042002) return "arc";
+  return [...MAINNET_CHAINS, ...TESTNET_CHAINS].find((c) => c.chain.id === chainId)?.key;
+}
+
+/** True when this chain id belongs to the mainnet table. */
+export function isMainnetChainId(chainId: number): boolean {
+  return chainId === 5042 || MAINNET_CHAINS.some((c) => c.chain.id === chainId);
+}
+
 const clients = new Map<string, PublicClient>();
 
 /// Public client for a source chain. RPC overridable via RPC_URL_<KEY> env

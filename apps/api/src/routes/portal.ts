@@ -2461,13 +2461,14 @@ portalRouter.post("/wallet/circle/confirm", async (req, res) => {
      * creator does not control. The grant is signed by then, so there is no
      * recovering it without every subscriber re-authorizing.
      *
-     * Circle's unified-addressing doc says EVM wallets share an address, and
-     * it is automatic for user-controlled ones — but every example it gives
-     * is an EOA and it never mentions SCA, which is a contract account.
-     * Circle's own assistant says the same and declines to confirm SCA. So it
-     * is CHECKED HERE, at the only moment where the answer is both knowable
-     * and still cheap: before an address is written and long before a grant
-     * names it.
+     * Circle confirmed (7 Nov 2026) that an SCA shares one address across
+     * every EVM-compatible chain, as an EOA does, so this should never fire.
+     * It stays because the cost of the two outcomes is not symmetric: a
+     * redundant check costs one API call at wallet setup, while being wrong
+     * costs a payer paying an address the creator does not control, found out
+     * only after the grant is signed. Checked here because this is the only
+     * moment the answer is both knowable and still cheap — before an address
+     * is written, and long before a grant names it.
      *
      * Not fatal: the wallet is real and the money is safe either way. It
      * refuses to STORE a payout address it cannot vouch for on every chain,
