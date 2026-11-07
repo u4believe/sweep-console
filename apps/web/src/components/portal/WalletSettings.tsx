@@ -19,10 +19,100 @@ export function WalletSettings({ initialAddress, walletType, addressVerifiedAt }
   const [loading, setLoading] = useState(false);
 
   const hasCircleWallet = walletType === "circle";
+  /**
+   * Two clicks, not one.
+   *
+   * The upgrade gives the creator a NEW payout address, and the address is
+   * pinned into every subscriber's grant — so every subscriber has to
+   * re-approve before their renewals can be collected again. That is not
+   * something to do on a mis-click beside "Re-link".
+   */
+  const [confirmSca, setConfirmSca] = useState(false);
+
+  /**
+   * Move this account's payout wallet to a smart contract account.
+   *
+   * Circle fixes a user's account type at initialization, so this provisions
+   * a NEW Circle user and a new wallet on every chain — then the same PIN
+   * challenge and /wallet/circle/confirm pair the first-time setup uses,
+   * which overwrites the stored address for THIS MODE only.
+   */
+  async function handleUpgradeSca() {
+    setMode("relinking");
+    clearError();
+    try {
+      const res = await apiFetch(`/portal/wallet/circle/upgrade-sca`, { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) {
+        setError(body.error?.message ?? "Couldn't start the upgrade");
+        setMode("view");
+        return;
+      }
+      const d = (body.data ?? {}) as {
+        userToken?: string; encryptionKey?: string; challengeId?: string; appId?: string;
+      };
+      if (!d.challengeId || !d.userToken || !d.encryptionKey) {
+        setError("We couldn't start wallet setup. Please try again, or contact support.");
+        setMode("view");
+        return;
+      }
+
+      const { W3SSdk } = await import("@circle-fin/w3s-pw-web-sdk");
+      const sdk = new W3SSdk();
+      sdk.setAppSettings({ appId: import.meta.env.VITE_CIRCLE_APP_ID ?? d.appId ?? "" });
+      sdk.setAuthentication({ userToken: d.userToken, encryptionKey: d.encryptionKey });
+
+      sdk.execute(d.challengeId, async (err) => {
+        if (err) {
+          setError(`Upgrade failed: ${err.message ?? "the PIN step was cancelled"}`);
+          setMode("view");
+          return;
+        }
+        try {
+          const confirm = await apiFetch(`/portal/wallet/circle/confirm`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ challengeId: d.challengeId }),
+          });
+          const done = await confirm.json();
+          if (!confirm.ok) {
+            setError(done.error?.message ?? "Couldn't save your new wallet");
+          } else {
+            setAddress(done.walletAddress as string);
+            setVerifiedAt(new Date().toISOString());
+            setError(
+              "Upgraded. This is a new payout address, so existing subscribers must re-approve " +
+                "their renewals before those can be collected again."
+            );
+          }
+        } catch {
+          setError("Couldn't save your new wallet");
+        } finally {
+          setConfirmSca(false);
+          setMode("view");
+        }
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't start the upgrade");
+      setMode("view");
+    }
+  }
   const isLinked = !!address;
   const isVerified = !!verifiedAt;
 
-  function clearError() { setError(""); }
+  /**
+   * Clears the message, and DISARMS the upgrade confirm.
+   *
+   * The confirm was a one-shot flag that only cleared on the upgrade's own
+   * completion, so arming it and then doing something else left it armed —
+   * and the next click would move the payout address with no second thought.
+   * handleUpgradeSca is unaffected: its branch is decided in the onClick,
+   * before this runs.
+   */
+  function clearError() {
+    setError("");
+    setConfirmSca(false);
+  }
 
   async function handleUnlink() {
     // No window.confirm here: apiFetch raises the step-up prompt, which names
@@ -224,6 +314,18 @@ export function WalletSettings({ initialAddress, walletType, addressVerifiedAt }
                 disabled={mode === "relinking"}
               >
                 {mode === "relinking" ? "Re-linking…" : "Re-link Circle wallet"}
+              </button>
+            )}
+            {hasCircleWallet && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ padding: "9px 14px" }}
+                onClick={() => (confirmSca ? void handleUpgradeSca() : setConfirmSca(true))}
+                disabled={mode === "relinking"}
+                title="A smart contract wallet lets us sponsor your withdrawal gas"
+              >
+                {confirmSca ? "Confirm — subscribers must re-approve" : "Upgrade to smart wallet"}
               </button>
             )}
             <button
