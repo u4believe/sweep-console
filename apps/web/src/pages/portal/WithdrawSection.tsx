@@ -96,6 +96,66 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
    * UI half of that.
    */
   const [chain, setChain] = useState<string>("");
+  /** Set while the add-chains PIN challenge is open. */
+  const [addingChains, setAddingChains] = useState(false);
+
+  /**
+   * Register the wallet on the chains it is missing.
+   *
+   * KEEPS THE ADDRESS, which is the only reason this can be a button. A
+   * Circle account has one address across EVM chains, and that address is
+   * pinned into every subscriber's grant — so adding chains does not move
+   * where the creator is paid and does not ask anyone to re-authorize. The
+   * server verifies it did not move before storing anything.
+   */
+  async function handleAddChains() {
+    setAddingChains(true);
+    setOutcome(null);
+    try {
+      const res = await apiFetch(`/portal/wallet/circle/add-chains`, { method: "POST" });
+      if (!res.ok) {
+        if (await wasCancelled(res)) { setAddingChains(false); return; }
+        await throwApiError(res, "Couldn't extend your wallet");
+      }
+      const body = await res.json() as {
+        data?: { alreadyComplete?: boolean; userToken?: string; encryptionKey?: string;
+                 challengeId?: string; appId?: string; adding?: string[] };
+      };
+      const d = body.data ?? {};
+      if (d.alreadyComplete) {
+        setAddingChains(false);
+        await loadBalance(true);
+        return;
+      }
+
+      const { W3SSdk } = await import("@circle-fin/w3s-pw-web-sdk");
+      const sdk = new W3SSdk();
+      sdk.setAppSettings({ appId: import.meta.env.VITE_CIRCLE_APP_ID ?? d.appId ?? "" });
+      sdk.setAuthentication({ userToken: d.userToken!, encryptionKey: d.encryptionKey! });
+
+      sdk.execute(d.challengeId!, async (err) => {
+        if (err) {
+          setAddingChains(false);
+          setOutcome({ kind: "error", message: `Couldn't add chains: ${err.message ?? "Unknown error"}` });
+          return;
+        }
+        // Circle has accepted the PIN; the server now checks the address did
+        // not move before it trusts the result.
+        try {
+          const done = await apiFetch(`/portal/wallet/circle/confirm-chains`, { method: "POST" });
+          if (!done.ok) await throwApiError(done, "Couldn't confirm the new chains");
+          await loadBalance(true);
+        } catch (e) {
+          setOutcome({ kind: "error", message: e instanceof Error ? e.message : "Couldn't confirm the new chains" });
+        } finally {
+          setAddingChains(false);
+        }
+      });
+    } catch (e) {
+      setAddingChains(false);
+      setOutcome({ kind: "error", message: e instanceof Error ? e.message : "Couldn't extend your wallet" });
+    }
+  }
 
   function loadBalance(force = false) {
     const url = `${API_URL}/portal/wallet/circle/balance${force ? "?refresh=1" : ""}`;
@@ -277,7 +337,34 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
             >
               Your wallet isn't set up for{" "}
               {balance!.missingChains!.map(chainLabel).join(", ")} yet. USDC paid to you there is
-              safe, but won't show here until you re-run wallet setup.
+              safe, but won't show here until you add them.
+              <br />
+              <button
+                type="button"
+                onClick={() => void handleAddChains()}
+                disabled={addingChains}
+                style={{
+                  marginTop: 8,
+                  font: "inherit",
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  padding: "5px 10px",
+                  borderRadius: "var(--radius-sm)",
+                  border: "1px solid var(--color-accent)",
+                  background: "transparent",
+                  color: "var(--color-accent)",
+                  cursor: addingChains ? "not-allowed" : "pointer",
+                }}
+              >
+                {addingChains
+                  ? "Adding…"
+                  : `Add ${balance!.missingChains!.map(chainLabel).join(" & ")}`}
+              </button>
+              {/* Said out loud because the alternative — a creator fearing a
+                  new payout address — is the reason they would not click. */}
+              <span style={{ display: "block", marginTop: 6, color: "var(--color-neutral-600)" }}>
+                Your payout address doesn't change, and your subscribers don't need to do anything.
+              </span>
             </p>
           )}
         </div>

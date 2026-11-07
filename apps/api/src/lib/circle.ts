@@ -162,18 +162,26 @@ export async function createCircleWalletChallenge(
   );
 }
 
-// For users already initialized (have a PIN): create an additional wallet via challenge
+/**
+ * Add wallets for a user who already has a PIN.
+ *
+ * `blockchains` defaults to every chain this deployment pays on. Pass a
+ * subset to add only what is MISSING: asking Circle for a chain the user
+ * already holds is at best a no-op and at worst a second wallet on that
+ * chain, which is the ambiguity readCreatorWalletChains then has to resolve.
+ */
 export async function createCircleWalletForExistingUser(
-  userToken: string
+  userToken: string,
+  blockchains?: string[]
 ): Promise<{ challengeId: string }> {
   const { randomUUID } = await import("crypto");
   return circlePost<{ challengeId: string }>(
     "/v1/w3s/user/wallets",
     {
       idempotencyKey: randomUUID(),
-      blockchains: circleBlockchains(),
+      blockchains: blockchains?.length ? blockchains : circleBlockchains(),
       // One wallet PER BLOCKCHAIN named, not one wallet in total — Circle
-      // returns a record per chain, all sharing the EOA's single address.
+      // returns a record per chain, all sharing the account's single address.
       accountType: creatorAccountType(),
       count: 1,
     },

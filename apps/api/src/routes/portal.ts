@@ -2390,6 +2390,160 @@ portalRouter.post("/wallet/circle", async (req, res) => {
   }
 });
 
+/**
+ * Register an EXISTING Circle wallet on the chains it is missing.
+ *
+ * WHY THIS IS NOT "CREATE A WALLET AGAIN". Setup refuses a merchant who
+ * already has one, which was right when there was a single chain to be on.
+ * Under direct settlement a creator is paid on whichever chain their
+ * subscriber used, and a wallet registered only on Arc reads EMPTY while
+ * holding real USDC — the money arrives, because a Circle account has one
+ * address, but /balances and withdrawal are per chain.
+ *
+ * AND IT KEEPS THE ADDRESS, which is what makes it safe to offer. Circle
+ * confirmed an SCA shares one address across every EVM chain, as an EOA
+ * does, so adding chains does not move where a creator is paid — and the
+ * payout address is pinned into every subscriber's grant, so moving it would
+ * mean every subscriber re-authorizing. This route checks that the address
+ * did not move and says so.
+ *
+ * It does NOT convert EOA to SCA. That is a different address and therefore a
+ * different payout wallet; it needs the unlink/relink path and the
+ * re-authorization that follows, not a quiet upgrade behind a button.
+ *
+ * Step-up guarded as wallet.change is: it touches the payout wallet, and the
+ * blast radius of being wrong here is a creator's revenue.
+ */
+portalRouter.post(
+  "/wallet/circle/add-chains",
+  requireStepUp("wallet.change"),
+  async (req, res) => {
+    const dbId = (req as PortalRequest).merchantDbId;
+    try {
+      const merchant = await withRetry(() =>
+        prisma.merchant.findUniqueOrThrow({ where: { id: dbId }, select: { ...WALLET_SELECT } })
+      );
+      const w = walletFor(merchant, portalScope(req).isTestMode);
+      if (w.type !== "circle" || !w.circleWalletId) {
+        return err(
+          res,
+          "This account has no Circle payout wallet to extend. Create one first.",
+          409,
+          "no_circle_wallet"
+        );
+      }
+
+      const before = await readCreatorWalletChains(dbId);
+      if (!before.ok) {
+        return err(res, "We couldn't reach your wallet just now. Try again shortly.", 503, "wallet_unavailable");
+      }
+      if (before.missing.length === 0) {
+        return ok(res, {
+          data: {
+            alreadyComplete: true,
+            chains: before.chains.map((c) => c.blockchain),
+            address: before.address,
+          },
+        });
+      }
+
+      /**
+       * Only the missing chains. Asking Circle for one the user already holds
+       * risks a SECOND wallet on that chain at a different id, which is the
+       * exact ambiguity readCreatorWalletChains has to score its way out of.
+       */
+      const { userToken, encryptionKey } = await getCircleUserToken(dbId);
+      const { challengeId } = await createCircleWalletForExistingUser(
+        userToken,
+        before.missing
+      );
+
+      console.log(
+        `[portal/wallet/add-chains] ${dbId} adding ${before.missing.join(", ")} ` +
+          `(has ${before.chains.map((c) => c.blockchain).join(", ") || "none"})`
+      );
+
+      return ok(res, {
+        data: {
+          alreadyComplete: false,
+          adding: before.missing,
+          // The address it must still be afterwards, so the client can show it
+          // and /confirm-chains can refuse if it moved.
+          expectedAddress: before.address,
+          userToken,
+          encryptionKey,
+          challengeId,
+          appId: process.env.NEXT_PUBLIC_CIRCLE_APP_ID,
+        },
+      });
+    } catch (e) {
+      return serverError(res, "portal/wallet/circle/add-chains", e, "We couldn't extend your wallet.");
+    }
+  }
+);
+
+/**
+ * Confirm the chains landed, and that the payout address did not move.
+ *
+ * The address is pinned into every subscriber's grant. If adding a chain
+ * somehow produced a different address, storing it would point future
+ * settlements at an address no existing grant allows — every renewal would
+ * revert. So this verifies before it writes, and writes nothing if it moved.
+ */
+portalRouter.post("/wallet/circle/confirm-chains", async (req, res) => {
+  const dbId = (req as PortalRequest).merchantDbId;
+  try {
+    const merchant = await withRetry(() =>
+      prisma.merchant.findUniqueOrThrow({ where: { id: dbId }, select: { ...WALLET_SELECT } })
+    );
+    const w = walletFor(merchant, portalScope(req).isTestMode);
+    const after = await readCreatorWalletChains(dbId);
+    if (!after.ok) {
+      return err(res, "We couldn't reach your wallet just now. Try again shortly.", 503, "wallet_unavailable");
+    }
+
+    if (!after.oneAddress) {
+      console.error(
+        `[portal/wallet/confirm-chains] ${dbId} now holds ${after.addresses.length} addresses ` +
+          `(${after.addresses.join(", ")}) — not storing any as the payout address`
+      );
+      return err(
+        res,
+        "Your wallet came back with a different address on each chain, which we can't use as a " +
+          "single payout address. Nothing is lost — please contact support.",
+        409,
+        "split_wallet_addresses"
+      );
+    }
+
+    const moved =
+      after.address && w.address && after.address.toLowerCase() !== w.address.toLowerCase();
+    if (moved) {
+      console.error(
+        `[portal/wallet/confirm-chains] ${dbId} address moved ${w.address} -> ${after.address}; ` +
+          `refusing to overwrite the pinned payout address`
+      );
+      return err(
+        res,
+        "Adding those chains changed your payout address, which would stop existing subscriptions " +
+          "from renewing. We've left your wallet as it was — please contact support.",
+        409,
+        "payout_address_moved"
+      );
+    }
+
+    return ok(res, {
+      data: {
+        address: after.address,
+        chains: after.chains.map((c) => ({ blockchain: c.blockchain, read: c.read })),
+        stillMissing: after.missing,
+      },
+    });
+  } catch (e) {
+    return serverError(res, "portal/wallet/circle/confirm-chains", e, "We couldn't confirm your wallet.");
+  }
+});
+
 portalRouter.post("/wallet/circle/confirm", async (req, res) => {
   const dbId = (req as PortalRequest).merchantDbId;
   const { challengeId } = req.body as { challengeId?: string };
