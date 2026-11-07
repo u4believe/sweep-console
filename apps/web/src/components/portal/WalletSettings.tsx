@@ -43,19 +43,78 @@ export function WalletSettings({ initialAddress, walletType, addressVerifiedAt }
     setMode("view");
   }
 
+  /**
+   * Re-link, or create one if there is nothing to re-link to.
+   *
+   * The server answers two shapes. A creator whose wallet still exists at
+   * Circle gets `walletAddress` and is done. A creator with none — which is
+   * what unlinking leaves, and what a live account that was never set up
+   * looks like — gets a PIN challenge instead, because creating a wallet
+   * needs the creator present. Circle signals "no wallets" with a 404 on its
+   * own list endpoint, which used to surface here as "Circle API error (404):
+   * Resource not found".
+   *
+   * The created wallet covers every chain this deployment pays on, not the
+   * one chain the old wallet sat on.
+   */
   async function handleRelinkCircle() {
     setMode("relinking");
     clearError();
-    const res = await apiFetch(`/portal/wallet/relink-circle`, { method: "POST" });
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data.error?.message ?? "Failed to re-link wallet");
+    try {
+      const res = await apiFetch(`/portal/wallet/relink-circle`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error?.message ?? "Failed to re-link wallet");
+        setMode("view");
+        return;
+      }
+
+      if (!data.created) {
+        setAddress(data.walletAddress as string);
+        setVerifiedAt(new Date().toISOString());
+        setMode("view");
+        return;
+      }
+
+      const { userToken, encryptionKey, challengeId, appId } = data as {
+        userToken: string; encryptionKey: string; challengeId: string; appId?: string;
+      };
+      const { W3SSdk } = await import("@circle-fin/w3s-pw-web-sdk");
+      const sdk = new W3SSdk();
+      sdk.setAppSettings({ appId: import.meta.env.VITE_CIRCLE_APP_ID ?? appId ?? "" });
+      sdk.setAuthentication({ userToken, encryptionKey });
+
+      sdk.execute(challengeId, async (err) => {
+        if (err) {
+          setError(`Wallet setup failed: ${err.message ?? "Unknown error"}`);
+          setMode("view");
+          return;
+        }
+        // Circle has the PIN; the server now stores the address, having first
+        // checked it is the same on every chain.
+        try {
+          const confirm = await apiFetch(`/portal/wallet/circle/confirm`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ challengeId }),
+          });
+          const done = await confirm.json();
+          if (!confirm.ok) {
+            setError(done.error?.message ?? "Couldn't save your new wallet");
+          } else {
+            setAddress(done.walletAddress as string);
+            setVerifiedAt(new Date().toISOString());
+          }
+        } catch {
+          setError("Couldn't save your new wallet");
+        } finally {
+          setMode("view");
+        }
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to re-link wallet");
       setMode("view");
-      return;
     }
-    setAddress(data.walletAddress as string);
-    setVerifiedAt(new Date().toISOString());
-    setMode("view");
   }
 
   const verifiedLabel = verifiedAt
