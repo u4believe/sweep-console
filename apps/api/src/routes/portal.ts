@@ -5,7 +5,7 @@ import { addMinutes } from "date-fns";
 import { verifyMessage } from "viem";
 import type { Prisma } from "@prisma/client";
 import { WALLET_SELECT, walletFor, walletWrite } from "../lib/merchant-wallet";
-import { circleBlockchain, circleBlockchains, creatorAccountType, usdcOnSettlementChain, readCreatorWalletChains, formatUsdc, parseUsdc } from "../lib/circle";
+import { circleBlockchain, circleBlockchains, circleUserIdForType, creatorAccountType, usdcOnSettlementChain, readCreatorWalletChains, formatUsdc, parseUsdc } from "../lib/circle";
 import { directSettlementEnabled } from "../lib/chain/direct-settlement";
 import { portalScope } from "../middleware/portalAuth";
 import { prisma, withRetry } from "../lib/prisma";
@@ -2835,6 +2835,128 @@ portalRouter.post("/wallet/circle/confirm", async (req, res) => {
     return err(res, message, 502);
   }
 });
+
+/**
+ * Move a merchant's payout wallet to a smart contract account.
+ *
+ * WHY IT CANNOT BE AN UPGRADE. Circle fixes a user's accountType at
+ * initialization, so an EOA-initialized user never holds an SCA wallet —
+ * /user/wallets accepts the challenge, accepts the PIN and creates nothing,
+ * silently, which is how an afternoon went. An SCA therefore needs a NEW
+ * Circle user, a new id, and a new address.
+ *
+ * WHICH MAKES IT A PAYOUT CHANGE, not a settings tweak. The payout address is
+ * pinned into every subscriber's grant, so every existing subscriber must
+ * re-approve before their renewals can be collected again — see
+ * scripts/check-stale-grants.ts and scripts/notify-stale-grants.ts. The
+ * response says so explicitly rather than leaving the creator to discover it
+ * when renewals stop.
+ *
+ * Worth it because Gas Station requires an ERC-4337 account: "On EVM chains,
+ * the Programmable Wallet must be an ERC-4337-compliant smart contract
+ * account." Without one, a creator pays their own withdrawal gas on four
+ * chains.
+ *
+ * Step-up guarded as wallet.change, which is totp-only.
+ */
+portalRouter.post(
+  "/wallet/circle/upgrade-sca",
+  requireStepUp("wallet.change"),
+  async (req, res) => {
+    const dbId = (req as PortalRequest).merchantDbId;
+    const isTestMode = portalScope(req).isTestMode;
+    try {
+      if (creatorAccountType() !== "SCA") {
+        return err(
+          res,
+          "This deployment is configured to create EOA wallets. Set CIRCLE_ACCOUNT_TYPE=SCA first.",
+          409,
+          "sca_not_configured"
+        );
+      }
+
+      const merchant = await withRetry(() =>
+        prisma.merchant.findUniqueOrThrow({
+          where: { id: dbId },
+          select: { ...WALLET_SELECT, circleUserRef: true, liveCircleUserRef: true },
+        })
+      );
+      const current = isTestMode ? merchant.circleUserRef : merchant.liveCircleUserRef;
+      const target = circleUserIdForType(dbId, "SCA");
+      if (current === target) {
+        return err(
+          res,
+          "This account is already on a smart contract wallet.",
+          409,
+          "already_sca"
+        );
+      }
+
+      /**
+       * The new user first, then the ref — in that order on purpose.
+       *
+       * Storing the ref before Circle has the user would point every
+       * subsequent token call at a user that does not exist, and the symptom
+       * is a 404 on a path that is otherwise correct. Which is exactly the
+       * shape that cost this migration an afternoon.
+       */
+      try {
+        await createCircleUser(dbId, target);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const existing = msg.includes("409") || /already exists/i.test(msg);
+        if (!existing) throw e;
+        console.log(`[portal/wallet/upgrade-sca] ${dbId} Circle user ${target} already exists`);
+      }
+
+      await withRetry(() =>
+        prisma.merchant.update({
+          where: { id: dbId },
+          data: isTestMode ? { circleUserRef: target } : { liveCircleUserRef: target },
+        })
+      );
+
+      // From here every Circle call for this merchant resolves to the new user.
+      const { userToken, encryptionKey } = await getCircleUserToken(dbId);
+      let challengeId: string;
+      try {
+        ({ challengeId } = await createCircleWalletChallenge(userToken));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes("409") || msg.includes("404")) {
+          ({ challengeId } = await createCircleWalletForExistingUser(userToken));
+        } else {
+          throw e;
+        }
+      }
+
+      console.log(
+        `[portal/wallet/upgrade-sca] ${dbId} provisioning SCA user ${target} on ` +
+          `${circleBlockchains().join(", ")}`
+      );
+
+      return ok(res, {
+        data: {
+          chains: circleBlockchains(),
+          userToken,
+          encryptionKey,
+          challengeId,
+          appId: process.env.NEXT_PUBLIC_CIRCLE_APP_ID,
+          /**
+           * Said in the response because it is the consequence a creator must
+           * accept before finishing, not after.
+           */
+          addressWillChange: true,
+          note:
+            "A smart contract wallet is a new address, so existing subscribers must re-approve " +
+            "their renewals before those can be collected again.",
+        },
+      });
+    } catch (e) {
+      return serverError(res, "portal/wallet/circle/upgrade-sca", e, "We couldn't start the upgrade.");
+    }
+  }
+);
 
 portalRouter.post(
   "/wallet/relink-circle",

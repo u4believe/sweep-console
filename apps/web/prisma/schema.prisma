@@ -49,6 +49,20 @@ model Merchant {
   walletAddress        String? // TEST payout wallet
   walletType           String    @default("external") // "circle" | "external"
   circleWalletId       String? // Circle internal wallet UUID (for balance / transfer APIs)
+  /// Which Circle USER this merchant's wallets belong to, when it is not the
+  /// derived default.
+  ///
+  /// Circle fixes a user's accountType AT INITIALIZATION: a user initialized
+  /// as EOA can never hold an SCA wallet, and /user/wallets accepts the
+  /// challenge, takes the PIN and creates nothing. So moving a merchant to
+  /// SCA — which Gas Station requires — means a NEW Circle user, which means
+  /// a new user id.
+  ///
+  /// Null for every merchant provisioned before that was true, and those keep
+  /// resolving to the derived id (`<dbId>` in test, `live_<dbId>` in live) so
+  /// nothing already working moves.
+  circleUserRef        String?
+  liveCircleUserRef    String?
   addressVerifiedAt    DateTime? // external addresses must be ownership-verified (signed nonce) before payouts
   usdcBalance          String    @default("0") // cached USDC balance, refreshed by webhooks
   balanceUpdatedAt     DateTime? // when usdcBalance was last written

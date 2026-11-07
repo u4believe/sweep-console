@@ -108,12 +108,49 @@ async function circleGet<T>(path: string, userToken?: string): Promise<T> {
  * Without this no merchant could ever create a live payout wallet, because
  * every merchant's dbId is already spoken for by their test wallet.
  */
+/** The id a merchant's Circle user has by default, with no ref stored. */
 export function circleUserId(merchantDbId: string): string {
   return isMainnet() ? `live_${merchantDbId}` : merchantDbId;
 }
 
-export async function createCircleUser(userId: string): Promise<void> {
-  await circlePost("/v1/w3s/users", { userId: circleUserId(userId) });
+/**
+ * The id for a merchant who is being moved to a different account type.
+ *
+ * Circle fixes accountType AT INITIALIZATION, so an EOA-initialized user can
+ * never hold an SCA wallet — /user/wallets takes the challenge, takes the PIN
+ * and creates nothing. A merchant who needs SCA therefore needs a NEW Circle
+ * user, and a new user needs an id that is not the one already initialized.
+ */
+export function circleUserIdForType(merchantDbId: string, type: "EOA" | "SCA"): string {
+  const base = circleUserId(merchantDbId);
+  return type === "SCA" ? `${base}_sca` : base;
+}
+
+/**
+ * Which Circle user this merchant's wallets actually live under.
+ *
+ * The STORED ref wins, and null means the derived default — so every merchant
+ * provisioned before account types mattered keeps resolving to the user that
+ * already holds their wallets. Nothing moves because a global default changed.
+ */
+export async function resolveCircleUserId(merchantDbId: string): Promise<string> {
+  const { prisma } = await import("./prisma");
+  const m = await prisma.merchant.findUnique({
+    where: { id: merchantDbId },
+    select: { circleUserRef: true, liveCircleUserRef: true },
+  });
+  const ref = isMainnet() ? m?.liveCircleUserRef : m?.circleUserRef;
+  return ref ?? circleUserId(merchantDbId);
+}
+
+/**
+ * Create the Circle user, optionally under an explicit id.
+ *
+ * `userRef` is passed when provisioning a NEW user for a different account
+ * type; omitted it creates the merchant's default one.
+ */
+export async function createCircleUser(userId: string, userRef?: string): Promise<void> {
+  await circlePost("/v1/w3s/users", { userId: userRef ?? (await resolveCircleUserId(userId)) });
 }
 
 export async function getCircleUserToken(
@@ -121,7 +158,7 @@ export async function getCircleUserToken(
 ): Promise<{ userToken: string; encryptionKey: string }> {
   return circlePost<{ userToken: string; encryptionKey: string }>(
     "/v1/w3s/users/token",
-    { userId: circleUserId(userId) }
+    { userId: await resolveCircleUserId(userId) }
   );
 }
 
