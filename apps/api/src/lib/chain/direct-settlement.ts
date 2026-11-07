@@ -128,6 +128,30 @@ export function creatorPayee(wallet: {
  * and nothing else. That is a stronger statement than today's grant makes,
  * not a weaker one.
  */
+/**
+ * Pin ONE payee instead of two.
+ *
+ * WHY THIS ESCAPE HATCH EXISTS. ERC-7715's `payee` is typed
+ * `readonly Address[]`, and the Smart Accounts Kit forwards it verbatim to
+ * `wallet_requestExecutionPermissions` — the mapping from payee to caveat
+ * happens inside MetaMask, where it cannot be read. So "a list therefore
+ * accepts two" is an inference from a type, which is not the same as a
+ * verified behaviour, and two payees could fail two ways: refused when the
+ * permission is requested, or accepted and turned into two AllowedCalldata
+ * caveats that are AND-ed, which no single transfer can satisfy. The second
+ * is worse, because the grant looks fine until the first renewal reverts.
+ *
+ * With this set the grant pins the CREATOR only. The fee then cannot be taken
+ * in the same redeem, so it is not taken on-chain at all — the creator
+ * receives the whole period and the platform's cut has to be settled some
+ * other way. That is a real commercial consequence, which is why this is
+ * opt-in and loud rather than a silent fallback: degrading to "no fee"
+ * without saying so would be worse than failing.
+ */
+function singlePayeeOnly(): boolean {
+  return process.env.DIRECT_SETTLEMENT_SINGLE_PAYEE === "true";
+}
+
 export function settlementPayees(wallet: Parameters<typeof creatorPayee>[0]):
   | { ok: true; payees: Address[] }
   | { ok: false; reason: string } {
@@ -137,6 +161,13 @@ export function settlementPayees(wallet: Parameters<typeof creatorPayee>[0]):
   // A merchant whose payout wallet IS the treasury would otherwise pin the
   // same address twice, which is harmless but reads as a bug in the wallet
   // prompt the payer is shown.
+  if (singlePayeeOnly()) {
+    console.warn(
+      `[settlement] DIRECT_SETTLEMENT_SINGLE_PAYEE is on: pinning only ${creator.payee}, ` +
+        `so the platform fee is NOT taken in the redeem`
+    );
+    return { ok: true, payees: [creator.payee] };
+  }
   return creator.payee.toLowerCase() === treasury.toLowerCase()
     ? { ok: true, payees: [creator.payee] }
     : { ok: true, payees: [creator.payee, treasury] };
