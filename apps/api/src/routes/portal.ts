@@ -2903,7 +2903,53 @@ portalRouter.post(
         });
       }
 
+      /**
+       * One address across the chains, or refuse to pick one.
+       *
+       * Re-link adopts whatever Circle holds, and it is adopting it AS THE
+       * PAYOUT ADDRESS — the value pinned into every future grant. Taking
+       * `wallets[0]` on trust would pin whichever chain Circle happened to
+       * list first, and a payer on any other chain would pay somewhere the
+       * creator does not control.
+       *
+       * Same check /wallet/circle/confirm makes at first setup, for the same
+       * reason. Circle confirmed an SCA shares one address across EVM chains
+       * as an EOA does, so this should not fire.
+       */
+      const distinct = [...new Set(wallets.map((w) => w.address.toLowerCase()))];
+      if (distinct.length > 1) {
+        console.error(
+          `[portal/wallet/relink-circle] ${dbId} holds ${distinct.length} addresses across chains ` +
+            `(${wallets.map((w) => `${w.blockchain}=${w.address.slice(0, 10)}…`).join(", ")})`
+        );
+        return err(
+          res,
+          "Your wallet reports a different address on each chain, which we can't use as a single " +
+            "payout address. Nothing has changed — please contact support.",
+          409,
+          "split_wallet_addresses"
+        );
+      }
+
       const wallet = wallets.find((w) => w.state === "LIVE") ?? wallets[0]!;
+
+      /**
+       * Adopting a DIFFERENT address is a payout change, and it is said out
+       * loud rather than slipped into the response.
+       *
+       * Grants pin the payout address at signature time, so any grant naming
+       * the old one can no longer be collected — scripts/check-stale-grants.ts
+       * lists who that affects. Re-link is the deliberate path for this (the
+       * creator asked for it), unlike confirm-chains, which refuses a moved
+       * address because there nobody asked.
+       */
+      const previous = walletFor(merchant, isTestMode).address;
+      if (previous && previous.toLowerCase() !== wallet.address.toLowerCase()) {
+        console.warn(
+          `[portal/wallet/relink-circle] ${dbId} payout address moves ${previous} -> ` +
+            `${wallet.address.toLowerCase()}; grants pinning the old one can no longer be collected`
+        );
+      }
 
       /**
        * walletWrite, not a bare `walletAddress`.
@@ -2927,9 +2973,10 @@ portalRouter.post(
       return ok(res, {
         walletAddress: wallet.address.toLowerCase(),
         created: false,
-        // Chains it is NOT yet registered on, so the client can offer to add
-        // them rather than leaving the creator to find out from a zero balance.
         chains: wallets.map((w) => w.blockchain),
+        // True when this re-link changed where the creator is paid, so the
+        // screen can say that renewals need re-authorizing.
+        addressChanged: Boolean(previous && previous.toLowerCase() !== wallet.address.toLowerCase()),
       });
     } catch (e) {
       console.error("[portal/wallet/relink-circle]", e);

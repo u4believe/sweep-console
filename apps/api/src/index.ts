@@ -66,12 +66,61 @@ const allowedOrigins = (process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?
 const isDev = IS_DEV;
 const LOCALHOST_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
+/**
+ * Preview deployments, by exact suffix — never by wildcard.
+ *
+ * A Vercel preview gets a hashed host of its own
+ * (sweep-console-3qtru0byc-<team>.vercel.app), so it is not APP_URL and was
+ * refused. Which is correct by default: these responses carry credentials,
+ * and allowing *.vercel.app would let ANY app on Vercel make authenticated
+ * requests as a logged-in creator.
+ *
+ * So the suffix is configured, not inferred, and it must include the team
+ * slug — that part is owned by one account and cannot be registered by
+ * someone else, where a bare ".vercel.app" is shared by everyone.
+ *
+ *   CORS_PREVIEW_SUFFIXES=-believes-projects-837cfaa8.vercel.app
+ *
+ * Comma-separated. A suffix not starting with "." or "-" is rejected at boot
+ * rather than quietly matching more than intended: "vercel.app" would admit
+ * "evilvercel.app", and the whole point is that this list is narrow.
+ */
+const previewSuffixes = (process.env.CORS_PREVIEW_SUFFIXES ?? "")
+  .split(",")
+  .map((p) => p.trim().toLowerCase())
+  .filter(Boolean);
+
+for (const suffix of previewSuffixes) {
+  if (!suffix.startsWith(".") && !suffix.startsWith("-")) {
+    throw new Error(
+      `CORS_PREVIEW_SUFFIXES entry "${suffix}" must start with "." or "-" so it cannot match a ` +
+        `neighbouring domain — "vercel.app" would also admit "evilvercel.app"`
+    );
+  }
+}
+
+function isPreviewOrigin(origin: string): boolean {
+  if (previewSuffixes.length === 0) return false;
+  let host: string;
+  try {
+    const u = new URL(origin);
+    // https only: a preview served over http would downgrade a credentialed
+    // request, and Vercel serves https.
+    if (u.protocol !== "https:") return false;
+    host = u.hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return previewSuffixes.some((suffix) => host.endsWith(suffix));
+}
+
 // Allow the frontend to send cookies (credentials: 'include')
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true); // same-origin / curl / server-to-server
     if (allowedOrigins.includes(origin)) return cb(null, true);
     if (isDev && LOCALHOST_RE.test(origin)) return cb(null, true);
+    if (isPreviewOrigin(origin)) return cb(null, true);
     cb(new Error(`CORS: origin ${origin} not allowed`));
   },
   credentials: true,

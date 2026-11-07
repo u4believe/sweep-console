@@ -73,6 +73,15 @@ export function WalletSettings({ initialAddress, walletType, addressVerifiedAt }
         setAddress(data.walletAddress as string);
         setVerifiedAt(new Date().toISOString());
         setMode("view");
+        // A re-link that MOVED the payout address is not a neutral refresh:
+        // grants pin the address when they are signed, so anything pinning
+        // the old one can no longer be collected.
+        if (data.addressChanged) {
+          setError(
+            "Your payout address changed. Existing subscribers must re-approve their renewals " +
+              "before those can be collected again."
+          );
+        }
         return;
       }
 
