@@ -90,7 +90,13 @@ export function walletFor(m: WalletColumns, isTestMode: boolean): MerchantWallet
 /** The fields a write should set, named for the mode it belongs to. */
 export interface WalletWrite {
   address?: string | null;
-  type?: string;
+  /**
+   * Nullable so unlink can clear it. A merchant who unlinked still reading as
+   * type "circle" is how a relink gets refused for a wallet that is gone —
+   * walletFor() defaults a null back to "external", which is the honest
+   * answer for an account with no wallet.
+   */
+  type?: string | null;
   circleWalletId?: string | null;
   verifiedAt?: Date | null;
   usdcBalance?: string;

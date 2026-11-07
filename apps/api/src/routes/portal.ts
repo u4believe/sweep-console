@@ -2290,16 +2290,44 @@ portalRouter.post(
   async (req, res) => {
     const dbId = (req as PortalRequest).merchantDbId;
     try {
+      /**
+       * UNLINK THE WALLET FOR THIS MODE, AND ALL OF IT.
+       *
+       * Two bugs lived in the literal this replaces.
+       *
+       * It wrote the TEST columns whatever mode the request was in, because
+       * it named them directly instead of going through walletWrite. So
+       * unlinking a LIVE wallet cleared the sandbox's and left the live one
+       * in place — the creator saw "unlinked", and live payouts still pointed
+       * at the address they had just disowned.
+       *
+       * And it left `walletType` and `circleWalletId` behind. A merchant who
+       * unlinked a Circle wallet still read as type "circle" with an id
+       * pointing at the old wallet, so re-linking hit the "already created"
+       * refusal at the top of POST /wallet/circle — the unlink appeared to
+       * work and the relink could not.
+       *
+       * The nonce fields are not per-mode: there is one verification in
+       * flight at a time, and it belongs to whichever mode started it.
+       */
       await prisma.merchant.update({
         where: { id: dbId },
         data: {
-          walletAddress: null,
-          addressVerifiedAt: null,
+          ...walletWrite(portalScope(req).isTestMode, {
+            address: null,
+            type: null,
+            circleWalletId: null,
+            verifiedAt: null,
+          }),
           pendingWalletAddress: null,
           walletNonce: null,
           walletNonceExpiresAt: null,
         },
       });
+      console.log(
+        `[portal/wallet/unlink] ${dbId} unlinked its ` +
+          `${portalScope(req).isTestMode ? "test" : "live"} payout wallet`
+      );
       return ok(res, { success: true });
     } catch (e) {
       return serverError(res, "portal/wallet/unlink", e, "We couldn't unlink that wallet.");
@@ -2328,10 +2356,23 @@ portalRouter.post("/wallet/circle", async (req, res) => {
       );
     }
 
+    /**
+     * The user may already exist, which is fine — but SAY WHICH.
+     *
+     * This swallowed every error identically, so a Circle user that failed to
+     * be created for a real reason was indistinguishable from one that
+     * already existed. The next line then asked for a token for a user that
+     * is not there, and Circle answered "404 Resource not found" with nothing
+     * to say where it came from.
+     */
     try {
       await createCircleUser(dbId);
-    } catch {
-      /* may already exist */
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const existing = msg.includes("409") || /already exists/i.test(msg);
+      console[existing ? "log" : "warn"](
+        `[portal/wallet/circle] ${dbId} createCircleUser: ${existing ? "already exists" : msg}`
+      );
     }
 
     const { userToken, encryptionKey } = await getCircleUserToken(dbId);
@@ -2360,16 +2401,35 @@ portalRouter.post("/wallet/circle", async (req, res) => {
           alreadySetup: true,
         });
       }
-    } catch {
-      /* no wallets yet — fall through to initialize */
+    } catch (e) {
+      // No wallets yet is the expected case; anything else means we are about
+      // to create a wallet for a user who may already have one, and that is
+      // worth a line rather than a silent fall-through.
+      console.log(
+        `[portal/wallet/circle] ${dbId} wallet list unavailable, will initialize: ` +
+          `${e instanceof Error ? e.message : String(e)}`
+      );
     }
 
     let challengeId: string;
     try {
       ({ challengeId } = await createCircleWalletChallenge(userToken));
     } catch (e) {
-      // 409 means already initialized but no wallet returned above — create via wallet endpoint
-      if (e instanceof Error && e.message.includes("409")) {
+      /**
+       * /user/initialize is the FIRST-TIME endpoint, and a user who has one
+       * already must go through /user/wallets instead.
+       *
+       * This matched only 409. Circle also answers 404 "Resource not found"
+       * here, which is the shape a relink hits: the user exists, is already
+       * initialized, and initialize has nothing to initialize. Matching one
+       * status and rethrowing the other made a recoverable state terminal.
+       */
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("409") || msg.includes("404")) {
+        console.log(
+          `[portal/wallet/circle] ${dbId} initialize said ${msg.includes("404") ? "404" : "409"}; ` +
+            `creating through /user/wallets instead`
+        );
         ({ challengeId } = await createCircleWalletForExistingUser(userToken));
       } else {
         throw e;
