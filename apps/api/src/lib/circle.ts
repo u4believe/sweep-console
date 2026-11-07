@@ -207,29 +207,41 @@ export interface CircleWallet {
 }
 
 /**
- * This user's wallets, or none.
+ * This user's wallets.
  *
- * CIRCLE SIGNALS "NO WALLETS" WITH A 404, not an empty list. A user who
- * exists but has never been initialized — /users/token answers 200 for them —
- * gets `{"code":-1,"message":"Resource not found"}` from this endpoint, and
- * throwing on it turns the most ordinary state in the whole flow into a
- * failure the caller cannot act on.
+ * THE LIST PATH IS /v1/w3s/wallets. CREATING is POST /v1/w3s/user/wallets,
+ * and this read the same path with GET — which Circle does not serve. Every
+ * read answered `{"code":-1,"message":"Resource not found"}`, and code -1 is
+ * Circle saying the ROUTE is unknown, not that the resource is empty.
  *
- * That is what broke relinking: /wallet/relink-circle called this, the 404
- * propagated, and a creator with no wallet yet was told "Circle API error
- * (404): Resource not found" instead of being offered one.
+ * It cost an afternoon because of how convincingly it lied. A 404 on every
+ * read looked exactly like an account with no wallets, so: relinking
+ * reported "Could not find your Circle wallet", the balance screen reported
+ * every chain unregistered, add-chains logged "(has none)" and created
+ * wallets that had existed all along. The createWallet challenge then came
+ * back `status: COMPLETE, errorCode: 0` with four correlation ids — Circle
+ * had done the work, and we were asking the wrong address whether it had.
  *
- * Any other failure still throws. A network fault and an empty account must
- * not look the same, or the caller creates a second wallet for someone who
- * already has one.
+ * Worse, this function had been taught to READ 404 as "none", which turned a
+ * wrong URL into a plausible answer. A 404 here is now reported, because with
+ * the right path an empty account answers 200 with an empty list.
  */
 export async function getCircleWallets(userToken: string): Promise<CircleWallet[]> {
   let data: { wallets?: CircleWallet[] };
   try {
-    data = await circleGet<{ wallets: CircleWallet[] }>("/v1/w3s/user/wallets", userToken);
+    data = await circleGet<{ wallets: CircleWallet[] }>("/v1/w3s/wallets", userToken);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes("404")) return [];
+    if (msg.includes("404")) {
+      // Kept so a creator with nothing is still offered a wallet rather than
+      // an error — but said out loud, because on this path it should not
+      // happen and the last time it did, it was the path that was wrong.
+      console.warn(
+        "[circle] GET /v1/w3s/wallets answered 404 — an empty account should answer 200 " +
+          "with an empty list, so treat this as a route or permission problem, not as 'no wallets'"
+      );
+      return [];
+    }
     throw e;
   }
   return data.wallets ?? [];
