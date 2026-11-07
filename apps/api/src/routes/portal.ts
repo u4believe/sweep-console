@@ -5,7 +5,7 @@ import { addMinutes } from "date-fns";
 import { verifyMessage } from "viem";
 import type { Prisma } from "@prisma/client";
 import { WALLET_SELECT, walletFor, walletWrite } from "../lib/merchant-wallet";
-import { circleBlockchain, circleBlockchains, usdcOnSettlementChain, readCreatorWalletChains, formatUsdc, parseUsdc } from "../lib/circle";
+import { circleBlockchain, circleBlockchains, creatorAccountType, usdcOnSettlementChain, readCreatorWalletChains, formatUsdc, parseUsdc } from "../lib/circle";
 import { directSettlementEnabled } from "../lib/chain/direct-settlement";
 import { portalScope } from "../middleware/portalAuth";
 import { prisma, withRetry } from "../lib/prisma";
@@ -2549,9 +2549,21 @@ portalRouter.post(
         ({ challengeId } = await createCircleWalletForExistingUser(userToken, before.missing));
       }
 
+      /**
+       * The accountType is in this line because it is the field most likely
+       * to be refused.
+       *
+       * Circle fixes a user's account type AT INITIALIZATION. A user
+       * initialized as EOA — which every creator here was, before the Gas
+       * Station decision — cannot be handed an SCA wallet through
+       * /user/wallets afterwards: the challenge is accepted, the PIN is
+       * accepted, and creation then fails with nothing in the request path
+       * to say so. CIRCLE_ACCOUNT_TYPE=EOA is the switch that tests it.
+       */
       console.log(
         `[portal/wallet/add-chains] ${dbId} ${fromScratch ? "initializing" : "adding"} ` +
-          `${before.missing.join(", ")} (has ${before.chains.map((c) => c.blockchain).join(", ") || "none"})`
+          `${before.missing.join(", ")} as ${creatorAccountType()} ` +
+          `(has ${before.chains.map((c) => c.blockchain).join(", ") || "none"})`
       );
 
       return ok(res, {
@@ -2591,6 +2603,34 @@ portalRouter.post("/wallet/circle/confirm-chains", async (req, res) => {
     const after = await readCreatorWalletChains(dbId);
     if (!after.ok) {
       return err(res, "We couldn't reach your wallet just now. Try again shortly.", 503, "wallet_unavailable");
+    }
+
+    /**
+     * NO WALLETS IS NOT SUCCESS.
+     *
+     * Everything below reads as fine when Circle has nothing: addresses is
+     * empty so oneAddress is true, address is null so there is nothing to
+     * store and nothing to compare, and the route answered ok with zero
+     * chains. The screen then said "Done — your wallet now covers every
+     * chain" over an account that still had none, which is worse than the
+     * silence it replaced: it told the creator a thing that was not true.
+     *
+     * Circle accepted the challenge and the PIN, so the failure is on its
+     * side of the wallet creation — see the challenge notification's own
+     * status, which circle-webhooks now logs.
+     */
+    if (after.chains.length === 0) {
+      console.error(
+        `[portal/wallet/confirm-chains] ${dbId} completed a createWallet challenge and Circle ` +
+          `still reports no wallets — creation failed on Circle's side`
+      );
+      return err(
+        res,
+        "Circle accepted your PIN but didn't create the wallet. Nothing is lost and nothing has " +
+          "changed — retrying will do the same thing, so please contact support.",
+        502,
+        "wallet_not_created"
+      );
     }
 
     if (!after.oneAddress) {

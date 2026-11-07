@@ -108,6 +108,31 @@ circleWebhooksRouter.post("/", (req, res) => {
     }
     console.log(`[circle-webhook] ${payload.notificationType} | id=${payload.notificationId}`);
 
+    /**
+     * A CHALLENGE OUTCOME IS THE ONLY PLACE ITS FAILURE IS REPORTED.
+     *
+     * Creating a wallet is a challenge the browser executes: the SDK callback
+     * says "no error" once Circle accepts the PIN, which is NOT the same as
+     * the wallet having been created. If creation then fails on Circle's
+     * side, nothing in the request path ever learns why — the next read just
+     * returns no wallets.
+     *
+     * That is exactly what happened to a creator on 2026-11-07:
+     * /user/wallets answered 201, the PIN was accepted, this notification
+     * arrived, and /user/wallets still returned 404. Logging only the type
+     * and id meant the reason was in Circle's payload and nowhere in ours.
+     *
+     * Logged whole, because the useful field is whichever one Circle chose to
+     * explain itself in — errorCode, errorMessage, status or state — and
+     * safeBody already redacts credentials.
+     */
+    if (payload.notificationType?.startsWith("challenges.")) {
+      console.log(
+        `[circle-webhook] ${payload.notificationType} outcome:`,
+        JSON.stringify(payload.notification ?? {})
+      );
+    }
+
     const n = payload.notification;
     const isInboundUsdc =
       payload.notificationType === "transactions.inbound" &&

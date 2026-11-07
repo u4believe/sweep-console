@@ -160,10 +160,26 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
         // Circle has accepted the PIN; the server now checks the address did
         // not move before it trusts the result.
         try {
-          const done = await apiFetch(`/portal/wallet/circle/confirm-chains`, { method: "POST" });
-          if (!done.ok) await throwApiError(done, "Couldn't confirm the new chains");
+          const res2 = await apiFetch(`/portal/wallet/circle/confirm-chains`, { method: "POST" });
+          if (!res2.ok) await throwApiError(res2, "Couldn't confirm the new chains");
+          const done = (await res2.json()) as { data?: { chains?: Array<{ blockchain: string }> } };
           await loadBalance(true);
-          setChainsNote("Done — your wallet now covers every chain.");
+          /**
+           * Say what the server actually reported, not what was hoped for.
+           *
+           * This said "Done — your wallet now covers every chain" whenever
+           * the call returned ok, and the server returned ok for an EMPTY
+           * result — so a creator whose wallet was never created was told it
+           * had been, with the "not set up for…" notice still on screen
+           * underneath. The server now refuses an empty result, and this
+           * counts what came back rather than assuming.
+           */
+          const got = (done?.data?.chains ?? []) as Array<{ blockchain: string }>;
+          setChainsNote(
+            got.length > 0
+              ? `Done — now on ${got.map((c) => chainLabel(c.blockchain)).join(", ")}.`
+              : "Circle reported no new chains. Nothing has changed."
+          );
         } catch (e) {
           setChainsNote(e instanceof Error ? e.message : "Couldn't confirm the new chains");
         } finally {
