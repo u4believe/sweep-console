@@ -19,7 +19,7 @@ interface TreasuryRow {
 /// What each account is for, in one line, because the addresses look alike and
 /// the funding rules are not uniform between them.
 const ROLE_NOTE: Record<string, string> = {
-  settlement: "Receives every pull, bridges it, pays the fee",
+  settlement: "Legacy: received pulls and bridged them. Direct settlement pays creators instead",
   renewal: "Redeems hosted grants",
   external: "Redeems external-rail grants",
   "renewal-arc": "Submits CCTP mints on Arc, where gas is USDC",

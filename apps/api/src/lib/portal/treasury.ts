@@ -37,6 +37,7 @@
 
 import { createPublicClient, formatEther, formatUnits, getAddress, http, type Address } from "viem";
 import { base, arbitrum, optimism } from "viem/chains";
+import { defineChain } from "viem";
 import { arcChain } from "../chain/contract";
 import { getRelayerAccount, type RelayerMode } from "../chain/signers";
 import { isMainnet } from "../gateway/chains";
@@ -45,10 +46,36 @@ import { delegate7702Enabled } from "../chain/delegate-7702";
 /// balanceOf(address)
 const BALANCE_OF = "0x70a08231";
 
+/**
+ * Monad, defined here rather than imported.
+ *
+ * viem exports it, but this table pins an RPC per chain and the imported
+ * definitions are only used for their ids and currency — so one more local
+ * definition is less surprising than one import that behaves differently.
+ */
+const monad = defineChain({
+  id: 143,
+  name: "Monad",
+  nativeCurrency: { name: "Monad", symbol: "MON", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.monad.xyz"] } },
+});
+
 const SOURCE_CHAINS = [
   { key: "base", chain: base, rpc: "https://mainnet.base.org", needsEth: false },
   { key: "arbitrum", chain: arbitrum, rpc: "https://arb1.arbitrum.io/rpc", needsEth: false },
   { key: "optimism", chain: optimism, rpc: "https://mainnet.optimism.io", needsEth: true },
+  /**
+   * needsEth: TRUE, unlike the two above it.
+   *
+   * The flag means "this screen should flag an empty native balance here".
+   * Base and Arbitrum are false because the settlement MSCA never submitted
+   * its own transactions there. Under direct settlement the delegate MSCA
+   * self-deploys on its FIRST redeem on each chain and the gas payer funds
+   * both that and the EntryPoint deposit — so an empty balance on Monad is a
+   * charge that will not happen, which is exactly what this screen exists to
+   * show before it does not happen.
+   */
+  { key: "monad", chain: monad, rpc: "https://rpc.monad.xyz", needsEth: true },
 ] as const;
 
 export interface TreasuryRow {
