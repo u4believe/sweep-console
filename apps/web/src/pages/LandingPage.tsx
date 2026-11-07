@@ -620,7 +620,7 @@ function Header() {
 
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap" }}>
           {loading ? null : user ? (
-            <Link to="/dashboard" style={NAV_CTA}>Dashboard</Link>
+            <Link to="/dashboard" style={NAV_CTA}>Console</Link>
           ) : (
             <>
               <Link to="/login" className="hidden sm:block" style={{ color: "#fff", fontSize: 15, padding: "9px 12px" }}>
