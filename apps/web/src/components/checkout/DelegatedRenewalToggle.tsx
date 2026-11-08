@@ -35,6 +35,7 @@ import { Spinner, ActivityBar } from "@/components/ui/Spinner";
 import { enableCrossChain, fetchGrantPlan, revokeGrant, saveDelegation } from "@/lib/gateway";
 import type { GrantTarget } from "@/lib/gateway";
 import { friendlyError } from "@/lib/errors";
+import { isSandboxBuild } from "@/lib/mode";
 
 // Exported so the shell can skip the whole "04 Automatic renewal" step rather
 // than rendering its heading above nothing. VITE_ vars are inlined at BUILD time,
@@ -74,8 +75,26 @@ interface Props {
 
 type State = "checking" | "ineligible" | "ready" | "fallback";
 
+/**
+ * The friendly message — plus the real one, in the sandbox only.
+ *
+ * friendlyError returns an ApiError's own text, so a refusal from our API
+ * already explains itself. The generic fallback therefore means the failure
+ * was NOT ours: a wallet rejection, a provider that is not there, a chain
+ * switch that did not take. Those are the ones that matter here, and the only
+ * copy of the cause is a console.error nobody has open.
+ *
+ * So in test mode the raw message is appended. A payer on mainnet still sees
+ * one sentence — their wallet's internal wording is not their problem — but a
+ * sandbox is a place to diagnose, and making someone open DevTools to learn
+ * why a test failed is a cost with no benefit.
+ */
 function describeError(e: unknown): string {
-  return friendlyError(e, "We couldn't turn on automatic renewals.");
+  const friendly = friendlyError(e, "We couldn't turn on automatic renewals.");
+  if (!isSandboxBuild()) return friendly;
+  const raw = e instanceof Error ? e.message : typeof e === "string" ? e : "";
+  // Only when the friendly text is the fallback: an ApiError already said it.
+  return raw && !friendly.includes(raw) ? `${friendly} (${raw.slice(0, 220)})` : friendly;
 }
 
 /**

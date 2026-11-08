@@ -76,7 +76,12 @@ delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, re
     let payees: string[] | undefined;
     if (directSettlementEnabled()) {
       const resolved = settlementPayees(walletFor(session.merchant, session.isTestMode));
-      if (!resolved.ok) return err(res, resolved.reason, 409, "payout_wallet_unavailable");
+      if (!resolved.ok) {
+        // Logged because err() does not, and a refusal here is otherwise
+        // invisible: the payer sees a 409 and the log shows nothing at all.
+        console.warn(`[checkout/grant-plan] refused: ${resolved.reason}`);
+        return err(res, resolved.reason, 409, "payout_wallet_unavailable");
+      }
       payees = resolved.payees;
     } else {
       const legacy = settlementIsSeparate() ? settlementPayeeAddress() : undefined;

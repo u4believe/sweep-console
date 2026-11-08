@@ -357,7 +357,12 @@ customerPortalRouter.post("/subscriptions/:id/grant-plan", async (req, res) => {
     let payees: string[] | undefined;
     if (directSettlementEnabled()) {
       const resolved = settlementPayees(walletFor(sub.merchant, sub.isTestMode));
-      if (!resolved.ok) return err(res, resolved.reason, 409, "payout_wallet_unavailable");
+      if (!resolved.ok) {
+        // Logged because err() does not, and a refusal here is otherwise
+        // invisible: the payer sees a 409 and the log shows nothing at all.
+        console.warn(`[portal/grant-plan] refused: ${resolved.reason}`);
+        return err(res, resolved.reason, 409, "payout_wallet_unavailable");
+      }
       payees = resolved.payees;
     } else {
       const legacy = settlementIsSeparate() ? settlementPayeeAddress() : undefined;
@@ -606,7 +611,12 @@ customerPortalRouter.post("/mandates/:id/grant-plan", async (req, res) => {
     let payees: string[] | undefined;
     if (directSettlementEnabled()) {
       const resolved = settlementPayees(walletFor(m.merchant, m.isTestMode));
-      if (!resolved.ok) return err(res, resolved.reason, 409, "payout_wallet_unavailable");
+      if (!resolved.ok) {
+        // Logged because err() does not, and a refusal here is otherwise
+        // invisible: the payer sees a 409 and the log shows nothing at all.
+        console.warn(`[portal/grant-plan] refused: ${resolved.reason}`);
+        return err(res, resolved.reason, 409, "payout_wallet_unavailable");
+      }
       payees = resolved.payees;
     } else {
       const legacy = settlementIsSeparate() ? settlementPayeeAddress() : undefined;
