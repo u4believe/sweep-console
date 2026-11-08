@@ -14,12 +14,33 @@ type Mode = "view" | "link-external" | "relinking";
 
 export function WalletSettings({ initialAddress, walletType, addressVerifiedAt }: Props) {
   const [address, setAddress] = useState(initialAddress);
+  /**
+   * The wallet TYPE has to be state, not the prop.
+   *
+   * hasCircleWallet read the prop directly, and unlink only cleared the
+   * address — so after unlinking the component still believed a Circle
+   * wallet was there until a page reload. It offered "Upgrade to smart
+   * wallet" and "Re-link Circle wallet" for a wallet that no longer existed,
+   * and Re-link then hit a server that correctly answered "No Circle wallet
+   * is associated with this account".
+   *
+   * The parent passes the type once and never refetches, so every action
+   * here that changes it has to say so locally.
+   */
+  const [type, setType] = useState(walletType);
   const [verifiedAt, setVerifiedAt] = useState(addressVerifiedAt);
   const [mode, setMode] = useState<Mode>("view");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const hasCircleWallet = walletType === "circle";
+  /**
+   * A Circle wallet that actually EXISTS — type and address both.
+   *
+   * Type alone was not enough: an unlinked row keeps a type until something
+   * overwrites it, and the Circle actions are meaningless without an address
+   * to act on.
+   */
+  const hasCircleWallet = type === "circle" && Boolean(address);
   /**
    * Two clicks, not one.
    *
@@ -81,6 +102,7 @@ export function WalletSettings({ initialAddress, walletType, addressVerifiedAt }
           } else {
             setAddress(done.walletAddress as string);
             setVerifiedAt(new Date().toISOString());
+            setType("circle");
             setError(
               "Upgraded. This is a new payout address, so existing subscribers must re-approve " +
                 "their renewals before those can be collected again."
@@ -131,6 +153,8 @@ export function WalletSettings({ initialAddress, walletType, addressVerifiedAt }
     }
     setAddress(null);
     setVerifiedAt(null);
+    // The server wrote "external"; say so here or the Circle actions linger.
+    setType("external");
     setMode("view");
   }
 
@@ -162,6 +186,7 @@ export function WalletSettings({ initialAddress, walletType, addressVerifiedAt }
 
       if (!data.created) {
         setAddress(data.walletAddress as string);
+        setType("circle");
         setVerifiedAt(new Date().toISOString());
         setMode("view");
         // A re-link that MOVED the payout address is not a neutral refresh:
@@ -203,6 +228,7 @@ export function WalletSettings({ initialAddress, walletType, addressVerifiedAt }
             setError(done.error?.message ?? "Couldn't save your new wallet");
           } else {
             setAddress(done.walletAddress as string);
+            setType("circle");
             setVerifiedAt(new Date().toISOString());
           }
         } catch {
@@ -347,6 +373,7 @@ export function WalletSettings({ initialAddress, walletType, addressVerifiedAt }
           <ExternalWalletVerify
             onLinked={(a) => {
               setAddress(a);
+              setType("external");
               setVerifiedAt(new Date().toISOString());
               setMode("view");
             }}
