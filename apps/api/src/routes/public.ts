@@ -443,6 +443,15 @@ publicRouter.get("/config", (_req, res) => {
      * and accepts them, the sandbox does neither.
      */
     mode: isMainnet() ? "live" : "test",
+    /**
+     * The host this deployment builds its own links with.
+     *
+     * Public already — every payment link carries it — and reported here
+     * because a deployment whose app URL belongs to the OTHER mode produces
+     * links that open the wrong frontend and fail with "link unavailable".
+     * One request per deployment now shows the mismatch.
+     */
+    app_url: (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/+$/, ""),
     live_keys_available: isMainnet(),
     /**
      * The smallest charge this deployment accepts, or null where there is no

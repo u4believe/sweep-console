@@ -26,6 +26,8 @@ import { circleWebhooksRouter } from "./routes/circle-webhooks";
 import { apiLimiter, authLimiter } from "./middleware/rateLimit";
 import { startBillingEngine } from "./billing/scheduler";
 import { prisma } from "./lib/prisma";
+import { isMainnet } from "./lib/gateway/chains";
+import { directSettlementEnabled } from "./lib/chain/direct-settlement";
 
 const app = express();
 // Railway (and any PaaS) puts a proxy in front, so the client address arrives in
@@ -225,6 +227,21 @@ async function start() {
   }
   const server = app.listen(PORT, () => {
     console.log(`[api] Sweep Console API running on port ${PORT}`);
+    /**
+     * The mode and the host links will carry, on the first lines of the log.
+     *
+     * These two disagreeing is a whole class of fault that presents as a
+     * broken feature: a sandbox service carrying the live app URL builds
+     * sandbox payment links that open the live frontend, which asks the live
+     * API for an id it has never seen and renders "link unavailable". The
+     * mismatch is invisible from either side, so it goes in the boot log
+     * where a deploy is already being watched.
+     */
+    const linkHost = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+    console.log(
+      `[api] mode=${isMainnet() ? "live" : "test"} links=${linkHost} ` +
+        `settlement=${directSettlementEnabled() ? "direct" : "bridged"}`
+    );
   });
 
   // Single-service deploys (e.g. one Railway service) run the billing engine

@@ -937,9 +937,20 @@ portalRouter.delete(
 // Reusable, shareable checkout URLs (Stripe Payment Link model). Each visit
 // mints a fresh checkout session; the link itself carries no subscriber.
 
+/**
+ * The shareable URL for a payment link.
+ *
+ * NEXT_PUBLIC_APP_URL IS PER DEPLOYMENT, AND SILENTLY SO. A sandbox service
+ * carrying the live domain builds sandbox links that open the LIVE frontend,
+ * which asks the LIVE API for a link id it has never heard of — and the page
+ * says "link unavailable", naming nothing. That is a config fault that looks
+ * like a broken feature, so the boot log states which host links will carry
+ * (see index.ts) and GET /config reports it, which makes diffing the two
+ * deployments a single request each.
+ */
 function paymentLinkUrl(linkId: string): string {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-  return `${appUrl}/pay/${linkId}`;
+  return `${appUrl.replace(/\/+$/, "")}/pay/${linkId}`;
 }
 
 portalRouter.get("/payment-links", async (req, res) => {
