@@ -615,65 +615,22 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
   };
 
   /**
-   * The master switch's payment: authorize every chain that isn't yet granted,
-   * then charge whichever approved chain has funds. Arc is not among them — it is
-   * where the money settles, not where it is pulled from.
+   * The master switch AUTHORIZES. It does not pay.
+   *
+   * It used to take the payment too — authorize every chain, then charge
+   * whichever one held a full period — which made a grant-only control
+   * demand a funded wallet and fail with a balance error on a step that
+   * signs permissions. Authorizing renewals and paying today's invoice are
+   * two decisions, and step 03 already owns the second one.
+   *
+   * What this keeps is the useful half: recording what was authorized, so
+   * clicking a chain in step 03 skips the grant it already has and goes
+   * straight to the charge.
    */
-  const payAcrossAllChains = async (authorized?: string[]) => {
-    if (!payAddress) return;
+  const recordAuthorizedChains = (authorized: string[]) => {
+    if (authorized.length === 0) return;
     setGrantError("");
-    if (walletBlocked) { setGrantError(walletBlocked); return; }
-
-    /**
-     * THE CHAINS THE SWITCH JUST AUTHORIZED, not this component's own list.
-     *
-     * `grantedChains` is written only by step 03 — one chain at a time, as a
-     * subscriber pays from it. A subscriber who goes straight to the master
-     * switch never touches step 03, so that list was EMPTY here, every
-     * granted chain failed the `includes` test, and the search for a funded
-     * chain could not succeed whatever their balance. The switch knows what
-     * it authorized; it now says so.
-     *
-     * Merged rather than replaced, because both routes are legitimate: a
-     * subscriber may approve Base in step 03 and then flip the switch for the
-     * rest.
-     */
-    const eligible = Array.from(new Set([...(authorized ?? []), ...grantedChains]));
-    if (authorized?.length) {
-      setGrantedChains((prev) => Array.from(new Set([...prev, ...authorized])));
-    }
-
-    const balances = await fetchWalletBalances(payAddress);
-    const funded = balances.chains.find(
-      (c) => BigInt(c.wallet_balance) >= planAmount && eligible.includes(c.chain)
-    );
-    if (!funded) {
-      /**
-       * "Try other chain" is step 03's message and it does not belong here.
-       *
-       * That one answers a subscriber who PICKED a chain: another might
-       * work. This path picked none — the master switch authorized them all
-       * and then looked for one holding a full period. Telling someone to
-       * try a different chain when they chose none reads as a fault in the
-       * page rather than an empty wallet, which is the actual situation.
-       *
-       * Their authorizations stand either way: the grants are signed, and
-       * funding any approved chain lets the charge proceed.
-       */
-      const approved = balances.chains
-        .filter((c) => eligible.includes(c.chain))
-        .map((c) => CHAIN_NAMES[c.chain] ?? c.chain);
-      setGrantError(
-        approved.length > 0
-          ? `Not enough USDC to start this subscription. Add funds on ${approved.join(", ")} ` +
-            `and try again — your approvals are saved.`
-          : "Not enough USDC to start this subscription. Add funds and try again."
-      );
-      return;
-    }
-    setPayChain(funded.chain);
-    setSweepChain(funded.chain);
-    setShowSweep(true);
+    setGrantedChains((prev) => Array.from(new Set([...prev, ...authorized])));
   };
 
   // Persist the chosen tier on the session so the backend resolves the same terms.
@@ -1276,7 +1233,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                       walletAddress={payAddress}
                       email={EMAIL_RE.test(email.trim()) ? email.trim() : undefined}
                       emailToken={emailToken}
-                      onAuthorizedAll={(keys) => void payAcrossAllChains(keys)}
+                      onAuthorizedAll={(keys) => recordAuthorizedChains(keys)}
                     />
                   </StepRow>
                 )}

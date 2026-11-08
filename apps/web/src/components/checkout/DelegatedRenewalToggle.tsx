@@ -315,7 +315,10 @@ export function DelegatedRenewalToggle({
   /**
    * The master switch. ON authorizes every chain not already granted — skipping
    * any that is, so a subscriber who approved Base earlier signs only the two
-   * that remain — then hands back to the shell to take the payment. OFF revokes.
+   * that remain — then tells the shell which chains are authorized. It does
+   * NOT take the payment: authorizing future renewals and paying today's
+   * invoice are two decisions, and step 03 owns the second. It used to pay,
+   * which made a grant-only control fail with a balance error. OFF revokes.
    */
   const toggleAll = async () => {
     if (allOn) return void revoke(undefined, "all");
@@ -360,7 +363,7 @@ export function DelegatedRenewalToggle({
           : unusable
             ? "This wallet can't authorize renewals on other chains, so renewals will be charged from the chain you pay with today."
             : allOn
-              ? "Every supported chain is authorized. Each renewal is charged from whichever one holds enough USDC at the time."
+              ? "Every supported chain is authorized. Each renewal is charged from whichever one holds enough USDC at the time — choose a chain above to pay today's."
               : partiallyOn
                 ? `${grantedUsable.length} of ${usable.length} chains authorized — ${grantedUsable
                     .map((t) => t.name)
