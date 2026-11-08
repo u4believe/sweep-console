@@ -61,7 +61,15 @@ interface Props {
    * Called once every chain is authorized, so the shell can go on to charge from
    * whichever granted chain holds enough USDC.
    */
-  onAuthorizedAll: () => void;
+  /**
+   * The chain KEYS now authorized.
+   *
+   * It took no argument, and the shell's own grantedChains is written only by
+   * step 03 — so a subscriber who went straight to this switch authorized
+   * every chain and then handed the shell an empty list to look for funds in.
+   * Nothing could be found, whatever their balance.
+   */
+  onAuthorizedAll: (chainKeys: string[]) => void;
 }
 
 type State = "checking" | "ineligible" | "ready" | "fallback";
@@ -202,8 +210,19 @@ export function DelegatedRenewalToggle({
    * delegation per chain. No permit is involved — Arc is the settlement chain,
    * never a funding one, so there is nothing to sign there.
    */
-  async function authorizeAll(list: GrantTarget[], scope: number | "all") {
-    if (!address || !connectorClient || workingRef.current) return;
+  /**
+   * Returns the chain ids that actually landed, so the caller can act on them.
+   *
+   * It returned nothing, which left toggleAll unable to tell the shell what
+   * had been authorized — and the shell's own list is written only by step
+   * 03. An empty return on the early guards is correct: nothing was asked
+   * for, so nothing landed.
+   */
+  async function authorizeAll(
+    list: GrantTarget[],
+    scope: number | "all"
+  ): Promise<number[]> {
+    if (!address || !connectorClient || workingRef.current) return [];
     setError("");
     setBusy(scope);
     workingRef.current = true;
@@ -241,9 +260,13 @@ export function DelegatedRenewalToggle({
             : `Couldn't authorize ${names}.`
         );
       }
+
+      return landed;
     } catch (e) {
       setError(describeError(e));
       setState("fallback");
+      // Nothing landed that the caller can rely on; the error is already set.
+      return [];
     } finally {
       workingRef.current = false;
       setBusy(null);
@@ -296,10 +319,18 @@ export function DelegatedRenewalToggle({
    */
   const toggleAll = async () => {
     if (allOn) return void revoke(undefined, "all");
-    await authorizeAll(usable.filter((t) => !granted.includes(t.chain_id)), "all");
-    onAuthorizedAll();
+    const asked = usable.filter((t) => !granted.includes(t.chain_id));
+    const landed = await authorizeAll(asked, "all");
+    /**
+     * Everything now authorized, not just what this click added.
+     *
+     * A subscriber who approved Base earlier and flips this signs only the
+     * two that remain, so `landed` alone would omit Base — and Base might be
+     * the funded one. The shell needs the whole set to choose from.
+     */
+    const all7715 = new Set<number>([...granted, ...landed]);
+    onAuthorizedAll(usable.filter((t) => all7715.has(t.chain_id)).map((t) => t.chain_key));
   };
-
   return (
     <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-divider)", padding: 12 }}>
       {/* The master switch — the one control here that authorizes every chain

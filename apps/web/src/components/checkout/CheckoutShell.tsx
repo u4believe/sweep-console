@@ -619,13 +619,33 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
    * then charge whichever approved chain has funds. Arc is not among them — it is
    * where the money settles, not where it is pulled from.
    */
-  const payAcrossAllChains = async () => {
+  const payAcrossAllChains = async (authorized?: string[]) => {
     if (!payAddress) return;
     setGrantError("");
     if (walletBlocked) { setGrantError(walletBlocked); return; }
+
+    /**
+     * THE CHAINS THE SWITCH JUST AUTHORIZED, not this component's own list.
+     *
+     * `grantedChains` is written only by step 03 — one chain at a time, as a
+     * subscriber pays from it. A subscriber who goes straight to the master
+     * switch never touches step 03, so that list was EMPTY here, every
+     * granted chain failed the `includes` test, and the search for a funded
+     * chain could not succeed whatever their balance. The switch knows what
+     * it authorized; it now says so.
+     *
+     * Merged rather than replaced, because both routes are legitimate: a
+     * subscriber may approve Base in step 03 and then flip the switch for the
+     * rest.
+     */
+    const eligible = Array.from(new Set([...(authorized ?? []), ...grantedChains]));
+    if (authorized?.length) {
+      setGrantedChains((prev) => Array.from(new Set([...prev, ...authorized])));
+    }
+
     const balances = await fetchWalletBalances(payAddress);
     const funded = balances.chains.find(
-      (c) => BigInt(c.wallet_balance) >= planAmount && grantedChains.includes(c.chain)
+      (c) => BigInt(c.wallet_balance) >= planAmount && eligible.includes(c.chain)
     );
     if (!funded) {
       /**
@@ -641,7 +661,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
        * funding any approved chain lets the charge proceed.
        */
       const approved = balances.chains
-        .filter((c) => grantedChains.includes(c.chain))
+        .filter((c) => eligible.includes(c.chain))
         .map((c) => CHAIN_NAMES[c.chain] ?? c.chain);
       setGrantError(
         approved.length > 0
@@ -1256,7 +1276,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                       walletAddress={payAddress}
                       email={EMAIL_RE.test(email.trim()) ? email.trim() : undefined}
                       emailToken={emailToken}
-                      onAuthorizedAll={() => void payAcrossAllChains()}
+                      onAuthorizedAll={(keys) => void payAcrossAllChains(keys)}
                     />
                   </StepRow>
                 )}
