@@ -30,7 +30,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAccount, useChainId, useConnectorClient } from "wagmi";
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
-import { reportGrantFailure } from "@/lib/delegation/diagnostics";
+import { describeGrantFailure, grantDebugEnabled, reportGrantFailure } from "@/lib/delegation/diagnostics";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import { Spinner, ActivityBar } from "@/components/ui/Spinner";
 import { enableCrossChain, fetchGrantPlan, revokeGrant, saveDelegation, reportGrantDiagnostic } from "@/lib/gateway";
@@ -189,6 +189,7 @@ export function DelegatedRenewalToggle({
   /** Chain id mid-grant/revoke, or "all" while the master switch is working. */
   const [busy, setBusy] = useState<number | "all" | null>(null);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [debugReport, setDebugReport] = useState<string[]>([]);
   const [error, setError] = useState("");
 
   // Set for the duration of a grant. grantRenewalMandates switches the wallet's
@@ -273,7 +274,10 @@ export function DelegatedRenewalToggle({
             (input) => saveDelegation(sessionId, input),
             (done, total) => setProgress({ done, total }),
             merchantName,
-            (info) =>
+            (info) => {
+              setDebugReport((prev) =>
+                [...prev, describeGrantFailure({ ...info, walletAddress, advertisedChainIds: supportedChainIds })].slice(-6)
+              );
               void reportGrantFailure({
                 ...info,
                 post: (body) => reportGrantDiagnostic(sessionId, body),
@@ -282,7 +286,9 @@ export function DelegatedRenewalToggle({
                 // one fact separating "the wallet never advertised 7715 for this
                 // chain" from "it advertised it and then refused".
                 advertisedChainIds: supportedChainIds,
-              }),
+              });
+            },
+            (index, total) => setProgress({ done: index, total }),
           );
 
       const failedIds = new Set(failures.map((f) => f.target.chain_id));
@@ -434,6 +440,37 @@ export function DelegatedRenewalToggle({
         <p className="m-0" style={{ fontSize: 12, color: "var(--color-accent-700)", marginTop: 10 }}>
           {error}
         </p>
+      )}
+
+      {/*
+        Diagnostics on the page, only when ?sweepdebug=1 asks for them.
+
+        A subscriber is owed one clear sentence, so this is off by default and
+        must stay that way. It exists because reporting a grant failure to the
+        server has failed four different ways — an unreadable browser console,
+        a preview origin whose POST is refused by CORS, a bundle that may not
+        carry the reporter, and a log that can be filtered or scrolled past.
+        Rendering it is the one path with nothing in between.
+      */}
+      {grantDebugEnabled() && debugReport.length > 0 && (
+        <pre
+          className="m-0"
+          style={{
+            marginTop: 10,
+            padding: 10,
+            fontSize: 11,
+            lineHeight: 1.5,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-all",
+            userSelect: "all",
+            background: "var(--color-surface)",
+            border: "1px solid var(--color-border)",
+            borderRadius: "var(--radius-sm)",
+            color: "var(--color-text)",
+          }}
+        >
+          {debugReport.join("\n\n")}
+        </pre>
       )}
 
     </div>

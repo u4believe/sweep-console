@@ -184,3 +184,71 @@ export async function reportGrantFailure(input: {
     // Swallowed on purpose — see above.
   }
 }
+
+/**
+ * Show the diagnostic on the page, when the URL asks for it.
+ *
+ * Reporting to the server has not survived contact with reality: the browser
+ * console is unreadable to someone watching a deployment, a preview origin
+ * has its POST refused by CORS, a stale bundle may not carry the reporter,
+ * and a Railway log can be filtered or scrolled past. Four plumbing failures
+ * between a failure and the person who needs to read it.
+ *
+ * `?sweepdebug=1` renders it instead, where it cannot be lost. It is OFF by
+ * default and must stay that way: a real subscriber on a payment page is owed
+ * one clear sentence, not a chain id and an EIP-1193 code. Someone
+ * diagnosing has to ask for it by hand, which is the point.
+ */
+export function grantDebugEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const v = new URLSearchParams(window.location.search).get("sweepdebug");
+    return v === "1" || v === "true";
+  } catch {
+    return false;
+  }
+}
+
+/** One copy-pasteable block describing a failed grant. */
+export function describeGrantFailure(input: {
+  stage?: string;
+  targetChainId?: number;
+  targetChainName?: string;
+  activeChainId?: number | null;
+  advertisedChainIds?: number[] | null;
+  walletAddress?: string;
+  requestShape?: Record<string, unknown>;
+  error: unknown;
+}): string {
+  const lines: string[] = [];
+  lines.push(`stage:            ${input.stage ?? "unknown"}`);
+  lines.push(`target chain:     ${input.targetChainName ?? "?"} (${input.targetChainId ?? "?"})`);
+  lines.push(`wallet on chain:  ${input.activeChainId ?? "unknown"}`);
+  lines.push(
+    `advertises 7715:  ${
+      input.advertisedChainIds == null
+        ? "probe inconclusive"
+        : input.advertisedChainIds.length === 0
+          ? "NO CHAINS"
+          : input.advertisedChainIds.join(", ")
+    }`
+  );
+  lines.push(`payer:            ${input.walletAddress ?? "?"}`);
+  if (input.requestShape) {
+    const s = input.requestShape as Record<string, unknown>;
+    lines.push(
+      `request sent:     to=${String(s.to)} payees=${String(s.payee_count)} redeemer=${
+        s.sends_redeemer ? "sent" : "omitted"
+      }`
+    );
+  }
+  // Every layer, because viem buries the EIP-1193 code one or two causes down.
+  for (const [i, l] of unwrapError(input.error).slice(0, 6).entries()) {
+    lines.push(
+      `error layer ${i}:    ${l.name ?? "Error"} code=${
+        typeof l.code === "number" || typeof l.code === "string" ? l.code : "none"
+      } — ${String(l.shortMessage ?? l.message ?? "").slice(0, 300)}`
+    );
+  }
+  return lines.join("\n");
+}

@@ -168,7 +168,14 @@ export async function grantRenewalMandates(
       sends_redeemer: boolean;
     };
     error: unknown;
-  }) => void
+  }) => void,
+  /**
+   * Fired as each chain is ATTEMPTED, so a caller can say which one the
+   * wallet is being asked about. Distinct from onProgress, which counts the
+   * ones that landed — last in the list so the existing call sites, which
+   * stop at `report`, keep compiling unchanged.
+   */
+  onAttempt?: (index: number, total: number) => void
 ): Promise<GrantFailure[]> {
   const now = Math.floor(Date.now() / 1000);
   const request = (client: Awaited<ReturnType<typeof connectorClientOnChain>>, t: GrantTarget) =>
@@ -213,6 +220,20 @@ export async function grantRenewalMandates(
      * EIP-1193 4100 is reachable from the middle two, and guessing which cost
      * this migration three wrong diagnoses.
      */
+    /**
+     * Say which chain is being signed BEFORE asking for it.
+     *
+     * onProgress only ran after save() succeeded, so the counter reported
+     * chains COMPLETED while the label read "Signing N of M — approve each in
+     * your wallet", which is a claim about the chain in hand. With every
+     * permission refused it sat at "1 of 4" through all four prompts, looking
+     * like a stuck UI rather than four failures. It was telling the truth
+     * about completions and lying about what it said it was describing.
+     *
+     * Reporting the attempt here makes the label mean what it says; the
+     * completion count still advances only on a real save below.
+     */
+    onAttempt?.(done + failures.length, targets.length);
     let stage: "probe" | "upgrade" | "request" | "save" = "probe";
     let client: Awaited<ReturnType<typeof connectorClientOnChain>> | undefined;
     try {
