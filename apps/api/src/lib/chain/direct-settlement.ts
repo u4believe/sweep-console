@@ -168,9 +168,30 @@ export function creatorPayee(wallet: {
  * limited the blast radius of a key compromise; it was never what made this
  * non-custodial.
  */
+let pinModeWarned = false;
+
 function payeePinMode(): "none" | "creator" | "both" {
   const raw = process.env.DIRECT_SETTLEMENT_PAYEE_PIN?.trim().toLowerCase();
   if (raw === "creator" || raw === "both" || raw === "none") return raw;
+
+  /**
+   * An UNRECOGNISED value is said out loud, not quietly ignored.
+   *
+   * This takes a mode, not a boolean, and "true" is the value someone reaches
+   * for when a variable is named like a switch. Falling through silently
+   * would leave a deployment believing it had changed the pin while nothing
+   * had — the same shape of fault as a sandbox carrying the live APP_URL, or
+   * an .env with the key twice: configuration that looks applied and is not.
+   */
+  if (raw && !pinModeWarned) {
+    pinModeWarned = true;
+    console.warn(
+      `[settlement] DIRECT_SETTLEMENT_PAYEE_PIN="${raw}" is not a mode and is being IGNORED. ` +
+        `Valid values are none, creator, both — and none is the default, so the variable can ` +
+        `simply be left unset.`
+    );
+  }
+
   // Honoured for the deployments already carrying it.
   if (process.env.DIRECT_SETTLEMENT_SINGLE_PAYEE === "true") return "creator";
   return "none";
