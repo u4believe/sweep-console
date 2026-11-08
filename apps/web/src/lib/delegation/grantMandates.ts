@@ -266,7 +266,7 @@ export async function grantRenewalMandates(
           to: t.delegate,
           payee_count: t.payees?.length ?? 0,
           permission_type: "erc20-token-periodic",
-          sends_redeemer: false,
+          sends_redeemer: true,
         },
         error: e,
       });

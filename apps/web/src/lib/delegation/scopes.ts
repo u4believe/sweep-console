@@ -73,33 +73,33 @@ export function buildPeriodicPermission(
   input: PeriodicErc20MandateInput
 ): PermissionRequestParameter {
   /**
-   * `redeemer` IS DELIBERATELY NOT SENT, and `payee` usually is not either.
+   * `redeemer` IS SENT AGAIN, because removing it regressed a working path.
    *
-   * MetaMask documents exactly five parameters for
-   * requestExecutionPermissions — chainId, from, expiry, permission and to
-   * — and documents NEITHER `redeemer` NOR `payee`. Both exist in the kit's
-   * types, which is why sending them type-checks, but a field the wallet
-   * does not document is a field it is free to refuse.
+   * The removal reasoned that MetaMask documents five parameters — chainId,
+   * from, expiry, permission, to — documents neither `redeemer` nor `payee`,
+   * that `payee` was demonstrably refused, and that `to` already names the
+   * account a permission is assigned to, so a RedeemerEnforcer caveat
+   * repeating it was redundant.
    *
-   * And it does refuse them. `payee` with two addresses stopped the
-   * permission prompt appearing at all; one address brought it back.
-   * `redeemer` then failed the request with EIP-1193 4100 — "the requested
-   * method and/or ACCOUNT has not been authorized by the user" — on every
-   * chain at once, on MetaMask 13.55.0, far above the v13.23.0 this
-   * permission type needs. A rule naming an account the user has not
-   * authorized is a plausible reading of that wording, and it was the last
-   * undocumented field we sent.
+   * The reasoning was sound and the conclusion was wrong. Mainnet authorized
+   * grants on Base, Arbitrum and Optimism while this was sent and returned
+   * 4100 on all three once it was not. Every grant in the database that a
+   * subscriber successfully signed carries a RedeemerEnforcer caveat naming
+   * the delegate, which inspect-grant.ts prints beside the delegate field.
    *
-   * Dropping it costs nothing: `to` is the documented way to say which
-   * account the permission is assigned to, so it already names the
-   * delegate, and `redeemer: [input.delegate]` only repeated it. Nothing on
-   * the redeem side reads it — every path recovers the delegate from the
-   * signed context.
+   * A field being undocumented says nothing about whether the wallet wants
+   * it. That is the mirror of the `payee` mistake: there the types permitted
+   * what the wallet refuses, here the docs omit what the wallet appears to
+   * require. So this stays until a grant is observed succeeding without it.
+   *
+   * `payee` is a different matter and stays off by default — two addresses
+   * stop the prompt appearing at all, which was reproduced directly.
    */
   return {
     chainId: input.chainId,
     to: input.delegate,
     expiry: input.expirySec,
+    redeemer: [input.delegate],
     // Omitted entirely unless the API asks for a pin, which by default it
     // does not — see payeePinMode in the API's direct-settlement.ts.
     // Under direct settlement those are the creator and the treasury, so a
