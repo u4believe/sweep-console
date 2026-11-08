@@ -299,8 +299,31 @@ function topUpAmount(opts: {
         `and not necessarily the owner key (see getGasRelayerAccount).`
     );
   }
+  /**
+   * THE FLOOR IS A MINIMUM, NOT THE AMOUNT.
+   *
+   * This returned the floor whenever the payer could afford it, which silently
+   * ignored `required` on any chain where the operation costs more than the
+   * floor. The guard above compares the BALANCE against required and so reads
+   * as if required were honoured; only the deposit was short.
+   *
+   * It survived because the chains this was built against make the floor
+   * generous. Base, Arbitrum and Optimism price a 1.58M-gas operation near
+   * 0.0000158 ETH, a hundredfold under the 0.002 default, so the floor always
+   * dominated and always sufficed. Monad prices gas at 122 gwei, which puts
+   * the same operation at 0.193 MON — 96x the floor. The deposit went in at
+   * 0.002, the EntryPoint rejected the operation for an unpaid prefund, and
+   * handleOps consumed its entire gas limit without emitting a log, which
+   * reads exactly like a contract revert.
+   *
+   * The floor's only job is to stop dust top-ups: deposit something worth the
+   * transaction that carries it, so one deposit covers several operations.
+   * Half again over `required` absorbs a gas-price rise between this deposit
+   * and the operation it funds.
+   */
   const floor = depositFloor();
-  return affordable < floor ? affordable : floor;
+  const want = opts.required > floor ? opts.required + opts.required / 2n : floor;
+  return affordable < want ? affordable : want;
 }
 
 /** Off unless explicitly switched on. This changes who redeems a grant. */
@@ -893,121 +916,80 @@ export async function ensureDelegateMscaDeployed(input: {
     );
   }
 
-  const existing = await publicClient.getCode({ address: account.address }).catch(() => undefined);
+  const existing = await publicClient.getCode({ address: account.address });
   if (existing && existing !== "0x") return { address: account.address, alreadyDeployed: true };
 
-  const fees = await publicClient.estimateFeesPerGas();
-  const maxFeePerGas = fees.maxFeePerGas ?? 0n;
-  const maxPriorityFeePerGas = fees.maxPriorityFeePerGas ?? 0n;
-
-  const initCode = await initCodeFor(account, publicClient);
-  if (initCode === "0x") {
+  /**
+   * CALL THE FACTORY, not the EntryPoint.
+   *
+   * The first version of this sent a no-op UserOperation whose initCode does
+   * the deployment, mirroring the redeem path. That path works on Base,
+   * Arbitrum and Optimism and fails on Monad: handleOps reverts with EMPTY
+   * revert data, at every gas limit tried up to 30M, and consumes its whole
+   * limit on-chain without emitting a log. The factory itself is fine there —
+   * eth_call on createAccount returns this exact address — so the fault is
+   * somewhere in Monad's EntryPoint path and not in the deployment.
+   *
+   * Which makes the UserOperation the wrong instrument. ERC-4337 exists to
+   * let an account authorize actions without holding gas; deploying one
+   * authorizes nothing. The factory is permissionless, CREATE2 fixes the
+   * address from the factory, the salt and the owner — never from the caller
+   * — so an ordinary transaction from the gas payer produces the identical
+   * address at a fraction of the complexity: no prefund, no deposit, no
+   * signature, no gas-limit packing, and no EntryPoint to go wrong.
+   *
+   * The address is verified against the factory's own return value before
+   * anything is sent, so a factory that would deploy elsewhere is refused
+   * rather than discovered afterwards.
+   */
+  const factoryArgs = await (account as unknown as {
+    getFactoryArgs?: () => Promise<{ factory?: Address; factoryData?: Hex }>;
+  }).getFactoryArgs?.();
+  if (!factoryArgs?.factory || !factoryArgs.factoryData) {
     throw new Error(
       `${account.address} has no code on chain ${input.chainId} but exposes no factory args, so it ` +
         `cannot be deployed from here.`
     );
   }
-  const verificationGas = VERIFICATION_GAS + DEPLOY_VERIFICATION_GAS;
-  const required = (CALL_GAS + verificationGas + PRE_VERIFICATION_GAS) * maxFeePerGas;
 
-  const deposit = await publicClient.readContract({
-    address: ENTRY_POINT,
-    abi: ENTRY_POINT_ABI,
-    functionName: "balanceOf",
-    args: [account.address],
-  });
-  if (deposit < required) {
-    const ownerBalance = await publicClient.getBalance({ address: payer.address });
-    const top = topUpAmount({
-      required,
-      ownerBalance,
-      maxFeePerGas,
-      owner: payer.address,
-      chainId: input.chainId,
-    });
-    console.warn(
-      `[delegate/deploy] depositing ${formatEther(top)} from ${payer.address} to cover the ` +
-        `deploying operation for ${account.address} on chain ${input.chainId}`
+  const factoryCode = await publicClient.getCode({ address: factoryArgs.factory });
+  if (!factoryCode || factoryCode === "0x") {
+    throw new Error(
+      `the account factory ${factoryArgs.factory} is not deployed on chain ${input.chainId}, so ` +
+        `${account.address} cannot be created there.`
     );
-    const hash = await withNonce(payer.address, input.chainId, publicClient, (nonce) =>
-      submitter.sendTransaction({
-        to: ENTRY_POINT,
-        value: top,
-        data: encodeFunctionData({ abi: ENTRY_POINT_ABI, functionName: "depositTo", args: [account.address] }),
-        nonce,
-      })
-    );
-    await confirmDeposit({ publicClient, hash, account: account.address, required });
   }
 
-  // A self-call with no value and no data: the initCode does the work.
-  const callData = encodeFunctionData({
-    abi: MSCA_EXECUTE_ABI,
-    functionName: "execute",
-    args: [account.address, 0n, "0x"],
+  const simulated = await publicClient.call({
+    account: payer.address,
+    to: factoryArgs.factory,
+    data: factoryArgs.factoryData,
   });
+  const returned = simulated.data && simulated.data.length >= 66 ? `0x${simulated.data.slice(26, 66)}` : undefined;
+  if (returned && returned.toLowerCase() !== account.address.toLowerCase()) {
+    throw new Error(
+      `the factory on chain ${input.chainId} would create ${returned}, not the delegate ` +
+        `${account.address} — refusing to send it.`
+    );
+  }
 
-  const nonce = await publicClient.readContract({
-    address: ENTRY_POINT,
-    abi: ENTRY_POINT_ABI,
-    functionName: "getNonce",
-    args: [account.address, 0n],
-  });
-
-  const unpacked = {
-    sender: account.address,
-    nonce,
-    callData,
-    callGasLimit: CALL_GAS,
-    verificationGasLimit: verificationGas,
-    preVerificationGas: PRE_VERIFICATION_GAS,
-    maxFeePerGas,
-    maxPriorityFeePerGas,
-    signature: "0x" as Hex,
-  };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const signature = await account.signUserOperation(unpacked as any);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const p = toPackedUserOperation({ ...unpacked, signature } as any);
-
-  const op = {
-    sender: p.sender,
-    nonce: p.nonce,
-    initCode: (p.initCode ?? initCode) as Hex,
-    callData: p.callData,
-    accountGasLimits: packTwo(verificationGas, CALL_GAS),
-    preVerificationGas: PRE_VERIFICATION_GAS,
-    gasFees: packTwo(maxPriorityFeePerGas, maxFeePerGas),
-    paymasterAndData: (p.paymasterAndData ?? "0x") as Hex,
-    signature: p.signature,
-  };
-
-  const txHash = await withNonce(payer.address, input.chainId, publicClient, (n) =>
-    submitter.sendTransaction({
-      to: ENTRY_POINT,
-      data: encodeFunctionData({ abi: ENTRY_POINT_ABI, functionName: "handleOps", args: [[op], payer.address] }),
-      gas: CALL_GAS + verificationGas + PRE_VERIFICATION_GAS + 200_000n,
-      nonce: n,
-    })
+  const txHash = await withNonce(payer.address, input.chainId, publicClient, (nonce) =>
+    submitter.sendTransaction({ to: factoryArgs.factory!, data: factoryArgs.factoryData!, nonce })
   );
   const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
-  if (receipt.status !== "success") {
-    throw new Error(`handleOps reverted deploying ${account.address} on chain ${input.chainId}: ${txHash}`);
-  }
 
   /**
    * The receipt is not the answer, so the code is.
    *
-   * handleOps succeeds even when the operation it carried failed — the
-   * EntryPoint charges for it and emits success=false. For a deployment the
-   * ground truth is cheap and unambiguous: ask the chain whether the address
-   * has code now.
+   * For a deployment the ground truth is cheap and unambiguous: ask the chain
+   * whether the address has code now. A successful receipt for a call that
+   * created nothing would otherwise be reported as a deployment.
    */
-  const after = await publicClient.getCode({ address: account.address }).catch(() => undefined);
+  const after = await publicClient.getCode({ address: account.address });
   if (!after || after === "0x") {
     throw new Error(
-      `handleOps succeeded but ${account.address} still has no code on chain ${input.chainId} — ` +
-        `the deploying operation reverted inside the EntryPoint (tx ${txHash})`
+      `${account.address} still has no code on chain ${input.chainId} after ${txHash} ` +
+        `(receipt status ${receipt.status})`
     );
   }
   return { address: account.address, alreadyDeployed: false, txHash };
