@@ -1,3 +1,4 @@
+import { reportGrantDiagnostic } from "@/lib/gateway";
 import { TestModeBanner } from "@/components/checkout/TestModeBanner";
 import { useState, type JSX, type ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -8,6 +9,7 @@ import { ChainMark, isChainKey } from "@/components/ui/marks";
 import { Spinner, ActivityBar } from "@/components/ui/Spinner";
 import { Turnstile, TURNSTILE_ENABLED } from "@/components/Turnstile";
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
+import { reportGrantFailure } from "@/lib/delegation/diagnostics";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import { friendlyError } from "@/lib/errors";
 import { useWalletPicker } from "@/lib/useWalletPicker";
@@ -344,7 +346,13 @@ export function ManageSubscriptionsPage() {
         [target],
         (input) => portalSaveMandateGrant(email.trim(), emailToken, m.mandate_id, input),
         undefined,
-        m.merchant.name
+        m.merchant.name,
+        (info) =>
+          void reportGrantFailure({
+            ...info,
+            post: (body) => reportGrantDiagnostic(m.mandate_id, body),
+            walletAddress: address,
+          }),
       );
       setNotice(
         failures.length > 0
@@ -409,7 +417,13 @@ export function ManageSubscriptionsPage() {
         usable,
         (input) => portalSaveGrant(email.trim(), emailToken, s.id, input),
         undefined,
-        s.merchant.name
+        s.merchant.name,
+        (info) =>
+          void reportGrantFailure({
+            ...info,
+            post: (body) => reportGrantDiagnostic(s.id, body),
+            walletAddress: address,
+          }),
       );
       setNotice(
         reauthorizing
@@ -478,7 +492,13 @@ export function ManageSubscriptionsPage() {
         [target],
         (input) => portalSaveGrant(email.trim(), emailToken, s.id, input),
         undefined,
-        s.merchant.name
+        s.merchant.name,
+        (info) =>
+          void reportGrantFailure({
+            ...info,
+            post: (body) => reportGrantDiagnostic(s.id, body),
+            walletAddress: address,
+          }),
       );
       setNotice(
         failures.length > 0

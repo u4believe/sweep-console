@@ -1,3 +1,4 @@
+import { reportGrantDiagnostic } from "@/lib/gateway";
 import { TestModeBanner } from "@/components/checkout/TestModeBanner";
 import { fetchConfig } from "@/lib/gateway";
 import { type CSSProperties, useCallback, useEffect, useState } from "react";
@@ -14,6 +15,7 @@ import {
 } from "../lib/embed";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { formatUnits } from "viem";
+import { reportGrantFailure } from "@/lib/delegation/diagnostics";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import { Spinner, ActivityBar } from "@/components/ui/Spinner";
 import { MetaMaskMark } from "@/components/ui/MetaMaskMark";
@@ -326,7 +328,13 @@ export function AuthorizePage() {
           return saved;
         },
         (done, total) => setProgress({ done, total }),
-        view.merchant_name
+        view.merchant_name,
+        (info) =>
+          void reportGrantFailure({
+            ...info,
+            post: (body) => reportGrantDiagnostic(mandateId, body),
+            walletAddress: address,
+          }),
       );
       // A chain that failed does not cost the subscriber the ones that worked —
       // say which were skipped rather than pretending everything succeeded.

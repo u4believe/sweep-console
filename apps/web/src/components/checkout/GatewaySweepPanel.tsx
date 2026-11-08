@@ -7,8 +7,10 @@ import {
   saveDelegation,
   type GrantPlan,
   type GrantTarget,
+  reportGrantDiagnostic,
 } from "@/lib/gateway";
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
+import { reportGrantFailure } from "@/lib/delegation/diagnostics";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import { friendlyError } from "@/lib/errors";
 import { Spinner } from "@/components/ui/Spinner";
@@ -194,7 +196,13 @@ export function GatewaySweepPanel({
           targets,
           (input) => saveDelegation(sessionId, input),
           undefined,
-          merchantName
+          merchantName,
+          (info) =>
+            void reportGrantFailure({
+              ...info,
+              post: (body) => reportGrantDiagnostic(sessionId, body),
+              walletAddress: walletAddress,
+            }),
         );
       }
 

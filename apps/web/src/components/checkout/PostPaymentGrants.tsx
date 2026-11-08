@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useConnectorClient } from "wagmi";
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
+import { reportGrantFailure } from "@/lib/delegation/diagnostics";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
-import { fetchSubscriptionGrantPlan, saveSubscriptionDelegation } from "@/lib/gateway";
+import { fetchSubscriptionGrantPlan, reportGrantDiagnostic, saveSubscriptionDelegation } from "@/lib/gateway";
 import type { GrantProof, GrantTarget } from "@/lib/gateway";
 import { Spinner, ActivityBar } from "@/components/ui/Spinner";
 
@@ -84,7 +85,13 @@ export function PostPaymentGrants({
         list,
         (input) => saveSubscriptionDelegation(subscriptionId, { ...input, ...proof }),
         undefined,
-        merchantName
+        merchantName,
+        (info) =>
+          void reportGrantFailure({
+            ...info,
+            post: (body) => reportGrantDiagnostic(subscriptionId, body),
+            walletAddress: walletAddress,
+          }),
       );
       const failed = new Set(failures.map((f) => f.target.chain_key));
       setGranted((prev) => [
