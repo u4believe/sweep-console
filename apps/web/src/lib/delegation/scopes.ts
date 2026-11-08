@@ -51,6 +51,24 @@ export interface PeriodicErc20MandateInput {
 /// is the top-level `to`; the per-period cap lives in the `erc20-token-periodic`
 /// permission. `isAdjustmentAllowed: false` keeps the cap fixed at the plan
 /// amount (the wallet UI cannot raise it).
+/**
+ * MINIMUM WALLET VERSIONS, because the permission TYPE decides them.
+ *
+ * `erc20-token-periodic` needs MetaMask >= v13.23.0 on the production
+ * extension, or >= v13.5.0 on Flask. Flask is NOT required — older guides say
+ * it is, and that was a development-era limitation.
+ *
+ * Worth writing down here, beside the request this file builds, because the
+ * wallet reports a shortfall as EIP-1193 4100 "the requested method and/or
+ * account has not been authorized" — which names no version, no permission
+ * type and no remedy, and arrives identically on every chain. The Smart
+ * Accounts Kit's own supported-networks table lists every chain this
+ * deployment uses as supported from v1.5.0, so when a grant fails uniformly
+ * it is the WALLET that is short, not the kit and not the chain.
+ *
+ * Source: docs.metamask.io/smart-accounts-kit/get-started/supported-advanced-permissions
+ * Checked 8 Nov 2026 against kit v1.6.0.
+ */
 export function buildPeriodicPermission(
   input: PeriodicErc20MandateInput
 ): PermissionRequestParameter {

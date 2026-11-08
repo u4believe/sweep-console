@@ -80,9 +80,9 @@ const USER_FACING: { test: RegExp; say: string }[] = [
      */
     test: /has not been authorized by the user|\b4100\b|method not (supported|found)|unsupported method/i,
     say:
-      "Your wallet can't authorize recurring permissions yet. Update MetaMask to a version " +
-      "with advanced permissions, or switch this account to a smart account from the MetaMask " +
-      "account menu, then try again.",
+      "Your wallet can't authorize recurring permissions. This needs MetaMask v13.23.0 or " +
+      "newer — check Settings → About in MetaMask and update if it is older. If it is current, " +
+      "switch this account to a smart account from the MetaMask account menu and try again.",
   },
 ];
 
