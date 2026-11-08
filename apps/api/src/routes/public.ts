@@ -34,6 +34,7 @@ import { payerScope } from "../lib/payer-scope";
 import { chargeFloorMicros, formatFloor } from "../lib/charge-floor";
 import { isMainnet, supportedSourceChains } from "../lib/gateway/chains";
 import { directSettlementEnabled } from "../lib/chain/direct-settlement";
+import { appOrigin } from "../lib/app-url";
 
 
 export const publicRouter = Router();
@@ -451,7 +452,7 @@ publicRouter.get("/config", (_req, res) => {
      * links that open the wrong frontend and fail with "link unavailable".
      * One request per deployment now shows the mismatch.
      */
-    app_url: (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/+$/, ""),
+    app_url: appOrigin(),
     live_keys_available: isMainnet(),
     /**
      * The smallest charge this deployment accepts, or null where there is no
@@ -525,7 +526,7 @@ publicRouter.post("/pay/:link_id/session", async (req, res) => {
       return err(res, "This payment link is no longer active", 404);
     }
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+    const appUrl = appOrigin();
     const externalRef = parsed.data.external_ref ?? `${link.linkId}_${ids.sessionToken().slice(0, 12)}`;
 
     const { session, checkoutUrl } = await createCheckoutSession({

@@ -17,6 +17,7 @@
 
 import { prisma } from "../prisma";
 import { sendEmail, priceChangeEmailHtml } from "../email";
+import { appOrigin } from "../app-url";
 
 const usdc = (v: bigint) => (Number(v) / 1_000_000).toFixed(2);
 
@@ -103,7 +104,7 @@ export async function sendPriceChangeNotices(n: PriceChangeNotice): Promise<numb
           `${usdc(n.oldAmount)} to ${usdc(n.newAmount)} USDC per ${n.interval}. ` +
           (needsReauthorization
             ? `Your wallet authorized up to ${usdc(n.oldAmount)}, so nothing can be collected until you ` +
-              `approve the new amount. Update it at ${process.env.NEXT_PUBLIC_APP_URL ?? ""}/manage, or cancel there.`
+              `approve the new amount. Update it at ${appOrigin()}/manage, or cancel there.`
             : `Your existing authorization covers it — nothing to do.`),
       }).catch((e) => console.warn(`[price-change] ${sub.subscriptionId}: ${(e as Error).message}`));
       sent++;

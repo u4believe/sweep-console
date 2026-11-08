@@ -37,6 +37,7 @@ import {
 } from "../lib/webhooks/url-guard";
 import { securityRouter } from "./portal-security";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
+import { appOrigin } from "../lib/app-url";
 
 function hmacKey(rawKey: string): string {
   const secret = process.env.PLATFORM_API_SIGNING_SECRET;
@@ -949,7 +950,7 @@ portalRouter.delete(
  * deployments a single request each.
  */
 function paymentLinkUrl(linkId: string): string {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl = appOrigin();
   return `${appUrl.replace(/\/+$/, "")}/pay/${linkId}`;
 }
 

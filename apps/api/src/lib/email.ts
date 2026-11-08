@@ -5,6 +5,7 @@ import {
   fineprint, fallbackUrl, emailLink, mono, esc, manageUrl,
 } from "./email-shell";
 import { setDefaultResultOrder } from "node:dns";
+import { appOrigin } from "./app-url";
 
 // Many hosts (e.g. Railway) can't route IPv6 outbound, which surfaces as
 // `connect ENETUNREACH <ipv6>:587` on SMTP. Prefer IPv4 for all DNS lookups.
@@ -865,7 +866,7 @@ export function railAccessGrantedEmailHtml(opts: { merchantName: string; hasPayo
           "working integration: the route that creates a mandate and redirects, the webhook handler, and " +
           "the charge loop."
       ) +
-      button("Open the payment rail", `${process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? ""}/rail`) +
+      button("Open the payment rail", `${appOrigin()}/rail`) +
       fineprint(
         "Your API key can move your customers' money on this rail. It cannot redirect it — a charge always " +
         "settles to your payout wallet, and changing that wallet needs your authenticator — but anyone holding " +

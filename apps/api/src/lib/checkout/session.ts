@@ -11,6 +11,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { WALLET_SELECT, walletFor } from "../merchant-wallet";
 import { ids } from "../ids";
+import { appOrigin } from "../app-url";
 
 export class SessionCreationError extends Error {
   constructor(message: string, public httpStatus: number, public code?: string) {
@@ -61,7 +62,7 @@ export async function createCheckoutSession(input: CreateSessionInput) {
   const sessionId = ids.session(!input.isTestMode);
   const sessionToken = ids.sessionToken();
   const expiresAt = addHours(new Date(), 24);
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl = appOrigin();
 
   const session = await prisma.checkoutSession.create({
     data: {

@@ -1,3 +1,4 @@
+import { appOrigin } from "./app-url";
 // The Modernist transactional email system: one 600px table, six messages.
 //
 // Every send is built from the pieces here so they stay a family. The rules
@@ -66,7 +67,7 @@ export function esc(value: string | number | null | undefined): string {
 }
 
 export function appUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+  return appOrigin();
 }
 
 export function manageUrl(): string {

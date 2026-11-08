@@ -18,6 +18,7 @@ import { sendEmail, verificationEmailHtml, passwordResetEmailHtml } from "../lib
 const PASSWORD_RESET_TTL_MINUTES = 15;
 import { getJwtSecret, verifyPortalSession, type SessionPayload, type PortalRequest } from "../middleware/portalAuth";
 import { verifyTurnstile, clientIp } from "../lib/turnstile";
+import { appOrigin } from "../lib/app-url";
 
 export const authRouter = Router();
 
@@ -103,7 +104,7 @@ authRouter.post("/signup", async (req, res) => {
       data: { token, email, name: name ?? null, expiresAt: addHours(new Date(), 24) },
     });
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+    const appUrl = appOrigin();
     const verifyUrl = `${appUrl}/verify-email?token=${token}`;
 
     try {
@@ -403,7 +404,7 @@ authRouter.post("/forgot-password", async (req, res) => {
       data: { token, email, expiresAt: addMinutes(new Date(), PASSWORD_RESET_TTL_MINUTES) },
     });
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+    const appUrl = appOrigin();
     const resetUrl = `${appUrl}/reset-password?token=${token}`;
 
     try {

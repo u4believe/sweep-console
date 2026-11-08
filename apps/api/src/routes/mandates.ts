@@ -25,6 +25,7 @@ import { created, ok, err, validationError } from "../lib/response";
 import { INTERVAL_SECONDS } from "../lib/checkout/complete";
 import { chainKeyForId, supportedSourceChains } from "../lib/gateway/chains";
 import { mandateGrantsWhere } from "../lib/rail";
+import { appOrigin } from "../lib/app-url";
 
 export const mandatesRouter = Router();
 
@@ -78,7 +79,7 @@ interface MandateRow {
 }
 
 function appUrl(): string {
-  return process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "http://localhost:3000";
+  return appOrigin();
 }
 
 async function grantedChainsFor(mandateId: string): Promise<string[]> {

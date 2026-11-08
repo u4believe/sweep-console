@@ -28,6 +28,7 @@ import { startBillingEngine } from "./billing/scheduler";
 import { prisma } from "./lib/prisma";
 import { isMainnet } from "./lib/gateway/chains";
 import { directSettlementEnabled } from "./lib/chain/direct-settlement";
+import { appOrigin } from "./lib/app-url";
 
 const app = express();
 // Railway (and any PaaS) puts a proxy in front, so the client address arrives in
@@ -237,7 +238,7 @@ async function start() {
      * mismatch is invisible from either side, so it goes in the boot log
      * where a deploy is already being watched.
      */
-    const linkHost = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+    const linkHost = appOrigin();
     console.log(
       `[api] mode=${isMainnet() ? "live" : "test"} links=${linkHost} ` +
         `settlement=${directSettlementEnabled() ? "direct" : "bridged"}`

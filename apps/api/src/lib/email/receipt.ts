@@ -16,6 +16,7 @@ import { prisma } from "../prisma";
 import { sendEmail, receiptEmailHtml, type ReceiptEmailData } from "../email";
 import { supportedSourceChains } from "../gateway/chains";
 import { explorerTxUrl } from "../explorer";
+import { appOrigin } from "../app-url";
 
 /// Payment.type values that represent money moving FROM a subscriber TO a
 /// merchant. "refund" and "settlement" are not receipts to the subscriber.
@@ -141,7 +142,7 @@ export async function sendPaymentReceipt(paymentDbId: string): Promise<void> {
       text:
         `Paid ${amount} ${payment.currency} to ${merchantName} for ${sub.plan.name}.` +
         (data.nextRenewalAt ? ` Next renewal ${data.nextRenewalAt.toDateString()}.` : "") +
-        ` Manage your subscriptions at ${process.env.NEXT_PUBLIC_APP_URL ?? ""}/manage`,
+        ` Manage your subscriptions at ${appOrigin()}/manage`,
     });
 
     console.log(`[receipt] sent ${payment.paymentId} to ${to}`);
