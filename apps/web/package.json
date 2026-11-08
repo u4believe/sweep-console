@@ -13,7 +13,7 @@
     "@circle-fin/adapter-viem-v2": "^1.0.0",
     "@circle-fin/app-kit": "^1.0.0",
     "@circle-fin/w3s-pw-web-sdk": "^1.0.0",
-    "@metamask/smart-accounts-kit": "^1.6.0",
+    "@metamask/smart-accounts-kit": "^2.0.0",
     "@prisma/client": "5.22.0",
     "@rainbow-me/rainbowkit": "^2.2.0",
     "@tanstack/react-query": "^5.62.0",

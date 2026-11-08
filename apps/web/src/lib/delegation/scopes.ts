@@ -72,16 +72,40 @@ export interface PeriodicErc20MandateInput {
 export function buildPeriodicPermission(
   input: PeriodicErc20MandateInput
 ): PermissionRequestParameter {
+  /**
+   * `redeemer` IS DELIBERATELY NOT SENT, and `payee` usually is not either.
+   *
+   * MetaMask documents exactly five parameters for
+   * requestExecutionPermissions — chainId, from, expiry, permission and to
+   * — and documents NEITHER `redeemer` NOR `payee`. Both exist in the kit's
+   * types, which is why sending them type-checks, but a field the wallet
+   * does not document is a field it is free to refuse.
+   *
+   * And it does refuse them. `payee` with two addresses stopped the
+   * permission prompt appearing at all; one address brought it back.
+   * `redeemer` then failed the request with EIP-1193 4100 — "the requested
+   * method and/or ACCOUNT has not been authorized by the user" — on every
+   * chain at once, on MetaMask 13.55.0, far above the v13.23.0 this
+   * permission type needs. A rule naming an account the user has not
+   * authorized is a plausible reading of that wording, and it was the last
+   * undocumented field we sent.
+   *
+   * Dropping it costs nothing: `to` is the documented way to say which
+   * account the permission is assigned to, so it already names the
+   * delegate, and `redeemer: [input.delegate]` only repeated it. Nothing on
+   * the redeem side reads it — every path recovers the delegate from the
+   * signed context.
+   */
   return {
     chainId: input.chainId,
     to: input.delegate,
     expiry: input.expirySec,
-    // Only the delegate may redeem, and only the named payees may be paid.
+    // Omitted entirely unless the API asks for a pin, which by default it
+    // does not — see payeePinMode in the API's direct-settlement.ts.
     // Under direct settlement those are the creator and the treasury, so a
     // stolen delegate key can move a subscriber's USDC to the merchant they
     // subscribed to or to our fee address, and nowhere else — it cannot pay
     // itself.
-    redeemer: [input.delegate],
     ...(input.payees?.length ? { payee: input.payees } : {}),
     permission: {
       type: "erc20-token-periodic",
