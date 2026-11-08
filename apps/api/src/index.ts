@@ -205,9 +205,41 @@ app.use((_req, res) => {
   res.status(404).json({ error: { message: "Not found", code: "not_found" } });
 });
 
-// Error handler
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+/**
+ * A REFUSED ORIGIN IS NOT AN UNHANDLED ERROR, and must not be logged as one.
+ *
+ * cors() reports a disallowed origin by calling back with an Error, which
+ * lands here and printed a full Express stack trace — eleven lines that are
+ * identical every time and name only express and cors internals. One preview
+ * deployment loading a checkout produced several hundred of them in five
+ * minutes, which is enough to bury anything else in the window. A real
+ * [grant-failure] report arriving in the middle of that flood would be
+ * unfindable, and the whole point of that report is to be read.
+ *
+ * So a rejected origin is logged once per origin, as one line naming the
+ * remedy, and the stack is dropped: there is nothing in it. Everything else
+ * keeps its stack, because for an actual fault the stack is the useful part.
+ */
+const refusedOrigins = new Set<string>();
+
+app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const corsRefusal = /^CORS: origin (\S+) not allowed$/.exec(err.message ?? "");
+  if (corsRefusal) {
+    const origin = corsRefusal[1]!;
+    if (!refusedOrigins.has(origin)) {
+      refusedOrigins.add(origin);
+      console.warn(
+        `[cors] refusing ${origin} — add it to APP_URL, or set CORS_PREVIEW_SUFFIXES if it is a ` +
+          `preview deployment. Browsing a preview origin breaks every API call from that page, ` +
+          `including the grant diagnostics. Further refusals from this origin are not logged.`
+      );
+    }
+    return res.status(403).json({
+      error: { message: "Origin not allowed", code: "cors_origin_not_allowed" },
+    });
+  }
   console.error("[api] unhandled error:", err);
+  void req;
   res.status(500).json({ error: { message: "Internal server error", code: "internal_error" } });
 });
 
