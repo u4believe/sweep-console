@@ -19,18 +19,24 @@ export interface PeriodicErc20MandateInput {
   token: Address;
   delegate: Address;
   /**
-   * Every address this permission may transfer to, and no others.
+   * Addresses this permission may transfer to — or NONE, which is the default.
    *
-   * The periodic permission's own data bounds the token, the amount and the
-   * period — and says nothing about the destination, so a delegate key on its
-   * own can redeem to any address it chooses. This is the one ERC-7715 control
-   * that closes that: the kit maps it to an AllowedCalldataEnforcer caveat
-   * pinning the recipient bytes of the transfer.
+   * The periodic permission bounds the token, the amount and the period, and
+   * says nothing about the destination; this is the one ERC-7715 control that
+   * does, mapped to an AllowedCalldataEnforcer caveat on the recipient bytes.
    *
-   * A LIST, because ERC-7715 takes one. Direct settlement names two — the
-   * creator and the treasury — so a settlement's two halves come from one
-   * permission and can share one redeemDelegations call. The legacy path
-   * names one. Omit and the grant is unconstrained in exactly the old way.
+   * A list because ERC-7715 types it as one. TWO DOES NOT WORK: MetaMask
+   * forwards the value verbatim and the permission prompt never appears with
+   * two addresses — proven on the sandbox, where one prompts and two do not.
+   * So the atomic fee split and a pinned payee were never compatible.
+   *
+   * Usually empty now, and deliberately — see payeePinMode in the API's
+   * direct-settlement.ts for the trade. In short: pinning the creator makes
+   * their payout wallet permanent, because the address is baked into every
+   * signed permission and changing it would kill every existing renewal;
+   * nothing in the redeem needs the pin, since each one reads the creator
+   * from the merchant row at redeem time; and the delegate is now an MSCA
+   * owned by a non-exportable KMS key, which is what guards this instead.
    */
   payees?: Address[];
   periodAmountMicro: bigint;

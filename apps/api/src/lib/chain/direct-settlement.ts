@@ -129,27 +129,51 @@ export function creatorPayee(wallet: {
  * not a weaker one.
  */
 /**
- * Pin ONE payee instead of two.
+ * How much the grant pins about WHERE money may go.
  *
- * WHY THIS ESCAPE HATCH EXISTS. ERC-7715's `payee` is typed
- * `readonly Address[]`, and the Smart Accounts Kit forwards it verbatim to
- * `wallet_requestExecutionPermissions` — the mapping from payee to caveat
- * happens inside MetaMask, where it cannot be read. So "a list therefore
- * accepts two" is an inference from a type, which is not the same as a
- * verified behaviour, and two payees could fail two ways: refused when the
- * permission is requested, or accepted and turned into two AllowedCalldata
- * caveats that are AND-ed, which no single transfer can satisfy. The second
- * is worse, because the grant looks fine until the first renewal reverts.
+ *   "none"    (default) — pin nothing. The delegate decides the recipients.
+ *   "creator"           — pin the creator's payout wallet only.
+ *   "both"              — pin creator and treasury.
  *
- * With this set the grant pins the CREATOR only. The fee then cannot be taken
- * in the same redeem, so it is not taken on-chain at all — the creator
- * receives the whole period and the platform's cut has to be settled some
- * other way. That is a real commercial consequence, which is why this is
- * opt-in and loud rather than a silent fallback: degrading to "no fee"
- * without saying so would be worse than failing.
+ * "none" IS DELIBERATE, AND IT IS A TRADE WORTH STATING.
+ *
+ * What it gives up: the payee caveat was the one thing stopping whoever holds
+ * the delegate key from redeeming a subscriber's period to an address of
+ * their choosing. Without it, that key can pay anyone.
+ *
+ * What it buys, and why it now wins:
+ *
+ *  - "both" DOES NOT WORK. MetaMask takes `payee` as a list in its types and
+ *    forwards it verbatim; with two addresses the permission prompt never
+ *    appears. Proven on the sandbox: one payee prompts, two do not. So the
+ *    atomic fee split and a pinned payee were never actually compatible.
+ *
+ *  - A PINNED CREATOR MAKES A PAYOUT WALLET PERMANENT. The address is baked
+ *    into every signed permission, so a creator changing theirs silently
+ *    kills every existing subscriber's renewal — they would all have to
+ *    re-authorize, and would find out at the next billing cycle. Nothing in
+ *    the redeem needs the pin: every path reads the creator from the merchant
+ *    row at redeem time, which is why unpinning costs nothing there.
+ *
+ *  - THE KEY IS NO LONGER THE WEAK PART. The delegate is an MSCA owned by an
+ *    AWS KMS key: non-exportable, so compromise means compromising IAM rather
+ *    than stealing a secret, and the owner rotates while the MSCA address —
+ *    the address every grant names — stays put. The caveat was defence
+ *    against a private key in an environment variable, which is not what
+ *    guards this any more.
+ *
+ * CUSTODY IS UNAFFECTED, which is the thing to be clear about: the redeem
+ * still pays the creator and the treasury directly, in one atomic call, on
+ * the payer's own chain. Nothing transits a platform balance. The caveat
+ * limited the blast radius of a key compromise; it was never what made this
+ * non-custodial.
  */
-function singlePayeeOnly(): boolean {
-  return process.env.DIRECT_SETTLEMENT_SINGLE_PAYEE === "true";
+function payeePinMode(): "none" | "creator" | "both" {
+  const raw = process.env.DIRECT_SETTLEMENT_PAYEE_PIN?.trim().toLowerCase();
+  if (raw === "creator" || raw === "both" || raw === "none") return raw;
+  // Honoured for the deployments already carrying it.
+  if (process.env.DIRECT_SETTLEMENT_SINGLE_PAYEE === "true") return "creator";
+  return "none";
 }
 
 export function settlementPayees(wallet: Parameters<typeof creatorPayee>[0]):
@@ -161,13 +185,16 @@ export function settlementPayees(wallet: Parameters<typeof creatorPayee>[0]):
   // A merchant whose payout wallet IS the treasury would otherwise pin the
   // same address twice, which is harmless but reads as a bug in the wallet
   // prompt the payer is shown.
-  if (singlePayeeOnly()) {
-    console.warn(
-      `[settlement] DIRECT_SETTLEMENT_SINGLE_PAYEE is on: pinning only ${creator.payee}, ` +
-        `so the platform fee is NOT taken in the redeem`
-    );
-    return { ok: true, payees: [creator.payee] };
-  }
+  /**
+   * The validation above still runs whatever is pinned.
+   *
+   * creatorPayee() is what proves the merchant HAS a usable payout wallet,
+   * and the redeem needs that whether or not the grant names it — so a
+   * refusal must still refuse, even when nothing is pinned.
+   */
+  const mode = payeePinMode();
+  if (mode === "none") return { ok: true, payees: [] };
+  if (mode === "creator") return { ok: true, payees: [creator.payee] };
   return creator.payee.toLowerCase() === treasury.toLowerCase()
     ? { ok: true, payees: [creator.payee] }
     : { ok: true, payees: [creator.payee, treasury] };
