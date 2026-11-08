@@ -149,7 +149,26 @@ export async function grantRenewalMandates(
   onProgress?: (done: number, total: number) => void,
   /// Named in the prompt. Optional so a caller without one still signs, with
   /// wording that is vaguer but never wrong.
-  merchantName?: string
+  merchantName?: string,
+  /**
+   * Where a failure goes to be seen. Optional, and never awaited for its
+   * result — the caller supplies the session and API base it alone knows, and
+   * a report that fails must not fail a grant.
+   */
+  report?: (info: {
+    stage: "probe" | "upgrade" | "request" | "save";
+    targetChainId: number;
+    targetChainName?: string;
+    activeChainId: number | null;
+    requestShape: {
+      chain_id: number;
+      to: string;
+      payee_count: number;
+      permission_type: string;
+      sends_redeemer: boolean;
+    };
+    error: unknown;
+  }) => void
 ): Promise<GrantFailure[]> {
   const now = Math.floor(Date.now() / 1000);
   const request = (client: Awaited<ReturnType<typeof connectorClientOnChain>>, t: GrantTarget) =>
@@ -184,16 +203,30 @@ export async function grantRenewalMandates(
   const failures: GrantFailure[] = [];
   for (const t of targets) {
     const ctx = { index: done + failures.length + 1, total: targets.length, targetChainId: t.chain_id, chainName: t.name };
+    /**
+     * Which call failed, not merely that one did.
+     *
+     * The four awaits below fail identically from the outside — a rejected
+     * promise reaching one catch — and they mean entirely different things: a
+     * chain switch refused, a 7702 upgrade refused, the permission itself
+     * refused, or our own save failing after the subscriber already signed.
+     * EIP-1193 4100 is reachable from the middle two, and guessing which cost
+     * this migration three wrong diagnoses.
+     */
+    let stage: "probe" | "upgrade" | "request" | "save" = "probe";
+    let client: Awaited<ReturnType<typeof connectorClientOnChain>> | undefined;
     try {
-      const client = await connectorClientOnChain(t.chain_id);
+      client = await connectorClientOnChain(t.chain_id);
 
       // MetaMask will only grant an ERC-7715 permission from a smart account —
       // upgrade this chain first (EIP-7702) if it isn't one there yet. No-op if
       // already upgraded on this specific chain.
+      stage = "upgrade";
       await ensureSmartAccount(client, walletAddress as Address, t.chain_id);
 
       logGrantAttempt(ctx, await readActiveChainId(client));
 
+      stage = "request";
       let mandate;
       try {
         mandate = await request(client, t);
@@ -206,6 +239,7 @@ export async function grantRenewalMandates(
       }
       logGrantSuccess(ctx, await readActiveChainId(client));
 
+      stage = "save";
       await save({
         wallet_address: walletAddress,
         account_address: mandate.accountAddress,
@@ -222,6 +256,20 @@ export async function grantRenewalMandates(
       onProgress?.(++done, targets.length);
     } catch (e) {
       failures.push({ target: t, error: e });
+      report?.({
+        stage,
+        targetChainId: t.chain_id,
+        targetChainName: t.name,
+        activeChainId: client ? await readActiveChainId(client).catch(() => null) : null,
+        requestShape: {
+          chain_id: t.chain_id,
+          to: t.delegate,
+          payee_count: t.payees?.length ?? 0,
+          permission_type: "erc20-token-periodic",
+          sends_redeemer: false,
+        },
+        error: e,
+      });
     }
   }
 

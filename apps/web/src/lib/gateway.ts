@@ -643,3 +643,26 @@ export function completeAuthorization(
     body: JSON.stringify({ session_token: sessionToken, wallet_address: walletAddress }),
   });
 }
+
+/**
+ * Send a grant failure to the server log. Diagnosis only.
+ *
+ * Swallows everything, including a non-2xx and the 204 this endpoint answers
+ * with, which `request` cannot parse as JSON. A diagnostic that can fail a
+ * grant is worse than no diagnostic.
+ */
+export async function reportGrantDiagnostic(
+  sessionId: string,
+  body: Record<string, unknown>
+): Promise<void> {
+  try {
+    await fetch(`${API_URL}/internal/checkout/${encodeURIComponent(sessionId)}/grant-diagnostics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body),
+    });
+  } catch {
+    // Intentionally ignored.
+  }
+}

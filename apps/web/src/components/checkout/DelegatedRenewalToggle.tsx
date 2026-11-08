@@ -30,9 +30,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAccount, useChainId, useConnectorClient } from "wagmi";
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
+import { reportGrantFailure } from "@/lib/delegation/diagnostics";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import { Spinner, ActivityBar } from "@/components/ui/Spinner";
-import { enableCrossChain, fetchGrantPlan, revokeGrant, saveDelegation } from "@/lib/gateway";
+import { enableCrossChain, fetchGrantPlan, revokeGrant, saveDelegation, reportGrantDiagnostic } from "@/lib/gateway";
 import type { GrantTarget } from "@/lib/gateway";
 import { friendlyError } from "@/lib/errors";
 import { isSandboxBuild } from "@/lib/mode";
@@ -271,7 +272,17 @@ export function DelegatedRenewalToggle({
             list,
             (input) => saveDelegation(sessionId, input),
             (done, total) => setProgress({ done, total }),
-            merchantName
+            merchantName,
+            (info) =>
+              void reportGrantFailure({
+                ...info,
+                post: (body) => reportGrantDiagnostic(sessionId, body),
+                walletAddress,
+                // The probe's answer, which only this component holds, and the
+                // one fact separating "the wallet never advertised 7715 for this
+                // chain" from "it advertised it and then refused".
+                advertisedChainIds: supportedChainIds,
+              }),
           );
 
       const failedIds = new Set(failures.map((f) => f.target.chain_id));

@@ -477,3 +477,94 @@ delegationRouter.post("/internal/checkout/:session_id/grant-revoke", async (req,
     return serverError(res, "cross-chain/grant-revoke", e, "We couldn't revoke that permission.");
   }
 });
+
+/**
+ * Where a grant failure goes to be seen.
+ *
+ * Every diagnostic on the grant path writes to the browser console, which is
+ * the one place nobody watching a deployment can read. A permission request
+ * that fails inside the wallet therefore produces a single sentence on screen
+ * and nothing anywhere else — so the same 4100 has now been attributed to two
+ * payees, to an undocumented `redeemer` field and to an undeployed delegate,
+ * each from a correlation rather than from the failure itself.
+ *
+ * This moves the detail to the server log, which IS read. It is diagnosis
+ * only: nothing is stored, nothing is authorized, and a failure to report
+ * never affects the grant.
+ *
+ * The body is untrusted and is treated as such — every field is bounded, and
+ * what gets logged is what the schema admits, not what was sent.
+ */
+const GRANT_DIAGNOSTIC = z.object({
+  wallet_address: z.string().max(100).optional(),
+  target_chain_id: z.number().int().optional(),
+  target_chain_name: z.string().max(60).optional(),
+  active_chain_id: z.number().int().nullable().optional(),
+  advertised_chain_ids: z.array(z.number().int()).max(40).nullable().optional(),
+  stage: z.enum(["probe", "upgrade", "request", "save", "unknown"]).optional(),
+  request_shape: z
+    .object({
+      chain_id: z.number().int().optional(),
+      to: z.string().max(100).optional(),
+      expiry: z.number().int().optional(),
+      payee_count: z.number().int().max(20).optional(),
+      permission_type: z.string().max(60).optional(),
+      sends_redeemer: z.boolean().optional(),
+    })
+    .optional(),
+  error_layers: z
+    .array(
+      z.object({
+        name: z.string().max(80).optional(),
+        code: z.union([z.number(), z.string().max(40)]).nullable().optional(),
+        message: z.string().max(600).optional(),
+      })
+    )
+    .max(8)
+    .optional(),
+});
+
+delegationRouter.post("/internal/checkout/:session_id/grant-diagnostics", async (req, res) => {
+  const parsed = GRANT_DIAGNOSTIC.safeParse(req.body);
+  if (!parsed.success) return err(res, "Could not read that report.", 400, "invalid_diagnostic");
+  const d = parsed.data;
+
+  const shape = d.request_shape;
+  console.error(
+    [
+      `[grant-failure] session=${String(req.params.session_id).slice(0, 40)}`,
+      `stage=${d.stage ?? "unknown"}`,
+      `target=${d.target_chain_name ?? "?"}:${d.target_chain_id ?? "?"}`,
+      `walletActiveChain=${d.active_chain_id ?? "unknown"}`,
+      `advertises7715=${
+        d.advertised_chain_ids === null || d.advertised_chain_ids === undefined
+          ? "probe inconclusive"
+          : d.advertised_chain_ids.length === 0
+            ? "NO CHAINS"
+            : d.advertised_chain_ids.join("/")
+      }`,
+      `payer=${d.wallet_address ?? "?"}`,
+    ].join("  ")
+  );
+  if (shape) {
+    console.error(
+      `[grant-failure] request sent: chainId=${shape.chain_id ?? "?"} to=${shape.to ?? "?"} ` +
+        `expiry=${shape.expiry ?? "?"} permission=${shape.permission_type ?? "?"} ` +
+        `payees=${shape.payee_count ?? 0} redeemer=${shape.sends_redeemer ? "SENT" : "omitted"}`
+    );
+  }
+  for (const [i, layer] of (d.error_layers ?? []).entries()) {
+    console.error(
+      `[grant-failure]   layer ${i}: ${layer.name ?? "Error"} code=${layer.code ?? "none"} — ${
+        layer.message ?? ""
+      }`
+    );
+  }
+
+  /**
+   * Answered 204 whatever happened above. A report that fails must never be
+   * the reason a subscriber sees an error, and the client treats this as
+   * fire-and-forget.
+   */
+  return res.status(204).end();
+});

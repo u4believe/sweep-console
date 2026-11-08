@@ -24,7 +24,9 @@ import {
   requestOtp,
   saveDelegation,
   verifyOtp,
+  reportGrantDiagnostic,
 } from "@/lib/gateway";
+import { reportGrantFailure } from "@/lib/delegation/diagnostics";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import { friendlyError } from "@/lib/errors";
 import { settlementNote, useSweepConfig } from "@/lib/useSweepConfig";
@@ -585,7 +587,13 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
             [target],
             (input) => saveDelegation(sessionId, input),
             undefined,
-            merchant.name
+            merchant.name,
+            (info) =>
+              void reportGrantFailure({
+                ...info,
+                post: (body) => reportGrantDiagnostic(sessionId, body),
+                walletAddress: payAddress,
+              }),
           );
           if (failures.length > 0) throw new Error(`Couldn't authorize ${target.name}.`);
         }

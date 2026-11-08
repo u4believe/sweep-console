@@ -127,3 +127,60 @@ export function logGrantFailure(
   console.error("raw error object:", e);
   console.groupEnd();
 }
+
+/**
+ * Send a grant failure to the server log.
+ *
+ * Everything above writes to the browser console, which is the one place
+ * nobody watching a deployment can read — so a permission request that fails
+ * inside the wallet leaves one sentence on screen and no trace anywhere
+ * reachable. The same 4100 has now been attributed to two pinned payees, to an
+ * undocumented `redeemer` field and to an undeployed delegate, each inferred
+ * from a correlation because the failure itself was never visible.
+ *
+ * FIRE AND FORGET, and deliberately so: a diagnostic that can fail a grant is
+ * worse than no diagnostic. Every error here is swallowed.
+ */
+export async function reportGrantFailure(input: {
+  /** Supplied by the caller, which owns the session and the API base. */
+  post: (body: Record<string, unknown>) => Promise<void>;
+  walletAddress?: string;
+  targetChainId?: number;
+  targetChainName?: string;
+  activeChainId?: number | null;
+  advertisedChainIds?: number[] | null;
+  stage?: "probe" | "upgrade" | "request" | "save" | "unknown";
+  requestShape?: {
+    chain_id?: number;
+    to?: string;
+    expiry?: number;
+    payee_count?: number;
+    permission_type?: string;
+    sends_redeemer?: boolean;
+  };
+  error: unknown;
+}): Promise<void> {
+  try {
+    const layers = unwrapError(input.error)
+      .slice(0, 8)
+      .map((l) => ({
+        name: l.name,
+        // A viem error carries the EIP-1193 code one or two layers down, so
+        // every layer's code is sent rather than only the outermost.
+        code: typeof l.code === "number" || typeof l.code === "string" ? l.code : null,
+        message: String(l.shortMessage ?? l.message ?? "").slice(0, 600),
+      }));
+    await input.post({
+      wallet_address: input.walletAddress,
+      target_chain_id: input.targetChainId,
+      target_chain_name: input.targetChainName,
+      active_chain_id: input.activeChainId ?? null,
+      advertised_chain_ids: input.advertisedChainIds ?? null,
+      stage: input.stage ?? "unknown",
+      request_shape: input.requestShape,
+      error_layers: layers,
+    });
+  } catch {
+    // Swallowed on purpose — see above.
+  }
+}
