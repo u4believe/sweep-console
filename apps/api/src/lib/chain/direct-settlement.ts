@@ -220,3 +220,57 @@ export function settlementPayees(wallet: Parameters<typeof creatorPayee>[0]):
     ? { ok: true, payees: [creator.payee] }
     : { ok: true, payees: [creator.payee, treasury] };
 }
+
+/**
+ * Whether the platform fee can be taken INSIDE the redeem.
+ *
+ * It can only go where the grant permits. `payee` maps to an
+ * AllowedCalldataEnforcer caveat pinning the recipient bytes of the transfer,
+ * so a redeem paying an address the grant does not name is refused by the
+ * caveat — and because both transfers ride one redeemDelegations, that
+ * refusal reverts the creator's payment with it.
+ *
+ * THIS WAS A LIVE TRAP, not a hypothetical. settlementPayees under
+ * DIRECT_SETTLEMENT_SINGLE_PAYEE warned that "the platform fee is NOT taken
+ * in the redeem", and nothing implemented it: direct-charge,
+ * delegated-renewal and cctp-activate each computed the fee from
+ * platformFeeBps() and passed it on regardless, using the payee list only to
+ * check that a payout wallet exists. Pinning one payee would have reverted
+ * every renewal carrying a fee — the grant accepted and the charge failed,
+ * which is the worse half of each.
+ *
+ * Takes the creator address rather than the wallet row ON PURPOSE. Asking
+ * settlementPayees would re-run the payout-wallet validation, and a wallet
+ * that failed it would come back as "fee not takeable" — silently dropping
+ * revenue to report an unrelated problem. The only question here is whether
+ * the pin admits the treasury, which the mode and two addresses answer.
+ */
+export function feeTakeableInRedeem(creator: string): boolean {
+  const mode = payeePinMode();
+  // Nothing pinned: the redeem may pay anyone, the treasury included.
+  if (mode === "none") return true;
+  // "both" names the treasury explicitly.
+  if (mode === "both") return true;
+  // "creator" admits the treasury only where the creator IS the treasury.
+  return creator.toLowerCase() === treasuryPayee().toLowerCase();
+}
+
+/**
+ * The fee to use in a redeem, zeroed when the grant would refuse it.
+ *
+ * Zeroing is reported every time, because a fee silently not charged is
+ * revenue quietly lost — an operator has to be able to see that a payee pin
+ * is costing them the fee, and decide to change the pin or collect it another
+ * way.
+ */
+export function redeemableFee(creator: string, fee: bigint): bigint {
+  if (fee <= 0n) return 0n;
+  if (feeTakeableInRedeem(creator)) return fee;
+  console.warn(
+    `[settlement] the grant pins a payee that is not the treasury ${treasuryPayee()}, so the ` +
+      `${fee} micro-USDC platform fee CANNOT be taken in this redeem — paying the creator in ` +
+      `full instead. Set DIRECT_SETTLEMENT_PAYEE_PIN=none to take it on-chain, or collect it ` +
+      `separately.`
+  );
+  return 0n;
+}

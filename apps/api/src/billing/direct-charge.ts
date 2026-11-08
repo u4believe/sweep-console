@@ -45,7 +45,7 @@ import { payFeeToTreasury } from "../lib/chain/fee-payout";
 import { fireWebhook } from "../lib/webhooks/delivery";
 import { sendRailChargeReceipt } from "../lib/email/rail-receipt";
 import { chargeFailureReason } from "./charge-failure";
-import { directSettlementEnabled, settlementPayees, treasuryPayee } from "../lib/chain/direct-settlement";
+import { directSettlementEnabled, redeemableFee, settlementPayees, treasuryPayee } from "../lib/chain/direct-settlement";
 
 
 /// Why a charge could not be attempted. These map onto the documented API codes,
@@ -390,7 +390,7 @@ export async function executeCharge(chargeDbId: string): Promise<void> {
         creator: wallet.address as Address,
         treasury: treasuryPayee(),
         periodAmount: c.amount,
-        fee,
+        fee: redeemableFee(wallet.address ?? "", fee),
       });
       await prisma.renewalDelegation.update({
         where: { id: plan.grant.id },

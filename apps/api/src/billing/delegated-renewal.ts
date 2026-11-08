@@ -31,7 +31,7 @@ import { assertAccountDeployed,
 import { ownerOfDelegateMsca, redeemBatchViaSelfBundler } from "../lib/chain/delegate-msca";
 import { ownerFor7702Delegate, redeemBatchVia7702 } from "../lib/chain/delegate-7702";
 import { settlementTargetFor } from "../lib/chain/settlement-target";
-import { directSettlementEnabled, treasuryPayee } from "../lib/chain/direct-settlement";
+import { directSettlementEnabled, treasuryPayee, redeemableFee} from "../lib/chain/direct-settlement";
 import { splitTransferExecution, redeemSplitTransfer } from "../lib/chain/delegation";
 import { periodConsumed } from "../lib/rail";
 import { advanceBridge } from "./bridge";
@@ -643,7 +643,7 @@ async function redeemPrepared(prepared: PreparedRenewal[], outcomes: RenewalOutc
             creator: p.creator,
             treasury: treasuryPayee(),
             periodAmount: p.amount,
-            fee: p.fee,
+            fee: redeemableFee(p.creator, p.fee),
           });
           p.settlementTx = settled.txHash as Hex;
         } else {

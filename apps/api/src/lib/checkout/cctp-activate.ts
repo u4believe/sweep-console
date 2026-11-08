@@ -40,7 +40,7 @@ import { settleViaUserOp } from "../chain/settlement-userop";
 import { assertCctpContract, fetchAttestation, getTokenMessenger, receiveOnArc } from "../gateway/cctp";
 import { getSettlementAddress } from "../chain/signers";
 import { payFeeToTreasury, treasuryAddress } from "../chain/fee-payout";
-import { directSettlementEnabled, treasuryPayee } from "../chain/direct-settlement";
+import { directSettlementEnabled, treasuryPayee, redeemableFee} from "../chain/direct-settlement";
 import { ARC_DOMAIN, chainKeyForId, getSourceChain } from "../gateway/chains";
 import { selectPaymentChain } from "../gateway/selector";
 
@@ -261,7 +261,7 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
         creator: payout as Address,
         treasury: treasuryPayee(),
         periodAmount: amount,
-        fee,
+        fee: redeemableFee(payout, fee),
       });
 
       // The grant's period is spent. The enforcer knows; the database did not,
