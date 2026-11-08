@@ -9,23 +9,25 @@ import {
 import { createPublicClient, http } from "viem";
 
 /**
- * Put code on the delegate MSCA on every chain this deployment grants over.
+ * Put code on the delegate MSCA on every chain this deployment redeems over.
  *
- * MetaMask refuses to grant an ERC-7715 permission to a `to` address with no
- * code on the target chain — proven by a clean seven-chain split, where every
- * chain carrying a deployed delegate authorized and every chain without one
- * returned 4100 after the subscriber confirmed. The redeem path deploys
- * lazily on its first operation, which is too late: the grant comes first.
+ * NOT a fix for the 4100 on the grant, though it was written as one. The
+ * reasoning was that MetaMask refuses a `to` address with no code, from a
+ * seven-chain split where every deployed delegate authorized and every
+ * code-less one failed. Grants stored on 4 November disprove it: they name an
+ * EOA delegate with no code on any of those chains, and they were signed.
  *
- * Reports by default; --apply deploys.
+ * It earns its place anyway. An MSCA needs code to execute, and the redeem
+ * path deploys lazily on its first operation — inside the first renewal a
+ * subscriber is waiting on, paying the deploying op's extra verification gas
+ * there. This moves that out of a live charge.
  */
 async function main() {
   const apply = process.argv.includes("--apply");
 
   if (!delegateMscaEnabled()) {
     console.log("DELEGATE_MSCA_ENABLED is not true, so new grants name the relayer EOA.");
-    console.log("An EOA delegate has no code on any chain, which is what MetaMask refuses.");
-    console.log("Set DELEGATE_MSCA_ENABLED=true and RENEWAL_DELEGATE_MSCA_ADDRESS, then re-run.");
+    console.log("An EOA needs no deployment, so there is nothing for this script to do.");
     process.exitCode = 1;
     return;
   }
@@ -75,7 +77,7 @@ async function main() {
     }
     missing += 1;
     if (!apply) {
-      console.log(`  ${`${c.key}:${c.chain.id}`.padEnd(18)} NO CODE — grants on this chain will fail with 4100 (use --apply)`);
+      console.log(`  ${`${c.key}:${c.chain.id}`.padEnd(18)} NO CODE — its first redeem here pays to deploy it (use --apply)`);
       continue;
     }
     try {
@@ -100,7 +102,7 @@ async function main() {
     console.log(`\n${unknown} chain(s) could not be checked. Re-run; the all-clear needs every chain to answer.`);
   }
   if (missing === 0 && unknown === 0) {
-    console.log("\nEvery chain carries the delegate. Grants can be signed on all of them.");
+    console.log("\nEvery chain carries the delegate. No redeem will pay to deploy it.");
   } else if (missing > 0 && !apply) {
     console.log(`\n${missing} chain(s) need the delegate deployed. Re-run with --apply.`);
   }

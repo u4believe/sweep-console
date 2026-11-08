@@ -848,29 +848,26 @@ export async function redeemBatchViaSelfBundler(input: {
 }
 
 /**
- * Deploy the delegate MSCA on a chain, BEFORE any subscriber grants to it.
+ * Deploy the delegate MSCA on a chain.
  *
- * MetaMask will not grant an ERC-7715 permission to a `to` address that has no
- * code on the target chain. Its own guide says a session account "can be
- * either a smart account or an EOA", but the wallet behaves otherwise, and the
- * evidence is a clean split across seven chains:
+ * NEEDED FOR REDEEMS, AND NOT — AS I FIRST CLAIMED — FOR GRANTS.
  *
- *   delegate deployed  -> base, arbitrum, optimism          permission granted
- *   delegate NO CODE   -> monad, and all three Sepolias     EIP-1193 4100
+ * The claim was that MetaMask refuses to grant an ERC-7715 permission to a
+ * `to` address with no code on the target chain, on a clean split: the three
+ * mainnet chains carrying a deployed delegate authorized, while Monad and the
+ * three Sepolias returned 4100. Seven chains agreeing is persuasive and it was
+ * still wrong. Grants stored on 4 November name delegate
+ * 0x74E79A5A45004f6b51153e0E7272f059D1F16a8F, which has no code on Base,
+ * Arbitrum or Optimism, and subscribers signed them. MetaMask's guide says a
+ * session account "can be either a smart account or an EOA" and that part
+ * holds. So the cause of the 4100 is still open.
  *
- * 4100 is "the requested method and/or account has not been authorized by the
- * user", which reads as a wallet refusing an account it cannot make sense of.
- * It arrives AFTER the subscriber confirms, which is what made it look like a
- * problem with the request rather than with the address inside it.
- *
- * Deployment is per chain — the address is CREATE2 from the owner key, so it
- * is identical everywhere, but code has to be put on each chain separately.
- * The redeem path deploys lazily via initCode on its first operation, which is
- * too late: the grant comes first, and a grant that cannot be signed never
- * reaches a redeem. Hence this, run per chain as a prerequisite.
- *
- * A no-op self-call carries the initCode. Nothing else is needed — the point
- * is the deployment, not the call.
+ * What remains true is why this function exists: an MSCA must have code before
+ * it can execute. The redeem path deploys lazily via initCode on its first
+ * operation, which works but puts the deployment inside the first renewal a
+ * subscriber is waiting on, with the extra verification gas that implies.
+ * Deploying ahead of time keeps that cost out of a live charge, and on Monad
+ * the delegate MSCA is counterfactual, so its first redeem there carries it.
  */
 export async function ensureDelegateMscaDeployed(input: {
   chainId: number;
