@@ -213,6 +213,21 @@ export function DelegatedRenewalToggle({
     (async () => {
       const ids = await getSupportedDelegationChainIds(connectorClient);
       if (cancelled) return;
+      /**
+       * Logged, because it is the fact that explains a 4100 BEFORE it happens
+       * — and the one nobody could see.
+       *
+       * null means the wallet refused the probe, which is not "cannot grant":
+       * the UI then offers every chain and lets the attempt judge,
+       * deliberately. But when every chain then fails with "method has not
+       * been authorized", this line separates "the wallet never advertised
+       * 7715" from "it advertised it and then refused" — different fixes.
+       */
+      console.info(
+        `[grant] wallet advertises 7715 on: ${
+          ids === null ? "probe inconclusive — offering every chain" : ids.join(", ") || "no chains"
+        }`
+      );
       setSupportedChainIds(ids);
       try {
         await refreshPlan();

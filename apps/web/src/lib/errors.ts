@@ -63,6 +63,27 @@ const USER_FACING: { test: RegExp; say: string }[] = [
     test: /network error|failed to fetch|load failed|networkerror/i,
     say: "We couldn't reach the server. Check your connection and try again.",
   },
+  {
+    /**
+     * EIP-1193 4100, which MetaMask returns for a METHOD it does not offer as
+     * readily as for an account it has not been granted.
+     *
+     * On the grant path it means the wallet cannot service
+     * wallet_requestExecutionPermissions — the ERC-7715 advanced-permissions
+     * feature — and it arrives identically on every chain, which is how it is
+     * told apart from a per-chain problem. The raw text names viem and a
+     * method, which tells a subscriber nothing they can act on, and the
+     * capability probe cannot be trusted to have caught it first:
+     * getSupportedDelegationChainIds is documented as inconclusive on MetaMask
+     * builds that refuse the probe and then service the request anyway, so the
+     * UI deliberately offers every chain and lets the attempt judge.
+     */
+    test: /has not been authorized by the user|\b4100\b|method not (supported|found)|unsupported method/i,
+    say:
+      "Your wallet can't authorize recurring permissions yet. Update MetaMask to a version " +
+      "with advanced permissions, or switch this account to a smart account from the MetaMask " +
+      "account menu, then try again.",
+  },
 ];
 
 /**
