@@ -846,3 +846,172 @@ export async function redeemBatchViaSelfBundler(input: {
 
   return { txHash, blockNumber: receipt.blockNumber, results };
 }
+
+/**
+ * Deploy the delegate MSCA on a chain, BEFORE any subscriber grants to it.
+ *
+ * MetaMask will not grant an ERC-7715 permission to a `to` address that has no
+ * code on the target chain. Its own guide says a session account "can be
+ * either a smart account or an EOA", but the wallet behaves otherwise, and the
+ * evidence is a clean split across seven chains:
+ *
+ *   delegate deployed  -> base, arbitrum, optimism          permission granted
+ *   delegate NO CODE   -> monad, and all three Sepolias     EIP-1193 4100
+ *
+ * 4100 is "the requested method and/or account has not been authorized by the
+ * user", which reads as a wallet refusing an account it cannot make sense of.
+ * It arrives AFTER the subscriber confirms, which is what made it look like a
+ * problem with the request rather than with the address inside it.
+ *
+ * Deployment is per chain — the address is CREATE2 from the owner key, so it
+ * is identical everywhere, but code has to be put on each chain separately.
+ * The redeem path deploys lazily via initCode on its first operation, which is
+ * too late: the grant comes first, and a grant that cannot be signed never
+ * reaches a redeem. Hence this, run per chain as a prerequisite.
+ *
+ * A no-op self-call carries the initCode. Nothing else is needed — the point
+ * is the deployment, not the call.
+ */
+export async function ensureDelegateMscaDeployed(input: {
+  chainId: number;
+  owner: LocalAccount;
+  delegate: Address;
+}): Promise<{ address: Address; alreadyDeployed: boolean; txHash?: Hex }> {
+  const rpc = rpcUrlForChain(input.chainId);
+  const chain = defineChain({
+    id: input.chainId,
+    name: `chain-${input.chainId}`,
+    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+    rpcUrls: { default: { http: [rpc] } },
+  });
+  const publicClient = createPublicClient({ chain, transport: http(rpc) });
+  const payer: LocalAccount = getGasRelayerAccount() ?? input.owner;
+  const submitter = createWalletClient({ account: payer, chain, transport: http(rpc) });
+
+  const account = await toCircleSmartAccount({ client: publicClient as any, owner: input.owner as any });
+  if (account.address.toLowerCase() !== input.delegate.toLowerCase()) {
+    throw new Error(
+      `configured delegate ${input.delegate} but the owner key derives MSCA ${account.address} — ` +
+        `refusing to deploy. The configured address or the owner key is wrong.`
+    );
+  }
+
+  const existing = await publicClient.getCode({ address: account.address }).catch(() => undefined);
+  if (existing && existing !== "0x") return { address: account.address, alreadyDeployed: true };
+
+  const fees = await publicClient.estimateFeesPerGas();
+  const maxFeePerGas = fees.maxFeePerGas ?? 0n;
+  const maxPriorityFeePerGas = fees.maxPriorityFeePerGas ?? 0n;
+
+  const initCode = await initCodeFor(account, publicClient);
+  if (initCode === "0x") {
+    throw new Error(
+      `${account.address} has no code on chain ${input.chainId} but exposes no factory args, so it ` +
+        `cannot be deployed from here.`
+    );
+  }
+  const verificationGas = VERIFICATION_GAS + DEPLOY_VERIFICATION_GAS;
+  const required = (CALL_GAS + verificationGas + PRE_VERIFICATION_GAS) * maxFeePerGas;
+
+  const deposit = await publicClient.readContract({
+    address: ENTRY_POINT,
+    abi: ENTRY_POINT_ABI,
+    functionName: "balanceOf",
+    args: [account.address],
+  });
+  if (deposit < required) {
+    const ownerBalance = await publicClient.getBalance({ address: payer.address });
+    const top = topUpAmount({
+      required,
+      ownerBalance,
+      maxFeePerGas,
+      owner: payer.address,
+      chainId: input.chainId,
+    });
+    console.warn(
+      `[delegate/deploy] depositing ${formatEther(top)} from ${payer.address} to cover the ` +
+        `deploying operation for ${account.address} on chain ${input.chainId}`
+    );
+    const hash = await withNonce(payer.address, input.chainId, publicClient, (nonce) =>
+      submitter.sendTransaction({
+        to: ENTRY_POINT,
+        value: top,
+        data: encodeFunctionData({ abi: ENTRY_POINT_ABI, functionName: "depositTo", args: [account.address] }),
+        nonce,
+      })
+    );
+    await confirmDeposit({ publicClient, hash, account: account.address, required });
+  }
+
+  // A self-call with no value and no data: the initCode does the work.
+  const callData = encodeFunctionData({
+    abi: MSCA_EXECUTE_ABI,
+    functionName: "execute",
+    args: [account.address, 0n, "0x"],
+  });
+
+  const nonce = await publicClient.readContract({
+    address: ENTRY_POINT,
+    abi: ENTRY_POINT_ABI,
+    functionName: "getNonce",
+    args: [account.address, 0n],
+  });
+
+  const unpacked = {
+    sender: account.address,
+    nonce,
+    callData,
+    callGasLimit: CALL_GAS,
+    verificationGasLimit: verificationGas,
+    preVerificationGas: PRE_VERIFICATION_GAS,
+    maxFeePerGas,
+    maxPriorityFeePerGas,
+    signature: "0x" as Hex,
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const signature = await account.signUserOperation(unpacked as any);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const p = toPackedUserOperation({ ...unpacked, signature } as any);
+
+  const op = {
+    sender: p.sender,
+    nonce: p.nonce,
+    initCode: (p.initCode ?? initCode) as Hex,
+    callData: p.callData,
+    accountGasLimits: packTwo(verificationGas, CALL_GAS),
+    preVerificationGas: PRE_VERIFICATION_GAS,
+    gasFees: packTwo(maxPriorityFeePerGas, maxFeePerGas),
+    paymasterAndData: (p.paymasterAndData ?? "0x") as Hex,
+    signature: p.signature,
+  };
+
+  const txHash = await withNonce(payer.address, input.chainId, publicClient, (n) =>
+    submitter.sendTransaction({
+      to: ENTRY_POINT,
+      data: encodeFunctionData({ abi: ENTRY_POINT_ABI, functionName: "handleOps", args: [[op], payer.address] }),
+      gas: CALL_GAS + verificationGas + PRE_VERIFICATION_GAS + 200_000n,
+      nonce: n,
+    })
+  );
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+  if (receipt.status !== "success") {
+    throw new Error(`handleOps reverted deploying ${account.address} on chain ${input.chainId}: ${txHash}`);
+  }
+
+  /**
+   * The receipt is not the answer, so the code is.
+   *
+   * handleOps succeeds even when the operation it carried failed — the
+   * EntryPoint charges for it and emits success=false. For a deployment the
+   * ground truth is cheap and unambiguous: ask the chain whether the address
+   * has code now.
+   */
+  const after = await publicClient.getCode({ address: account.address }).catch(() => undefined);
+  if (!after || after === "0x") {
+    throw new Error(
+      `handleOps succeeded but ${account.address} still has no code on chain ${input.chainId} — ` +
+        `the deploying operation reverted inside the EntryPoint (tx ${txHash})`
+    );
+  }
+  return { address: account.address, alreadyDeployed: false, txHash };
+}
