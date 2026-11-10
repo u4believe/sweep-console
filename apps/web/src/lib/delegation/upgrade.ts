@@ -82,6 +82,21 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /// dialog and waiting for the delegation code to land on-chain if it isn't yet.
 /// No-ops if already upgraded on this chain. `client` must already be on `chainId`
 /// (grantMandates.ts's connectorClientOnChain guarantees this).
+/**
+ * The implementation an EOA is 7702-delegated to, or null when it is not one.
+ *
+ * EIP-7702 writes 23 bytes at the account: 0xef0100 then the implementation
+ * address. Anything else — empty, or real contract code — is not a delegation.
+ */
+async function delegationTargetOf(client: Client, address: Address): Promise<string | null> {
+  const code = (await client.request({
+    method: "eth_getCode",
+    params: [address, "latest"],
+  } as never)) as string | null;
+  if (!code || !code.toLowerCase().startsWith("0xef0100")) return null;
+  return `0x${code.slice(8, 48)}`;
+}
+
 export async function ensureSmartAccount(client: Client, address: Address, chainId: number): Promise<void> {
   // Checked BEFORE prompting. The upgrade is the only gas a subscriber ever pays
   // on this platform, and on a chain the framework is missing from they would pay
@@ -96,6 +111,37 @@ export async function ensureSmartAccount(client: Client, address: Address, chain
 
   if (await isSmartAccount(client, address, chainId)) return;
 
+  /**
+   * REFUSE BEFORE PROMPTING when the account belongs to another wallet's
+   * implementation, because the prompt cannot succeed.
+   *
+   * isSmartAccount already compares the delegation target against
+   * MetaMask's EIP7702StatelessDeleGatorImpl for this chain, so a false from
+   * it means one of three things: a plain EOA, real contract code, or a
+   * delegation to someone ELSE'S implementation. Only the first can be
+   * upgraded from here. The third produces a MetaMask prompt that is refused
+   * with a bare -32603 after the subscriber has agreed to it.
+   *
+   * Observed on Base, where a subscriber's account pointed at Coinbase's
+   * EIP-7702 proxy while the same account carried MetaMask's own
+   * implementation on Arbitrum, Optimism and Monad. Coinbase sponsors that
+   * delegation, so it is free and leaves nothing the holder would remember.
+   *
+   * Checked here rather than caught below so no prompt is raised at all:
+   * being asked to approve something that cannot work, and then being told
+   * "an internal error was received", is the worst version of this.
+   */
+  const alreadyDelegated = await delegationTargetOf(client, address).catch(() => null);
+  const expected = statelessImpl(chainId);
+  if (alreadyDelegated && expected && alreadyDelegated.toLowerCase() !== expected.toLowerCase()) {
+    throw new Error(
+      `This account is already upgraded to a different kind of smart account on chain ` +
+        `${chainId} — its code points at ${alreadyDelegated}, which MetaMask won't use. Switch ` +
+        `it back to a standard account in the app that upgraded it (Coinbase Wallet and similar ` +
+        `do this), or pay from a different account. Nothing was signed and no gas was spent.`
+    );
+  }
+
   console.info(`[upgrade] chain ${chainId} — prompting EIP-7702 smart-account upgrade for ${address}`);
 
   // This prompt is the ONLY gas a subscriber pays on this platform. Ask, right
@@ -108,14 +154,47 @@ export async function ensureSmartAccount(client: Client, address: Address, chain
   // calldata against /^0x[0-9a-f]+$/, which an empty string fails. Two no-op
   // self-calls, forced atomic: a plain EOA can't execute a batch atomically,
   // which is what triggers the upgrade offer rather than a plain send.
-  await sendCalls(wagmiConfig, {
-    chainId: chainId as ConfiguredChainId,
-    forceAtomic: true,
-    calls: [
-      { to: address, value: 0n },
-      { to: address, value: 0n },
-    ],
-  });
+  try {
+    await sendCalls(wagmiConfig, {
+      chainId: chainId as ConfiguredChainId,
+      forceAtomic: true,
+      calls: [
+        { to: address, value: 0n },
+        { to: address, value: 0n },
+      ],
+    });
+  } catch (e) {
+    /**
+     * SAY WHICH CONTRACT, when the account is already delegated elsewhere.
+     *
+     * MetaMask refuses an account delegated to an implementation it does
+     * not recognise, and reports it as a bare -32603 "An internal error
+     * was received", with "Account upgraded to unsupported contract"
+     * buried two causes down. Nothing in that names the chain, the
+     * account or the contract, and it is indistinguishable from a
+     * transient wallet fault.
+     *
+     * Observed with a subscriber whose account was delegated to
+     * Coinbase's EIP-7702 proxy on Base — Coinbase sponsors that
+     * upgrade, so it is free and leaves nothing the holder would
+     * remember — while the same account carried MetaMask's own
+     * implementation on Arbitrum, Optimism and Monad. One chain of four,
+     * which is why it read as random.
+     *
+     * The target is on chain and costs one eth_getCode, so the error can
+     * name it rather than leaving the next person to decode 23 bytes.
+     */
+    const target = await delegationTargetOf(client, address).catch(() => null);
+    if (target) {
+      throw new Error(
+        `This account is already upgraded to a different kind of smart account on chain ` +
+          `${chainId} — its code points at ${target}, which MetaMask won't use. Switch it ` +
+          `back to a standard account in the app that upgraded it (Coinbase Wallet and ` +
+          `similar do this), or pay from a different account. Nothing was signed.`
+      );
+    }
+    throw e;
+  }
 
   for (let i = 0; i < UPGRADE_POLL_ATTEMPTS; i++) {
     if (await isSmartAccount(client, address, chainId)) {
