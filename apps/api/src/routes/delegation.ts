@@ -509,6 +509,8 @@ const GRANT_DIAGNOSTIC = z.object({
   active_chain_id: z.number().int().nullable().optional(),
   advertised_chain_ids: z.array(z.number().int()).max(40).nullable().optional(),
   stage: z.enum(["probe", "upgrade", "request", "save", "unknown"]).optional(),
+  /** "2 of 4" — one failure in a log is ambiguous without it. */
+  attempt: z.string().max(20).optional(),
   request_shape: z
     .object({
       chain_id: z.number().int().optional(),
@@ -517,6 +519,8 @@ const GRANT_DIAGNOSTIC = z.object({
       payee_count: z.number().int().max(20).optional(),
       permission_type: z.string().max(60).optional(),
       sends_redeemer: z.boolean().optional(),
+      /** What the payer's account is 7702-delegated to on the target chain. */
+      delegated_to: z.string().max(120).optional(),
     })
     .optional(),
   error_layers: z
@@ -541,6 +545,7 @@ delegationRouter.post("/internal/checkout/:session_id/grant-diagnostics", async 
     [
       `[grant-failure] session=${String(req.params.session_id).slice(0, 40)}`,
       `stage=${d.stage ?? "unknown"}`,
+      `attempt=${d.attempt ?? "?"}`,
       `target=${d.target_chain_name ?? "?"}:${d.target_chain_id ?? "?"}`,
       `walletActiveChain=${d.active_chain_id ?? "unknown"}`,
       `advertises7715=${
@@ -558,6 +563,9 @@ delegationRouter.post("/internal/checkout/:session_id/grant-diagnostics", async 
       `[grant-failure] request sent: chainId=${shape.chain_id ?? "?"} to=${shape.to ?? "?"} ` +
         `expiry=${shape.expiry ?? "?"} permission=${shape.permission_type ?? "?"} ` +
         `payees=${shape.payee_count ?? 0} redeemer=${shape.sends_redeemer ? "SENT" : "omitted"}`
+    );
+    console.error(
+      `[grant-failure] payer account delegated to: ${shape.delegated_to ?? "unknown"}`
     );
   }
   for (const [i, layer] of (d.error_layers ?? []).entries()) {

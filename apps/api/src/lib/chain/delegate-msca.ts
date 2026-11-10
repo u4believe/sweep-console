@@ -360,6 +360,8 @@ export function delegateMscaAddress(mode: RelayerMode): Address | null {
  * "who should the subscriber delegate to", and those stop being the same
  * address the moment an MSCA is in play.
  */
+let mscaFallbackWarned = false;
+
 export function delegateAddressForNewGrant(mode: RelayerMode): Address {
   const msca = delegateMscaAddress(mode);
   /**
@@ -381,7 +383,41 @@ export function delegateAddressForNewGrant(mode: RelayerMode): Address {
     }
     return getRelayerAccount(mode).address;
   }
-  return delegateMscaEnabled() && msca ? msca : getRelayerAccount(mode).address;
+  if (delegateMscaEnabled() && msca) return msca;
+
+  /**
+   * FALLING BACK TO THE OWNER EOA IS SAID OUT LOUD, because it silently
+   * defeats the reason the MSCA exists.
+   *
+   * The MSCA is the delegate precisely so the KMS key behind it can be
+   * rotated without changing the address every grant names. A grant that
+   * names the owner EOA instead pins the KEY: rotate it and every mandate
+   * signed meanwhile becomes unredeemable, with no way to repair them except
+   * asking every subscriber to re-authorize.
+   *
+   * It happened on a live deployment. A diagnostic showed
+   * `to=0x1E8f4252…`, the KMS owner, where 0x5947B31D… — the MSCA deployed
+   * from that same key on four chains — was intended. One of
+   * DELEGATE_MSCA_ENABLED or RENEWAL_DELEGATE_MSCA_ADDRESS was missing on
+   * that service, and the fallback made it look like a working
+   * configuration.
+   *
+   * Half-configured is the case worth shouting about: an address IS set and
+   * is being ignored, or the mode is on with no address to use.
+   */
+  const half =
+    (msca && !delegateMscaEnabled()) || (delegateMscaEnabled() && !msca);
+  if (half && !mscaFallbackWarned) {
+    mscaFallbackWarned = true;
+    console.warn(
+      `[delegate] NEW GRANTS WILL NAME THE OWNER EOA ${getRelayerAccount(mode).address}, not an ` +
+        `MSCA. DELEGATE_MSCA_ENABLED=${process.env.DELEGATE_MSCA_ENABLED ?? "(unset)"} and the ` +
+        `${mode === "external" ? "EXTERNAL_RELAYER_MSCA_ADDRESS" : "RENEWAL_DELEGATE_MSCA_ADDRESS"} ` +
+        `is ${msca ?? "(unset)"}. Set BOTH to pin the MSCA — naming the EOA pins the key, so ` +
+        `rotating it would orphan every grant signed in the meantime.`
+    );
+  }
+  return getRelayerAccount(mode).address;
 }
 
 /**

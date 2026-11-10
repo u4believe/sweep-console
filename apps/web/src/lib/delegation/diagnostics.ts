@@ -144,6 +144,7 @@ export function logGrantFailure(
 export async function reportGrantFailure(input: {
   /** Supplied by the caller, which owns the session and the API base. */
   post: (body: Record<string, unknown>) => Promise<void>;
+  attempt?: string;
   walletAddress?: string;
   targetChainId?: number;
   targetChainName?: string;
@@ -177,6 +178,7 @@ export async function reportGrantFailure(input: {
       active_chain_id: input.activeChainId ?? null,
       advertised_chain_ids: input.advertisedChainIds ?? null,
       stage: input.stage ?? "unknown",
+      attempt: input.attempt,
       request_shape: input.requestShape,
       error_layers: layers,
     });
@@ -212,6 +214,7 @@ export function grantDebugEnabled(): boolean {
 /** One copy-pasteable block describing a failed grant. */
 export function describeGrantFailure(input: {
   stage?: string;
+  attempt?: string;
   targetChainId?: number;
   targetChainName?: string;
   activeChainId?: number | null;
@@ -222,6 +225,7 @@ export function describeGrantFailure(input: {
 }): string {
   const lines: string[] = [];
   lines.push(`stage:            ${input.stage ?? "unknown"}`);
+  lines.push(`attempt:          ${input.attempt ?? "?"}`);
   lines.push(`target chain:     ${input.targetChainName ?? "?"} (${input.targetChainId ?? "?"})`);
   lines.push(`wallet on chain:  ${input.activeChainId ?? "unknown"}`);
   lines.push(
@@ -241,6 +245,9 @@ export function describeGrantFailure(input: {
         s.sends_redeemer ? "sent" : "omitted"
       }`
     );
+    // The line that explained everything: an account delegated to an
+    // implementation MetaMask does not recognise cannot be acted on at all.
+    lines.push(`account delegated to: ${String(s.delegated_to ?? "unknown")}`);
   }
   // Every layer, because viem buries the EIP-1193 code one or two causes down.
   for (const [i, l] of unwrapError(input.error).slice(0, 6).entries()) {

@@ -65,6 +65,34 @@ const USER_FACING: { test: RegExp; say: string }[] = [
   },
   {
     /**
+     * The account is 7702-delegated to an implementation MetaMask refuses.
+     *
+     * Observed on Base, where a subscriber's account pointed at
+     * 0x7702cb554e6bFb442cb743A7dF23154544a7176C while the same account
+     * pointed at MetaMask's own 0x63c0c19a282a1b52b07dd5a65b58948a07dae32b on
+     * Arbitrum, Optimism and Monad.
+     *
+     * That address is Coinbase's EIP-7702 proxy (base/eip-7702-proxy), which
+     * turns an EOA into a Coinbase Smart Wallet. Coinbase sponsors the
+     * delegation on Base, so it costs nothing and can happen without the
+     * holder registering that it did — and afterwards MetaMask will not act on
+     * an implementation it does not recognise. One chain out of four, which is
+     * why this looked chain-specific and random.
+     *
+     * It arrives as -32603 from wallet_sendCalls during the upgrade step, not
+     * from the permission request, so it is a property of the SUBSCRIBER'S
+     * ACCOUNT ON THAT CHAIN and not of anything we send. Listed before the
+     * 4100 rule because "internal error" would otherwise fall through to the
+     * generic line and say nothing anyone can act on.
+     */
+    test: /upgraded to unsupported contract|unsupported (delegation|implementation)/i,
+    say:
+      "This account was upgraded to a different kind of smart account on this network — by " +
+      "Coinbase Wallet or a similar app — and MetaMask can't use it. Switch this account back " +
+      "to a standard account in the app that upgraded it, or pay from a different account.",
+  },
+  {
+    /**
      * EIP-1193 4100, which MetaMask returns for a METHOD it does not offer as
      * readily as for an account it has not been granted.
      *

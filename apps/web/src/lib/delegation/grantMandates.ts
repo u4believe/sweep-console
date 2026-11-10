@@ -142,6 +142,32 @@ function justificationFor(t: GrantTarget, merchantName: string | undefined): str
   );
 }
 
+/**
+ * The implementation an EOA is 7702-delegated to, or null.
+ *
+ * Read through the connector client rather than a separate transport, so it
+ * uses the same RPC the wallet is already talking to and needs no extra
+ * configuration. Never throws: a diagnostic that can fail a grant is worse
+ * than a diagnostic.
+ */
+async function readDelegationTarget(
+  client: Awaited<ReturnType<typeof connectorClientOnChain>> | undefined,
+  account: Address
+): Promise<string | null> {
+  if (!client) return null;
+  try {
+    const code = (await client.request({
+      method: "eth_getCode",
+      params: [account, "latest"],
+    } as never)) as string | null;
+    if (!code || code === "0x") return "none (plain EOA)";
+    if (!code.toLowerCase().startsWith("0xef0100")) return `contract, not a 7702 delegation`;
+    return `0x${code.slice(8, 48)}`;
+  } catch {
+    return null;
+  }
+}
+
 export async function grantRenewalMandates(
   walletAddress: string,
   targets: GrantTarget[],
@@ -157,15 +183,18 @@ export async function grantRenewalMandates(
    */
   report?: (info: {
     stage: "probe" | "upgrade" | "request" | "save";
+    attempt: string;
     targetChainId: number;
     targetChainName?: string;
     activeChainId: number | null;
     requestShape: {
       chain_id: number;
       to: string;
+      expiry?: number;
       payee_count: number;
       permission_type: string;
       sends_redeemer: boolean;
+      delegated_to: string | null;
     };
     error: unknown;
   }) => void,
@@ -283,15 +312,38 @@ export async function grantRenewalMandates(
       failures.push({ target: t, error: e });
       report?.({
         stage,
+        /**
+         * WHICH ATTEMPT THIS WAS, because the count decides how to read it.
+         *
+         * grantRenewalMandates only throws when EVERY target fails, so one
+         * failure in a log is ambiguous: four chains all refused, or three
+         * already granted and the fourth refused. Those have different
+         * causes and different fixes, and a single [grant-failure] line
+         * could not be told apart.
+         */
+        attempt: `${ctx.index} of ${ctx.total}`,
         targetChainId: t.chain_id,
         targetChainName: t.name,
         activeChainId: client ? await readActiveChainId(client).catch(() => null) : null,
         requestShape: {
           chain_id: t.chain_id,
           to: t.delegate,
+          expiry: t.expiry_sec,
           payee_count: t.payees?.length ?? 0,
           permission_type: "erc20-token-periodic",
           sends_redeemer: true,
+          /**
+           * WHAT THE PAYER'S ACCOUNT IS DELEGATED TO on this chain, which is
+           * the fact that explained a month of 4100s and -32603s in one line.
+           *
+           * EIP-7702 puts 23 bytes at the account beginning 0xef0100 and then
+           * the implementation address. A subscriber's account pointed at
+           * 0x7702cb55… on Base while pointing at MetaMask's own 0x63c0c19a…
+           * on Arbitrum, Optimism and Monad — another app had upgraded it
+           * there, and MetaMask will not act on a delegation it does not
+           * recognise. Nothing in the request shape could have shown that.
+           */
+          delegated_to: await readDelegationTarget(client, walletAddress as Address),
         },
         error: e,
       });
