@@ -39,7 +39,7 @@ import { createPublicClient, formatEther, formatUnits, getAddress, http, type Ad
 import { base, arbitrum, optimism } from "viem/chains";
 import { defineChain } from "viem";
 import { arcChain } from "../chain/contract";
-import { getRelayerAccount, type RelayerMode } from "../chain/signers";
+import { getRelayerAccount, type RelayerMode, getGasRelayerAccount} from "../chain/signers";
 import { isMainnet } from "../gateway/chains";
 import { delegate7702Enabled } from "../chain/delegate-7702";
 
@@ -184,12 +184,25 @@ export async function readTreasury(): Promise<TreasuryRow[]> {
       }
 
       for (const [role, mode] of delegates) {
-        // The OWNER is what runs dry, not the MSCA. Reporting the MSCA's
-        // balance would send an operator to top up an address that pays for
-        // nothing, while the account that actually funds gas sits empty.
+        /**
+         * THE ADDRESS THAT PAYS, which is no longer always the owner.
+         *
+         * This reported the owner key, explaining that "the OWNER is what runs
+         * dry, not the MSCA" — true while the owner both signed and paid. It
+         * stopped being true when gas was separated from signing:
+         * redeemViaSelfBundler takes `getGasRelayerAccount() ?? owner` as its
+         * payer, deposits from it and names it handleOps' beneficiary, so
+         * where a gas relayer is configured the owner key needs no native
+         * balance at all.
+         *
+         * The screen was therefore sending an operator to top up an address
+         * that pays for nothing, while the account funding every redeem sat
+         * unwatched — the exact fault the old comment warned about,
+         * reintroduced by the change that made it obsolete.
+         */
         let owner: string | null = null;
         try {
-          owner = getRelayerAccount(mode).address;
+          owner = (getGasRelayerAccount() ?? getRelayerAccount(mode)).address;
         } catch {
           // No key for this role at all. Still listed, with the balance
           // unknown, so the gap is visible rather than silent.

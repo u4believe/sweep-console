@@ -42,6 +42,10 @@ export interface PeriodicErc20MandateInput {
   periodAmountMicro: bigint;
   periodDurationSec: number;
   startTimeSec: number;
+  /** Matches MetaMask's documented example when true. Default false. */
+  allowAdjustment?: boolean;
+  /** Omits startTime entirely, as the documented example does. */
+  omitStartTime?: boolean;
   expirySec: number;
   justification: string;
 }

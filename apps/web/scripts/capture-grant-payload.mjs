@@ -21,7 +21,7 @@ const CREATOR_LOWER = "0x18e0699ee5c7dd9d558d56f0c2b2f6c3a5b6747f";
 const CREATOR_BADSUM = "0x18e0699Ee5c7dd9d558d56F0c2b2f6c3a5B6747f";
 const TOKEN = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 
-function build({ payees }) {
+function build({ payees, allowAdjustment, omitStartTime }) {
   return {
     chainId: 8453,
     to: DELEGATE,
@@ -30,12 +30,12 @@ function build({ payees }) {
     ...(payees?.length ? { payee: payees } : {}),
     permission: {
       type: "erc20-token-periodic",
-      isAdjustmentAllowed: false,
+      isAdjustmentAllowed: allowAdjustment ?? false,
       data: {
         tokenAddress: TOKEN,
         periodAmount: 5000000n,
         periodDuration: 2592000,
-        startTime: 1762600000,
+        ...(omitStartTime ? {} : { startTime: 1762600000 }),
         justification: "Monthly subscription",
       },
     },
@@ -77,3 +77,8 @@ await capture("one payee, lowercase", build({ payees: [CREATOR_LOWER] }));
 await capture("one payee, correct checksum", build({ payees: [getAddress(CREATOR_LOWER)] }));
 await capture("one payee, WRONG checksum", build({ payees: [CREATOR_BADSUM] }));
 await capture("two payees, both valid", build({ payees: [getAddress(CREATOR_LOWER), getAddress("0x4b6b75fbcbf4d1b0e1ec9e0d1c5b8a3f6e2d7c91")] }));
+
+// MetaMask's documented example: isAdjustmentAllowed true, no startTime.
+await capture("GRANT_ALLOW_ADJUSTMENT=true", build({ payees: [], allowAdjustment: true }));
+await capture("GRANT_OMIT_START_TIME=true", build({ payees: [], omitStartTime: true }));
+await capture("both, ie the documented shape", build({ payees: [], allowAdjustment: true, omitStartTime: true }));

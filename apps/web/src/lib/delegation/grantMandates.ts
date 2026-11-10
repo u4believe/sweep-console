@@ -191,6 +191,10 @@ export async function grantRenewalMandates(
       periodAmountMicro: BigInt(t.period_amount),
       periodDurationSec: t.period_duration,
       startTimeSec: now,
+      // Both default off, so a deployment setting neither sends exactly
+      // what it sent before.
+      allowAdjustment: t.allow_adjustment,
+      omitStartTime: t.omit_start_time,
       /**
        * What the GRANT says, when the grant says anything.
        *

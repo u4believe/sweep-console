@@ -97,6 +97,13 @@ delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, re
       period_duration: periodDuration,
       delegate,
       payees,
+      /**
+       * Two fields MetaMask's documented example sets differently, driven
+       * from environment so a live deployment can bisect them without a web
+       * rebuild. Unset means exactly what was sent before.
+       */
+      allow_adjustment: process.env.GRANT_ALLOW_ADJUSTMENT === "true" ? true : undefined,
+      omit_start_time: process.env.GRANT_OMIT_START_TIME === "true" ? true : undefined,
     });
 
     // Every supported source chain, regardless of current USDC balance — the

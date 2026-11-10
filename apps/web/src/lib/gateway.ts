@@ -38,6 +38,21 @@ export interface GrantTarget {
    * one-year lifetime below.
    */
   expiry_sec?: number;
+  /**
+   * Two fields of MetaMask's documented example we have always differed
+   * from, exposed so they can be flipped without a rebuild.
+   *
+   * The guide for erc20-token-periodic passes isAdjustmentAllowed: true
+   * and no startTime. We have always sent false and a startTime, which
+   * was fine for as long as it was fine — a wallet tightening validation
+   * on either would break every previously-working request without a
+   * line of our code changing, which is the shape of what happened here.
+   *
+   * The API sets them from environment, so a live deployment bisects
+   * them by redeploying one service rather than rebuilding the other.
+   */
+  allow_adjustment?: boolean;
+  omit_start_time?: boolean;
 }
 
 export interface GrantPlan {
