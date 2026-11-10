@@ -4,6 +4,8 @@ import { useAuth } from "@/context/auth";
 import { SweepMark } from "@/components/ui/marks";
 import { StepUpDialog } from "@/components/portal/StepUpDialog";
 import { ScopeProvider, type Scope } from "@/context/scope";
+import { useSweepConfig } from "@/lib/useSweepConfig";
+import { wrongOriginWarning } from "@/lib/wrongOrigin";
 
 // The two dashboards. Facts about this product rather than configuration —
 // a variable for them is one more thing that can point at the wrong network.
@@ -118,6 +120,8 @@ function initials(nameOrEmail: string | undefined): string {
  * follows the viewport rather than a prop someone has to remember to set.
  */
 export function PortalLayout() {
+  const { appUrl } = useSweepConfig();
+  const originWarning = wrongOriginWarning(appUrl);
   const [isAdmin, setIsAdmin] = useState(false);
   /**
    * Undefined until /portal/me answers.
@@ -522,6 +526,36 @@ export function PortalLayout() {
           {/* Published so a screen can answer the scope for itself — the
               webhooks form offers one path's events, not both. */}
           <ScopeProvider scope={effectiveScope}>
+            {/*
+              Says so when the Console is served from the wrong host.
+          
+              A page on an origin the API does not allow has EVERY request
+              refused, and that shows up as a broken feature rather than a
+              broken address: an empty balance, a wallet error, a grant that
+              will not authorize, a checkout reading "link unavailable".
+              Nothing points at the address bar, which is how a Vercel preview
+              host went unnoticed here for days while four other explanations
+              were investigated.
+          
+              In the layout so it shows on every Console screen — the fault is
+              the page's origin, not any one feature.
+            */}
+            {originWarning && (
+              <p
+                className="m-0"
+                style={{
+                  marginBottom: 14,
+                  padding: "10px 12px",
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                  border: "1px solid var(--color-accent-700)",
+                  borderRadius: "var(--radius-sm)",
+                  color: "var(--color-accent-700)",
+                }}
+              >
+                {originWarning}
+              </p>
+            )}
             <Outlet />
           </ScopeProvider>
         </main>

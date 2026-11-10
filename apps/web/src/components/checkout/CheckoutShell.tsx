@@ -30,6 +30,7 @@ import { reportGrantFailure } from "@/lib/delegation/diagnostics";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import { friendlyError } from "@/lib/errors";
 import { settlementNote, useSweepConfig } from "@/lib/useSweepConfig";
+import { wrongOriginWarning } from "@/lib/wrongOrigin";
 
 /** An Arc EIP-2612 permit the subscriber has already signed, ready to submit. */
 export interface SignedPermit {
@@ -261,7 +262,18 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
    * nothing touches. Served by /config rather than baked in, because one
    * bundle serves a deployment whose flag can change under it.
    */
-  const { settlementModel, sourceChains } = useSweepConfig();
+  const { settlementModel, sourceChains, appUrl } = useSweepConfig();
+  /**
+   * The payer's own warning, for the case the merchant never sees.
+   *
+   * A checkout reached through the plan page's Preview button used to inherit
+   * the Console's host, so a Console opened from a Vercel deployment link
+   * produced a checkout on an origin the API refuses. Every call from it
+   * fails, and what the payer is shown is a wallet error or an empty balance
+   * — never the address bar. Preview now carries an absolute URL, but a
+   * checkout can be reached by a pasted or bookmarked preview link too.
+   */
+  const originWarning = wrongOriginWarning(appUrl);
   const { address, isConnected, status: accountStatus } = useAccount();
   const { openConnectModal } = useConnectModal();
   const { disconnect } = useDisconnect();
@@ -1247,6 +1259,26 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                 )}
               </div>
 
+              {/*
+                Shown regardless of step, because it invalidates every step.
+              */}
+              {originWarning && (
+                <p
+                  className="m-0"
+                  style={{
+                    marginTop: 16,
+                    padding: "10px 12px",
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                    border: "1px solid var(--color-accent-700)",
+                    borderRadius: "var(--radius-sm)",
+                    color: "var(--color-accent-700)",
+                  }}
+                >
+                  {originWarning}
+                </p>
+              )}
+              
               {step === "error" && (
                 <p className="m-0" style={{ marginTop: 16, fontSize: 13, color: "var(--color-accent-700)" }}>
                   {errorMsg}

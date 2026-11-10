@@ -228,10 +228,21 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
     const origin = corsRefusal[1]!;
     if (!refusedOrigins.has(origin)) {
       refusedOrigins.add(origin);
+      /**
+       * The PATH is logged, because the origin alone does not say which page.
+       *
+       * A refusal from a preview origin could be the Console or a checkout,
+       * and they have different causes: the Console is reached by opening a
+       * Vercel deployment link, while a checkout only lands there if a link
+       * carried the wrong host. Without the path the two are
+       * indistinguishable, and a day was spent assuming the second when it
+       * was the first.
+       */
       console.warn(
-        `[cors] refusing ${origin} — add it to APP_URL, or set CORS_PREVIEW_SUFFIXES if it is a ` +
-          `preview deployment. Browsing a preview origin breaks every API call from that page, ` +
-          `including the grant diagnostics. Further refusals from this origin are not logged.`
+        `[cors] refusing ${origin} on ${req.method} ${req.path} — add it to APP_URL, or set ` +
+          `CORS_PREVIEW_SUFFIXES if it is a preview deployment. Browsing a preview origin breaks ` +
+          `every API call from that page, including the grant diagnostics. Further refusals from ` +
+          `this origin are not logged.`
       );
     }
     return res.status(403).json({
@@ -239,7 +250,6 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
     });
   }
   console.error("[api] unhandled error:", err);
-  void req;
   res.status(500).json({ error: { message: "Internal server error", code: "internal_error" } });
 });
 

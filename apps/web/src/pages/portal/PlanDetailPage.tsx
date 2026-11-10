@@ -15,6 +15,7 @@ import { TierEditor } from "@/components/portal/TierEditor";
 import { AddTierForm } from "@/components/portal/AddTierForm";
 import { type Plan, type PaymentLink } from "./plan-model";
 import { ApiError, friendlyError } from "@/lib/errors";
+import { useSweepConfig } from "@/lib/useSweepConfig";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -41,6 +42,16 @@ interface Subscription {
 
 export function PlanDetailPage() {
   const { planId = "" } = useParams();
+  const { appUrl } = useSweepConfig();
+  /**
+   * Preview opens on the host the API builds its links with, never on
+   * whatever host this Console happens to be served from. Falls back to a
+   * relative path before /config answers, which keeps the button working
+   * on the real domain and only loses the guard.
+   */
+  const previewHref = appUrl
+    ? `${appUrl.replace(/\/+$/, "")}/plans/${planId}/preview`
+    : `/plans/${planId}/preview`;
   const navigate = useNavigate();
 
   const [plans, setPlans] = useState<Plan[] | null>(null);
@@ -310,9 +321,19 @@ export function PlanDetailPage() {
                   {link}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Link className="btn btn-primary" style={{ padding: "9px 14px" }} to={`/plans/${planId}/preview`}>
+                  {/*
+                    An ABSOLUTE href, not a router Link.
+                  
+                    This was `<Link to={…}>`, which is origin-relative and so inherits
+                    whatever host the Console is on. A Console opened from a Vercel
+                    deployment link therefore produced a preview-hosted checkout where
+                    every API call is refused by CORS — while Copy and Open checkout
+                    beside it both carried the absolute URL the API built. Three
+                    buttons, two of them right.
+                  */}
+                  <a className="btn btn-primary" style={{ padding: "9px 14px" }} href={previewHref}>
                     Preview
-                  </Link>
+                  </a>
                   <a className="btn btn-secondary" style={{ padding: "9px 14px" }} href={link} target="_blank" rel="noreferrer">
                     Open checkout
                   </a>

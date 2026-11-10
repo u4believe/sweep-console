@@ -51,6 +51,16 @@ export interface SweepConfig {
    */
   sourceChains: Array<{ key: string; name: string }>;
   /** False until the API has answered; the values above are build-time until then. */
+  /**
+   * The host THIS API builds its own links with.
+   *
+   * Exposed so a page can tell whether it is served from the origin the
+   * deployment is configured for. One bundle serves several hosts — the
+   * real domain and every Vercel preview — and an API call from a preview
+   * origin is refused by CORS, so a page loaded there breaks in ways that
+   * point anywhere except at the address bar.
+   */
+  appUrl: string | null;
   loaded: boolean;
 }
 
@@ -87,6 +97,7 @@ export function useSweepConfig(): SweepConfig {
     isTest: isSandboxBuild(),
     settlementModel: FALLBACK_MODEL,
     sourceChains: FALLBACK_CHAINS,
+    appUrl: null,
     loaded: false,
   });
 
@@ -101,6 +112,7 @@ export function useSweepConfig(): SweepConfig {
           mode?: string;
           settlement_model?: string;
           source_chains?: Array<{ key: string; name: string }>;
+          app_url?: string;
         };
         if (typeof d.platform_fee_bps !== "number") return;
         setCfg({
@@ -112,6 +124,7 @@ export function useSweepConfig(): SweepConfig {
           // An empty list would leave a payer no way to pay, so an API that
           // sends none keeps the fallback rather than blanking the picker.
           sourceChains: d.source_chains?.length ? d.source_chains : FALLBACK_CHAINS,
+          appUrl: typeof d.app_url === "string" ? d.app_url : null,
           loaded: true,
         });
       })
