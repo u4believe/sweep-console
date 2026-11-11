@@ -53,6 +53,21 @@ export interface PeriodicErc20MandateInput {
    * "Recipient" actively obscures for a payer reading the prompt.
    */
   delegate: Address;
+  /**
+   * The account the permission is requested FROM — `from` in the guide, and
+   * the one documented parameter this request was never sending.
+   *
+   * Optional in the guide's example, which connects a single account and lets
+   * the wallet infer it. A checkout cannot: a payer may hold several accounts,
+   * the dapp is connected to one of them, and the one SELECTED in MetaMask can
+   * be a third. Omitting this asks the wallet to guess, and EIP-1193 4100 is
+   * literally "the requested method and/or ACCOUNT has not been authorized by
+   * the user" — which is what every chain returned while the capability probe
+   * reported 8453, 42161, 10 and 143 all supported.
+   *
+   * Naming it costs nothing and removes the guess.
+   */
+  payer: Address;
   periodAmountMicro: bigint;
   periodDurationSec: number;
   expirySec: number;
@@ -120,6 +135,7 @@ export function buildPeriodicPermission(
 ): PermissionRequestParameter {
   return {
     chainId: input.chainId,
+    from: input.payer,
     to: input.delegate,
     expiry: input.expirySec,
     ...(input.pinRedeemer ? { redeemer: [input.delegate] } : {}),

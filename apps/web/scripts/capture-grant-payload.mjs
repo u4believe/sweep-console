@@ -17,6 +17,7 @@ import { createWalletClient, custom } from "viem";
 import { erc7715ProviderActions } from "@metamask/smart-accounts-kit/actions";
 
 const DELEGATE = "0x5947B31Deb2907594Cea0af63a2AE137FE5cf0EE";
+const PAYER = "0xb8EC5927246abe8e37e342Ca597B48aB25ee6Dd1";
 const CREATOR_LOWER = "0x18e0699ee5c7dd9d558d56f0c2b2f6c3a5b6747f";
 const CREATOR_BADSUM = "0x18e0699Ee5c7dd9d558d56F0c2b2f6c3a5B6747f";
 const TOKEN = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -32,6 +33,9 @@ const TOKEN = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 function build({ payees, pinRedeemer, startTime, allowAdjustment } = {}) {
   return {
     chainId: 8453,
+    // The documented `from`, which this request omitted until the probe
+    // showed every chain supported and every chain refusing with 4100.
+    from: PAYER,
     to: DELEGATE,
     expiry: 1800000000,
     ...(pinRedeemer ? { redeemer: [DELEGATE] } : {}),

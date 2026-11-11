@@ -150,6 +150,25 @@ function justificationFor(t: GrantTarget, merchantName: string | undefined): str
  * configuration. Never throws: a diagnostic that can fail a grant is worse
  * than a diagnostic.
  */
+/**
+ * The accounts this wallet admits to for this site, or null if it will not say.
+ *
+ * eth_accounts rather than eth_requestAccounts: this must never prompt. It is
+ * a diagnostic, and a connection dialog raised in the middle of a grant run
+ * would be worse than the missing information.
+ */
+async function readPermittedAccounts(
+  client: Awaited<ReturnType<typeof connectorClientOnChain>> | undefined
+): Promise<string[] | null> {
+  if (!client) return null;
+  try {
+    const accounts = (await client.request({ method: "eth_accounts" } as never)) as string[] | null;
+    return Array.isArray(accounts) ? accounts : null;
+  } catch {
+    return null;
+  }
+}
+
 async function readDelegationTarget(
   client: Awaited<ReturnType<typeof connectorClientOnChain>> | undefined,
   account: Address
@@ -212,6 +231,8 @@ export async function grantRenewalMandates(
       chainId: t.chain_id,
       token: t.token,
       delegate: t.delegate,
+      // The account being asked, named rather than inferred.
+      payer: walletAddress as Address,
       /**
        * The departures from the documented request, each decided by the API.
        *
@@ -296,6 +317,29 @@ export async function grantRenewalMandates(
       await ensureSmartAccount(client, walletAddress as Address, t.chain_id);
 
       logGrantAttempt(ctx, await readActiveChainId(client));
+
+      /**
+       * Is the wallet actually holding the account we are asking about?
+       *
+       * The capability probe reported 7715 support on 8453, 42161, 10 and 143
+       * — every chain this deployment uses — and all four still returned 4100,
+       * "the requested method and/or ACCOUNT has not been authorized by the
+       * user". With the method supported, the account is the half left to
+       * doubt, and nothing in the flow had ever compared the address the
+       * grant is built for against the ones the wallet admits to.
+       *
+       * eth_accounts answers it in one call. Logged rather than thrown: a
+       * mismatch is a strong signal and not a certainty, and refusing to try
+       * would hide the very error we are trying to read.
+       */
+      const permitted = await readPermittedAccounts(client);
+      if (permitted && !permitted.some((a) => a.toLowerCase() === walletAddress.toLowerCase())) {
+        console.warn(
+          `[grant] the wallet does not list ${walletAddress} among its connected accounts ` +
+            `(${permitted.join(", ") || "none"}). A permission requested for an account the ` +
+            `wallet has not authorized is refused with 4100.`
+        );
+      }
 
       stage = "request";
       let mandate;

@@ -173,6 +173,7 @@ export function DevGrantTestPage() {
           chainId,
           token: token as `0x${string}`,
           delegate: delegate as `0x${string}`,
+          payer: address as `0x${string}`,
           periodAmountMicro: BigInt(amount),
           periodDurationSec: Number(period),
           startTimeSec: probeNow,
