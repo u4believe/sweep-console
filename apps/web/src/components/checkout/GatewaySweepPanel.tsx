@@ -76,7 +76,20 @@ interface Props {
 
 type Phase = "planning" | "review" | "signing" | "executing" | "insufficient" | "error";
 
-const POLL_MS = 3_000;
+/**
+ * 1.2s, down from 3s.
+ *
+ * Three seconds was chosen against the bridged path, where activation meant a
+ * burn, a wait on Circle's attestation and a mint on Arc — minutes, so a
+ * three-second poll was free. Direct settlement is ONE redeemDelegations,
+ * which lands in a few seconds on Base, Arbitrum or Optimism, and against
+ * that the poll interval became a visible share of the wait: a payment that
+ * settled could sit unacknowledged for most of three seconds.
+ *
+ * The operation is short-lived and the request is a single status read, so a
+ * faster poll costs a handful of GETs per checkout.
+ */
+const POLL_MS = 1_200;
 
 /// Map noisier wallet-side ERC-7715 failures to guidance the subscriber can act on.
 function describeError(e: unknown): string {
@@ -268,10 +281,22 @@ export function GatewaySweepPanel({
             re-authorizing needed.
           </p>
           <p className="text-xs text-gray-600">One gasless signature.</p>
+          {/*
+            NOTHING IS ASKED OF THE WALLET ON THIS BRANCH.
+          
+            hasAnyGrant(plan) is true here: the subscriber already signed a
+            permission and the platform's relayer redeems it. No prompt is
+            coming, and "Confirm in your wallet…" sent the payer to look for
+            one — then to wait beside a wallet that stays silent, which reads
+            as a stuck checkout rather than a working one.
+          
+            The sibling branch below keeps that line, because it really does
+            ask for a signature.
+          */}
           {autoStart ? (
             <div className="flex items-center gap-2 text-sm text-gray-600">
               <Spinner size={16} />
-              <span>Confirm in your wallet…</span>
+              <span>Collecting your payment…</span>
             </div>
           ) : (
             <button onClick={onApprove} className="btn-primary w-full py-3">
