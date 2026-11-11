@@ -601,7 +601,17 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
         const plan = await fetchGrantPlan(sessionId, payAddress);
         const target = plan.targets.find((t) => t.chain_key === key);
         if (!target) throw new Error("That chain isn't available for this plan.");
-        if (!(plan.granted_chain_ids ?? []).includes(target.chain_id)) {
+        /**
+         * Seeded from the plan, because an ALREADY granted chain never enters
+         * the block below.
+         *
+         * Starting this at false left a chain the payer had authorized on an
+         * earlier visit looking ungranted, so cross-chain renewals were never
+         * enabled for it — a silent downgrade of a subscription that was set
+         * up correctly.
+         */
+        let granted = (plan.granted_chain_ids ?? []).includes(target.chain_id);
+        if (!granted) {
           const failures = await grantRenewalMandates(
             payAddress,
             [target],
@@ -615,15 +625,57 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
                 walletAddress: payAddress,
               }),
           );
-          if (failures.length > 0) throw new Error(`Couldn't authorize ${target.name}.`);
+          /**
+           * A WALLET THAT CANNOT GRANT MUST STILL BE ABLE TO PAY.
+           *
+           * This threw, and the throw skipped the two lines below it — the
+           * sweep hand-off that takes the actual payment. So a payer whose
+           * wallet refuses a recurring permission could not buy the
+           * subscription at all: the checkout showed "Couldn't authorize
+           * Base" and stopped, with nothing to try next.
+           *
+           * One account did exactly that for a week. Every documented input
+           * was correct — the chain advertised, the account upgraded to
+           * MetaMask's own 7702 implementation, the documented five fields,
+           * `from` named — and MetaMask returned 4100 regardless, while the
+           * same checkout worked from a different account in the same wallet.
+           * Whatever the cause, it lives in that account and we cannot see
+           * it, which means a payer will hit this again.
+           *
+           * So the grant becomes best-effort at the point of payment. The
+           * subscription is created without automatic renewal, the payer is
+           * told plainly, and the charge goes through. Renewals can be
+           * authorized later from the customer portal, which is the same
+           * flow a payer who declines the toggle already takes.
+           */
+          granted = failures.length === 0;
+          if (failures.length > 0) {
+            setGrantError(
+              `${target.name} couldn't authorize automatic renewals from this account — ` +
+                `your payment is going through, and you can turn renewals on later from the ` +
+                `link in your receipt. To set them up now instead, try a different account ` +
+                `in your wallet.`
+            );
+          }
         }
-        setGrantedChains((prev) => [...prev, key]);
-        await enableCrossChain(sessionId, {
-          session_token: sessionToken,
-          wallet_address: payAddress,
-          email: EMAIL_RE.test(email.trim()) ? email.trim() : undefined,
-          email_token: emailToken ?? undefined,
-        });
+        /**
+         * Only claimed when it actually landed.
+         *
+         * These ran unconditionally once the throw above became a warning,
+         * which would have marked a chain authorized that is not and asked
+         * the API to enable cross-chain renewals against a grant that does
+         * not exist — a worse failure than the one being fixed, because it
+         * would surface a month later as a renewal that cannot be collected.
+         */
+        if (granted) {
+          setGrantedChains((prev) => [...prev, key]);
+          await enableCrossChain(sessionId, {
+            session_token: sessionToken,
+            wallet_address: payAddress,
+            email: EMAIL_RE.test(email.trim()) ? email.trim() : undefined,
+            email_token: emailToken ?? undefined,
+          });
+        }
       }
 
       // Hand off to the sweep, which signs the Arc permit and activates.
