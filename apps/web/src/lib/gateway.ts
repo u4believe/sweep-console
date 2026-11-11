@@ -52,7 +52,10 @@ export interface GrantTarget {
    * them by redeploying one service rather than rebuilding the other.
    */
   allow_adjustment?: boolean;
-  omit_start_time?: boolean;
+  /** Send `startTime`, which MetaMask's guide omits. Default off. */
+  send_start_time?: boolean;
+  /** Send the undocumented `redeemer` rule. Default off. */
+  pin_redeemer?: boolean;
 }
 
 export interface GrantPlan {

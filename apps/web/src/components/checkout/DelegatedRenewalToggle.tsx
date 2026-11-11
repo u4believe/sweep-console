@@ -262,7 +262,8 @@ export function DelegatedRenewalToggle({
     setError("");
     setBusy(scope);
     workingRef.current = true;
-    setProgress({ done: 0, total: list.length });
+    // 1-based once a chain is being asked for; onAttempt sets it.
+    setProgress({ done: 1, total: list.length });
     try {
       // One ERC-7715 delegation per chain. A single chain failing never aborts
       // the rest — grantRenewalMandates keeps going and reports what didn't land.
@@ -272,7 +273,10 @@ export function DelegatedRenewalToggle({
             walletAddress,
             list,
             (input) => saveDelegation(sessionId, input),
-            (done, total) => setProgress({ done, total }),
+            // onProgress counted chains COMPLETED and wrote the same number the
+            // label reads, which is about the chain in hand. Two meanings in one
+            // state made the count skip and sometimes go backwards.
+            undefined,
             merchantName,
             (info) => {
               setDebugReport((prev) =>
@@ -430,7 +434,7 @@ export function DelegatedRenewalToggle({
             {probing
               ? "Checking your wallet…"
               : progress.total > 1
-                ? `Signing ${progress.done + 1} of ${progress.total} — approve each in your wallet.`
+                ? `Signing ${progress.done} of ${progress.total} — approve each in your wallet.`
                 : "Approve in your wallet to authorize."}
           </p>
         </div>

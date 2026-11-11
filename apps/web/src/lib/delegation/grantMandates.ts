@@ -212,18 +212,20 @@ export async function grantRenewalMandates(
       chainId: t.chain_id,
       token: t.token,
       delegate: t.delegate,
-      // Undefined on a deployment that has not split settlement from the
-      // delegate yet, which leaves the grant exactly as unconstrained as before
-      // rather than pinning the destination to the key that can already spend it.
-      // Two entries under direct settlement: the creator and the treasury.
+      /**
+       * The departures from the documented request, each decided by the API.
+       *
+       * Undefined means "send the documented shape", which is what every
+       * deployment does unless it opts out. PeriodicErc20MandateInput says
+       * why each one exists and why it is off.
+       */
       payees: t.payees,
       periodAmountMicro: BigInt(t.period_amount),
       periodDurationSec: t.period_duration,
-      startTimeSec: now,
-      // Both default off, so a deployment setting neither sends exactly
-      // what it sent before.
+      // Omitted unless asked for: the guide does not send it.
+      startTimeSec: t.send_start_time ? now : undefined,
       allowAdjustment: t.allow_adjustment,
-      omitStartTime: t.omit_start_time,
+      pinRedeemer: t.pin_redeemer,
       /**
        * What the GRANT says, when the grant says anything.
        *
@@ -266,7 +268,22 @@ export async function grantRenewalMandates(
      * Reporting the attempt here makes the label mean what it says; the
      * completion count still advances only on a real save below.
      */
-    onAttempt?.(done + failures.length, targets.length);
+    /**
+     * ONE-BASED, AND THE ONLY THING THAT DRIVES "Signing N of M".
+     *
+     * This passed `done + failures.length` into the same state onProgress
+     * writes `done` to, and the label rendered `done + 1`. Two writers, two
+     * meanings — chains ATTEMPTED and chains COMPLETED — in one number.
+     *
+     * The visible symptom was a count that skipped: two chains failing
+     * without a wallet prompt advanced `failures` twice between renders, so
+     * the label went 2 of 4 straight to 4 of 4. It could also go backwards,
+     * since a success incremented `done` while ignoring earlier failures.
+     *
+     * The label is a claim about the chain in hand, so the index of the chain
+     * in hand is what it gets, and nothing else writes to it.
+     */
+    onAttempt?.(ctx.index, targets.length);
     let stage: "probe" | "upgrade" | "request" | "save" = "probe";
     let client: Awaited<ReturnType<typeof connectorClientOnChain>> | undefined;
     try {

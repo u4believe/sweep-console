@@ -98,12 +98,16 @@ delegationRouter.get("/internal/checkout/:session_id/grant-plan", async (req, re
       delegate,
       payees,
       /**
-       * Two fields MetaMask's documented example sets differently, driven
-       * from environment so a live deployment can bisect them without a web
-       * rebuild. Unset means exactly what was sent before.
+       * Every departure from MetaMask's documented request, driven from the
+       * environment so a live deployment can bisect without a web rebuild.
+       *
+       * ALL UNSET SENDS THE DOCUMENTED SHAPE, which is the point: the request
+       * had drifted four fields away from the guide, and a failure then had
+       * four candidate causes that the wallet reports none of.
        */
       allow_adjustment: process.env.GRANT_ALLOW_ADJUSTMENT === "true" ? true : undefined,
-      omit_start_time: process.env.GRANT_OMIT_START_TIME === "true" ? true : undefined,
+      send_start_time: process.env.GRANT_SEND_START_TIME === "true" ? true : undefined,
+      pin_redeemer: process.env.GRANT_PIN_REDEEMER === "true" ? true : undefined,
     });
 
     // Every supported source chain, regardless of current USDC balance — the
