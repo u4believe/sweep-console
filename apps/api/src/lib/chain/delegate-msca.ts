@@ -288,7 +288,27 @@ function topUpAmount(opts: {
   owner: Address;
   chainId: number;
 }): bigint {
-  const reserve = opts.maxFeePerGas * 100_000n;
+  /**
+   * THE RESERVE MUST COVER THE handleOps THAT FOLLOWS, not a plain transfer.
+   *
+   * 100,000 gas was the cost of the deposit transaction itself. But depositing
+   * is not the last thing this payer does: handleOps goes out immediately
+   * after, with a gas limit of CALL_GAS + verificationGas + PRE_VERIFICATION_GAS
+   * plus headroom — around 1.28 million. Reserving a thirteenth of that let the
+   * deposit take almost the whole balance and leave the operation it was
+   * funding unpayable.
+   *
+   * Observed on Base with the payer at 0.00054 ETH: topUpAmount returned
+   * ~0.00054, the deposit landed, and handleOps died with
+   *
+   *   insufficient funds for gas * price + value: have 424988458026
+   *   want 8962042880000
+   *
+   * — the payer holding 0.0000004 ETH against a 0.0000090 bill, with its own
+   * 0.00054 sitting in the EntryPoint where it could not pay for gas. Funds
+   * moved to exactly the wrong side of the account.
+   */
+  const reserve = opts.maxFeePerGas * (CALL_GAS + VERIFICATION_GAS + DEPLOY_VERIFICATION_GAS + PRE_VERIFICATION_GAS + 200_000n);
   const affordable = opts.ownerBalance > reserve ? opts.ownerBalance - reserve : 0n;
   if (affordable < opts.required) {
     throw new Error(
