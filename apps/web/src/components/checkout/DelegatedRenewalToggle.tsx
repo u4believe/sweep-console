@@ -309,10 +309,23 @@ export function DelegatedRenewalToggle({
 
       if (failures.length > 0) {
         const names = failures.map((f) => f.target.name).join(", ");
+        /**
+         * "Couldn't authorize Base, Arbitrum, OP Mainnet, Monad" said nothing
+         * about what to do, and for a wallet that refuses all four there IS
+         * something: use another account.
+         *
+         * Partial is close to fine — delegated-renewal picks one chain per
+         * cycle from those that cover the price and hold a full period, so
+         * the authorized ones carry renewals on their own. Total means this
+         * account cannot grant at all, and cannot be fixed afterwards
+         * either: the portal requires the grant to come from the wallet that
+         * signed up, which is this one.
+         */
         setError(
           landed.length > 0
-            ? `Couldn't authorize ${names} — the chains that did succeed are active.`
-            : `Couldn't authorize ${names}.`
+            ? `Couldn't authorize ${names} — the chains that did succeed cover your renewals.`
+            : `This account can't authorize recurring payments on any chain. Try a different ` +
+                `account in your wallet, or continue without automatic renewals.`
         );
       }
 

@@ -650,11 +650,31 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
            */
           granted = failures.length === 0;
           if (failures.length > 0) {
+            /**
+             * PARTIAL AND TOTAL ARE DIFFERENT OUTCOMES, and the message must
+             * not conflate them.
+             *
+             * Renewals do not need every chain. delegated-renewal picks one
+             * per cycle from the grants that cover the price and currently
+             * hold a full period, so a subscriber authorized on three chains
+             * out of four renews normally — the fourth only costs the ability
+             * to charge a balance sitting there.
+             *
+             * With NOTHING granted it is a dead end, and saying "turn renewals
+             * on later from your receipt" would be false. The portal requires
+             * the grant to come from the wallet that signed up — correctly, or
+             * a renewal would weigh one wallet's balance and spend another's
+             * signed context — so the only wallet that can enable them later
+             * is the one that just refused.
+             */
+            const otherChains = (plan.granted_chain_ids ?? []).length;
             setGrantError(
-              `${target.name} couldn't authorize automatic renewals from this account — ` +
-                `your payment is going through, and you can turn renewals on later from the ` +
-                `link in your receipt. To set them up now instead, try a different account ` +
-                `in your wallet.`
+              otherChains > 0
+                ? `${target.name} couldn't authorize automatic renewals, but your other ` +
+                    `authorized chains still cover them. Your payment is going through.`
+                : `This account can't authorize automatic renewals — your payment is going ` +
+                    `through as a one-off. To set up renewals, subscribe from a different ` +
+                    `account in your wallet; they can't be added to this one later.`
             );
           }
         }
