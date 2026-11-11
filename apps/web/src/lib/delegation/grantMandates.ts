@@ -390,7 +390,16 @@ export async function grantRenewalMandates(
         requestShape: {
           chain_id: t.chain_id,
           to: t.delegate,
-          expiry: t.expiry_sec,
+          /**
+           * The expiry ACTUALLY SENT, not the API's optional override.
+           *
+           * This reported t.expiry_sec, which the hosted path never sets — so
+           * every report read `expiry=?` about a request that carries a real
+           * timestamp. Of the five documented fields it was the only one the
+           * diagnostic could not confirm, which is precisely the one you end
+           * up suspecting.
+           */
+          expiry: t.expiry_sec ?? now + MANDATE_LIFETIME_SEC,
           payee_count: t.payees?.length ?? 0,
           permission_type: "erc20-token-periodic",
           /**
