@@ -369,7 +369,23 @@ export async function grantRenewalMandates(
         period_duration: t.period_duration,
         expiry: mandate.expirySec,
       });
-      onProgress?.(++done, targets.length);
+      /**
+       * INCREMENTED OUTSIDE THE CALL, because optional chaining does not
+       * evaluate arguments it is not going to pass.
+       *
+       * This read `onProgress?.(++done, targets.length)`. When the caller
+       * stopped passing onProgress — correct, since it counted completions
+       * while the label described the chain in hand — `++done` stopped running
+       * with it. `done` sat at 0 for the whole run, so ctx.index, which is
+       * `done + failures.length + 1`, was 1 on every chain and the UI read
+       * "Signing 1 of 4" through all four prompts.
+       *
+       * Two fixes in a row aimed at that label and neither touched this,
+       * because the arithmetic looked right in isolation. The counter was
+       * never the bug; the counter's input was never advancing.
+       */
+      done += 1;
+      onProgress?.(done, targets.length);
     } catch (e) {
       failures.push({ target: t, error: e });
       report?.({

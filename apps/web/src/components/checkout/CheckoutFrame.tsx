@@ -12,7 +12,7 @@ const STEPS: { id: Rail; n: string; label: string }[] = [
 ];
 
 /**
- * The chrome every checkout step sits inside: the merchant header, the step
+ * The chrome every checkout step sits inside: the step
  * rail, and the surface ground the content floats on.
  *
  * The rail is a progress indicator, not navigation — steps aren't clickable,
@@ -21,7 +21,12 @@ const STEPS: { id: Rail; n: string; label: string }[] = [
  * supported way back.
  */
 export function CheckoutFrame({
-  merchant,
+  /**
+   * Kept on the signature though the frame no longer renders it: every caller
+   * passes it, and the plan summary inside does show the name. Dropping the
+   * prop would be five edits for no gain.
+   */
+  merchant: _merchant,
   isTestMode,
   cancelUrl,
   rail,
@@ -40,47 +45,22 @@ export function CheckoutFrame({
       className="flex min-h-screen flex-col"
       style={{ background: "var(--color-neutral-200)", color: "var(--color-text)" }}
     >
-      <header
-        className="flex flex-wrap items-center gap-3.5"
-        style={{
-          padding: "16px clamp(18px,3vw,32px)",
-          background: "var(--color-bg)",
-          borderBottom: RULE,
-        }}
-      >
-        <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 16, letterSpacing: "-0.01em" }}>
-          {merchant.name}
-        </span>
-        {/* Short. The sentence it replaces — "no real USDC is charged" — is
-            the one thing this badge must never say on a live checkout, and at
-            full length it read as a banner rather than a state. */}
-        {isTestMode && (
-          <span
-            style={{
-              fontSize: 11, fontWeight: 600, padding: "4px 9px", borderRadius: 5,
-              background: "var(--color-accent-200)", color: "var(--color-accent)",
-            }}
-          >
-            Test mode
-          </span>
-        )}
-        <button
-          type="button"
-          className="swp-navitem ml-auto cursor-pointer"
-          style={{
-            width: 32, height: 32, display: "grid", placeItems: "center",
-            border: 0, borderRadius: 8, background: "transparent",
-            color: "var(--color-neutral-800)", fontSize: 20, lineHeight: 1,
-          }}
-          onClick={() => window.location.assign(cancelUrl)}
-          aria-label="Cancel checkout"
-        >
-          ×
-        </button>
-      </header>
+      {/*
+        ONE BAR, NOT TWO.
 
+        A header carrying the merchant's name sat above this with its own
+        rule and its own horizontal padding — clamp(18px,3vw,32px) against
+        this row's clamp(8px,2vw,20px) — so the two rules were inset by
+        different amounts and the edges did not line up. The merchant's name
+        is already the first thing in the plan summary below; repeating it in
+        chrome bought a second rule and a misalignment.
+
+        Test mode and the cancel control move here, because they still have a
+        job: one is the only thing distinguishing a sandbox checkout from a
+        live one, and the other is the payer's way out.
+      */}
       <div
-        className="flex overflow-x-auto"
+        className="flex items-center overflow-x-auto"
         style={{ background: "var(--color-bg)", borderBottom: RULE, padding: "0 clamp(8px,2vw,20px)" }}
       >
         {STEPS.map((s, i) => {
@@ -111,6 +91,35 @@ export function CheckoutFrame({
             </div>
           );
         })}
+
+        {/* Short. The sentence it replaces — "no real USDC is charged" — is
+            the one thing this badge must never say on a live checkout, and at
+            full length it read as a banner rather than a state. */}
+        {isTestMode && (
+          <span
+            className="ml-auto"
+            style={{
+              fontSize: 11, fontWeight: 600, padding: "4px 9px", borderRadius: 5,
+              background: "var(--color-accent-200)", color: "var(--color-accent)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Test mode
+          </span>
+        )}
+        <button
+          type="button"
+          className={`swp-navitem cursor-pointer${isTestMode ? " ml-2" : " ml-auto"}`}
+          style={{
+            width: 32, height: 32, display: "grid", placeItems: "center", flex: "none",
+            border: 0, borderRadius: 8, background: "transparent",
+            color: "var(--color-neutral-800)", fontSize: 20, lineHeight: 1,
+          }}
+          onClick={() => window.location.assign(cancelUrl)}
+          aria-label="Cancel checkout"
+        >
+          ×
+        </button>
       </div>
 
       {/* 1040, not 1180: the content is one 540px card now rather than a

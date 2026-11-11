@@ -30,6 +30,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAccount, useChainId, useConnectorClient } from "wagmi";
 import { getSupportedDelegationChainIds } from "@/lib/delegation/capabilities";
+import { ChainMark } from "@/components/ui/marks";
 import { describeGrantFailure, grantDebugEnabled, reportGrantFailure } from "@/lib/delegation/diagnostics";
 import { grantRenewalMandates } from "@/lib/delegation/grantMandates";
 import { Spinner, ActivityBar } from "@/components/ui/Spinner";
@@ -446,10 +447,48 @@ export function DelegatedRenewalToggle({
             <Spinner size={13} />
             {probing
               ? "Checking your wallet…"
-              : progress.total > 1
-                ? `Signing ${progress.done} of ${progress.total} — approve each in your wallet.`
-                : "Approve in your wallet to authorize."}
+              : "Approve each in your wallet."}
           </p>
+
+          {/*
+            WHICH CHAIN, shown rather than counted.
+
+            "Signing 2 of 4" asked the payer to hold a number in their head
+            and match it against prompts that name chains, not indexes. The
+            rail's authorize page had already solved this: it pulses the mark
+            of the chain whose prompt is open and dims the ones not started,
+            so between dismissing one prompt and the next appearing there is
+            something on screen saying where you are.
+
+            progress.done counts COMPLETED signatures, so it indexes the one
+            in flight within the same list authorizeAll walked — which is why
+            that counter had to start working before this could be built on
+            it.
+          */}
+          {progress.total > 1 && (
+            <div className="flex flex-wrap items-center gap-3" style={{ marginTop: 9 }}>
+              {usable.map((t, idx) => {
+                const on = granted.includes(t.chain_id);
+                const inFlight = !on && idx === progress.done;
+                return (
+                  <span key={t.chain_id} className="flex items-center gap-1.5">
+                    <span className={inFlight ? "animate-pulse" : undefined}>
+                      <ChainMark chain={t.chain_key} size={16} opacity={on ? 1 : inFlight ? 0.75 : 0.3} />
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: on || inFlight ? "var(--color-text)" : "var(--color-neutral-600)",
+                        fontWeight: inFlight ? 600 : 400,
+                      }}
+                    >
+                      {t.name}
+                    </span>
+                  </span>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
