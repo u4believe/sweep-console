@@ -58,7 +58,7 @@ const INTERVAL_NOUN: Record<string, string> = {
  * the word Sepolia is the point.
  */
 const CHAIN_BLURB: Record<string, string> = {
-  arc: "Arc",
+  monad: "Monad",
   base: "Base",
   optimism: "Optimism",
   arbitrum: "Arbitrum",

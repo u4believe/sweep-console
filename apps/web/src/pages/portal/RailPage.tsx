@@ -80,7 +80,7 @@ const CHAIN_NAMES: Record<string, string> = {
   base: "Base",
   arbitrum: "Arbitrum",
   optimism: "Optimism",
-  arc: "Arc",
+  monad: "Monad",
 };
 
 const usdc = (v: number) => formatUnits(BigInt(v), 6);
@@ -448,9 +448,7 @@ export function RailPage() {
         <p className="m-0" style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
           Collected is what payers were charged. Your share is that less the platform fee, which is taken on the
           source chain
-          {settlementModel === "direct"
-            ? " in the same transaction that pays you — both land on the chain the payer used"
-            : " before the bridge — settlement lands on Arc"}
+          {" in the same transaction that pays you — both land on the chain the payer used"}
           {data?.payoutWallet ? (
             <>
               {" "}

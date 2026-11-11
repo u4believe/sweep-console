@@ -45,7 +45,7 @@ const CHAIN_NAMES: Record<string, string> = {
   base: "Base",
   optimism: "Optimism",
   arbitrum: "Arbitrum",
-  arc: "Arc",
+  monad: "Monad",
 };
 
 /// The wallet that signed this subscription is the only one that can authorize

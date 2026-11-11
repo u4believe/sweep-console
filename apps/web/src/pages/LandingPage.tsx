@@ -789,9 +789,7 @@ function Hero() {
             }}
           >
             Subscribers approve a USDC spending limit with one wallet signature. Renewals charge themselves from
-            {settlementModel === "direct"
-              ? " Base, Arbitrum, Optimism or Monad, and land in your wallet on that same chain."
-              : " Base, Arbitrum or Optimism, and settle to you on Arc."}{" "}
+            {" Base, Arbitrum, Optimism or Monad, and land in your wallet on that same chain."}{" "}
             Gas is on us.
           </p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 28 }}>
@@ -885,7 +883,7 @@ function HowItWorks() {
             step.n === "03"
               ? {
                   ...step,
-                  title: direct ? "Settled on their chain" : "Settled on Arc",
+                  title: "Settled on their chain",
                   body: direct
                     ? "USDC goes straight to your payout wallet on the chain they paid from. Renewals repeat on their own."
                     : "USDC is swept over CCTP straight to your payout wallet. Renewals repeat on their own.",
@@ -1697,7 +1695,7 @@ function Demo() {
             ) : (
               <div style={{ padding: "30px 22px 24px" }}>
                 <p className="m-0" style={{ marginBottom: 8, fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--color-accent)" }}>
-                  {settlementModel === "direct" ? "Payment confirmed" : "Confirmed on Arc"}
+                  Payment confirmed
                 </p>
                 <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 32, lineHeight: 1.05, letterSpacing: "-0.03em" }}>
                   You&rsquo;re subscribed to Pro.
@@ -1711,9 +1709,7 @@ function Demo() {
                     ["Amount", "$29.00 USDC / month"],
                     [
                       "Network",
-                      settlementModel === "direct"
-                        ? `${prettyName[paidFrom]} — paid and settled`
-                        : `${prettyName[paidFrom]} → settled on Arc`,
+                      `${prettyName[paidFrom]} — paid and settled`,
                     ],
                     ["Wallet", "0x7a3f…91c2"],
                   ].map(([k, v]) => (
@@ -2534,7 +2530,7 @@ function StartCta() {
           }}
         >
           Create a plan, share the checkout, and let renewals settle themselves
-          {settlementModel === "direct" ? " on the chain each subscriber pays from." : " on Arc."}
+          {" on the chain each subscriber pays from."}
         </p>
         <div data-reveal="" style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 12, marginTop: 34 }}>
           <Link to="/signup" style={{ ...CTA_STYLE, fontSize: 15, padding: "14px 28px" }}>

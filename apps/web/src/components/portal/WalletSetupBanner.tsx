@@ -348,6 +348,7 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
             <span className="flex items-center gap-1.5"><ChainMark chain="base" size={16} /><span style={{ fontSize: 12.5 }}>Base</span></span>
             <span className="flex items-center gap-1.5"><ChainMark chain="arbitrum" size={16} /><span style={{ fontSize: 12.5 }}>Arbitrum</span></span>
             <span className="flex items-center gap-1.5"><ChainMark chain="optimism" size={16} /><span style={{ fontSize: 12.5 }}>Optimism</span></span>
+            <span className="flex items-center gap-1.5"><ChainMark chain="monad" size={16} /><span style={{ fontSize: 12.5 }}>Monad</span></span>
           </div>
         </div>
       </div>

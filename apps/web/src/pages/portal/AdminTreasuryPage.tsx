@@ -19,10 +19,8 @@ interface TreasuryRow {
 /// What each account is for, in one line, because the addresses look alike and
 /// the funding rules are not uniform between them.
 const ROLE_NOTE: Record<string, string> = {
-  settlement: "Legacy: received pulls and bridged them. Direct settlement pays creators instead",
-  renewal: "Redeems hosted grants",
+  renewal: "Redeems hosted grants — the account that pays gas",
   external: "Redeems external-rail grants",
-  "renewal-arc": "Submits CCTP mints on Arc, where gas is USDC",
 };
 
 /**
@@ -39,7 +37,15 @@ function spendNote(rs: Array<{ spends?: string }>): string {
   return "";
 }
 
-const ROLE_ORDER = ["settlement", "renewal", "external", "renewal-arc"];
+/**
+ * Two roles, not four.
+ *
+ * "settlement" received pulls and bridged them, and "renewal-arc" minted the
+ * other end on Arc. Both belong to a path that no longer exists, and an
+ * operator screen listing accounts nobody funds reads as four wallets to keep
+ * topped up when there are two.
+ */
+const ROLE_ORDER = ["renewal", "external"];
 
 export function AdminTreasuryPage() {
   const [rows, setRows] = useState<TreasuryRow[] | null>(null);
@@ -88,9 +94,8 @@ export function AdminTreasuryPage() {
       <Section bordered={false}>
         <p className="m-0 mb-4" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
           The platform's own accounts{mode ? ` on ${mode === "live" ? "mainnet" : "testnet"}` : ""}, not any
-          merchant's. Each runs out in its own way, and none of them announces it: a delegate without ETH stops
-          redeeming, and the Arc account without USDC stops minting <em>after</em> the money has been pulled and
-          burned.
+            merchant's. A delegate without native gas stops redeeming and does not announce it — the
+            first sign is a renewal that silently did not run.
         </p>
 
         {rows === null ? (
@@ -101,7 +106,7 @@ export function AdminTreasuryPage() {
           byRole.map(([role, rs]) => (
             <div key={role} className="mb-5">
               <h3 className="m-0 mb-1" style={{ fontSize: 15, fontWeight: 600 }}>
-                {role === "renewal-arc" ? "Renewal delegate — Arc" : role[0]!.toUpperCase() + role.slice(1)}
+                {role[0]!.toUpperCase() + role.slice(1)}
               </h3>
               <p className="m-0 mb-2" style={{ fontSize: 12, color: "var(--color-neutral-600)" }}>
                 {(ROLE_NOTE[role] ?? "") + spendNote(rs)}

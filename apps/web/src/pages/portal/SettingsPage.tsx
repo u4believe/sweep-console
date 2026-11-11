@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ChainMark } from "@/components/ui/marks";
 import { useSearchParams } from "react-router-dom";
 import { WalletSettings } from "@/components/portal/WalletSettings";
 import { SecuritySettings } from "@/components/portal/SecuritySettings";
@@ -522,35 +523,35 @@ function WalletTab({ profile }: { profile: MerchantProfile }) {
 
       <div style={{ marginTop: 26 }}>
         <Kicker>Settlement chain</Kicker>
+        {/*
+          No Arc mark, and no "bridged" branch.
+
+          This carried both settlement models: a hand-inlined Arc glyph with
+          the word "Arc", and copy saying every settlement lands there and is
+          bridged automatically. Neither is true now — settlement happens on
+          the chain the payer used and the bridge is gone — so keeping it
+          behind a settlementModel check left a retired architecture one
+          config flag away from reappearing on a merchant's screen.
+        */}
         <div
           className="flex flex-wrap items-center gap-3.5"
           style={{ border: "1px solid var(--color-divider)", background: "var(--color-surface)", padding: "16px 18px" }}
         >
-          <svg viewBox="0 0 31 32" height="24" aria-label="Arc" style={{ display: "block", flex: "none", height: 24, width: "auto" }}>
-            <path
-              d="M0 32C0.260374 24.166 1.59328 16.8547 3.82135 11.1696C6.64316 3.96673 10.728 0 15.3227 0C19.9174 0 24.0016 3.96673 26.824 11.1696C28.292 14.9157 29.372 19.3668 30.0119 24.2089C30.0691 24.6414 30.1178 25.0809 30.1678 25.5195C30.184 25.5466 30.1938 25.5718 30.1905 25.5923C30.1905 25.5923 30.5666 27.9326 30.6465 32H30.604C30.0462 31.5439 23.4681 26.3931 12.5636 27.8845C12.7282 26.0457 12.9544 24.2565 13.2467 22.5415C13.2617 22.4538 13.2789 22.3692 13.2942 22.2821C17.5711 22.1536 21.3146 22.6486 24.1853 23.2972C24.1746 23.2293 24.1657 23.1594 24.1547 23.0918C23.5647 19.4302 22.6941 16.0779 21.5717 13.2131C19.7364 8.52888 17.3416 5.61852 15.3227 5.61852C13.3038 5.61852 10.909 8.52888 9.07379 13.2131C8.62954 14.3462 8.22512 15.5545 7.86244 16.8291C7.35258 18.615 6.92424 20.5296 6.58214 22.5413C6.0758 25.5124 5.75944 28.6987 5.64292 32H0Z"
-              fill="var(--color-text)"
-            />
-          </svg>
+          <span className="flex items-center gap-2">
+            <ChainMark chain="base" size={20} />
+            <ChainMark chain="arbitrum" size={20} />
+            <ChainMark chain="optimism" size={20} />
+            <ChainMark chain="monad" size={20} />
+          </span>
           <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 16 }}>
-            {settlementModel === "direct" ? "The chain they pay from" : "Arc"}
+            The chain they pay from
           </span>
           <span className="tag tag-neutral">Fixed</span>
         </div>
         <p className="m-0" style={{ fontSize: 12, color: "var(--color-neutral-700)", marginTop: 10, maxWidth: "64ch", lineHeight: 1.6 }}>
-          {settlementModel === "direct" ? (
-            <>
-              Settlement isn&apos;t a choice, and there is nothing to configure. A customer pays
-              from Base, Arbitrum, Optimism or Monad and it lands in your payout wallet on that
-              same chain — so you may hold a balance on more than one.
-            </>
-          ) : (
-            <>
-              Every settlement lands on Arc — it isn&apos;t a choice, and there is nothing to
-              configure. Customers pay from Base, Arbitrum or Optimism and it is bridged to Arc
-              automatically, so you always reconcile in one place.
-            </>
-          )}
+          Settlement isn&apos;t a choice, and there is nothing to configure. A customer pays from
+          Base, Arbitrum, Optimism or Monad and it lands in your payout wallet on that same chain
+          — so you may hold a balance on more than one.
         </p>
       </div>
     </section>
