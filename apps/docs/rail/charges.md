@@ -63,8 +63,8 @@ the mandate — a `maxAmount` sized for the old price will not cover the new one
 
 ## It answers 202, never 200
 
-Collecting is one transaction on the chain the payer authorized on — Arc
-cannot back a mandate, so a charge is never collected there. Seconds, usually.
+Collecting is one transaction on the chain the payer authorized on. Seconds,
+usually.
 
 The charge row exists the moment we answer. **The money arrives later.** Learn
 the outcome from `charge.succeeded` / `charge.failed`, or by polling

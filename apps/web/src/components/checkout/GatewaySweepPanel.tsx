@@ -267,7 +267,7 @@ export function GatewaySweepPanel({
             We&apos;re processing your payment for this checkout on the enabled chain — no
             re-authorizing needed.
           </p>
-          <p className="text-xs text-gray-600">One gasless signature (the Arc approval).</p>
+          <p className="text-xs text-gray-600">One gasless signature.</p>
           {autoStart ? (
             <div className="flex items-center gap-2 text-sm text-gray-600">
               <Spinner size={16} />
@@ -285,14 +285,14 @@ export function GatewaySweepPanel({
         <div className="space-y-3">
           <p className="text-sm text-gray-600">
             Authorize once and we'll charge each renewal from whichever of your chains holds enough
-            USDC, settling it to the creator on Arc. No extra fee — gas and bridge costs are on us.
+            USDC, paying the creator on that same chain. No extra fee — gas is on us.
           </p>
           <ul className="space-y-1 rounded-lg bg-gray-50 px-4 py-3 text-sm text-gray-600">
             <li>• Authorize renewals on: {targets.map((t) => t.name).join(", ")}</li>
-            <li>• Then your subscription activates on Arc — you're charged the exact amount only</li>
+            <li>• Then your subscription activates — you're charged the exact amount only</li>
           </ul>
           <p className="text-xs text-gray-600">
-            {targets.length + 1} gasless signatures: one per chain you authorize, and the Arc approval.
+            {targets.length + 1} gasless signatures: one per chain you authorize, and one to pay.
           </p>
           {autoStart ? (
             <div className="flex items-center gap-2 text-sm text-gray-600">

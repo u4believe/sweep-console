@@ -57,7 +57,6 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * API calls it, so a new one shows up named rather than not at all.
  */
 const CHAIN_NAMES: Record<string, string> = {
-  arc: "Arc",
   base: "Base",
   arbitrum: "Arbitrum",
   optimism: "Optimism",
@@ -310,7 +309,16 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
    * may differ from the row that was clicked — the panel falls back to whichever
    * authorized chain actually holds the funds.
    */
-  const [paidFromChain, setPaidFromChain] = useState<string>("arc");
+  /**
+   * Default to the first offered chain, not "arc".
+   *
+   * This seeded "arc" and the receipt special-cased it, from when a payer
+   * could already hold USDC there. Nothing is paid from Arc now — the chain
+   * tables do not list it as a source — so the seed only mattered if the
+   * receipt rendered before a payment set it, and then it named a chain that
+   * cannot be paid from.
+   */
+  const [paidFromChain, setPaidFromChain] = useState<string>("base");
   /** The subscription just created — post-payment grants bind to it, not the session. */
   const [subscriptionId, setSubscriptionId] = useState<string | undefined>();
   const [errorMsg, setErrorMsg] = useState("");
@@ -679,15 +687,10 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
       },
       { k: "Merchant", v: merchant.name },
       {
-        // Where the money came FROM. Settlement is always Arc, so name both when
-        // they differ rather than reporting only the chain that received it.
+        // Paid and settled are the same chain now, so one line says both. This
+        // named two, because they could differ.
         k: "Network",
-        v:
-          paidFromChain === "arc"
-            ? "Arc"
-            : settlementModel === "direct"
-              ? `${CHAIN_NAMES[paidFromChain] ?? paidFromChain} — paid and settled`
-              : `${CHAIN_NAMES[paidFromChain] ?? paidFromChain} → settled on Arc`,
+        v: `${CHAIN_NAMES[paidFromChain] ?? paidFromChain} — paid and settled`,
       },
       ...(address ? [{ k: "Wallet", v: address, mono: true }] : []),
       ...(txHashDisplay ? [{ k: "Transaction", v: txHashDisplay, mono: true }] : []),
@@ -713,7 +716,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
             className="m-0 uppercase"
             style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", color: "var(--color-accent)", marginBottom: 8 }}
           >
-            {settlementModel === "direct" ? "Payment confirmed" : "Confirmed on Arc"}
+            Payment confirmed
           </p>
           <h1
             className="m-0"

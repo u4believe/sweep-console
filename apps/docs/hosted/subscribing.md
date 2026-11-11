@@ -35,9 +35,8 @@ The flow your payers go through on the hosted checkout. You build none of it.
 ```
 
 `settlement_chain` is the chain the money actually landed on, and `tx_hash` is
-a transaction on it. On deployments that still bridge to Arc it reads `"arc"`
-and the hash is the Arc mint, so look it up there instead. `GET /config` says
-which applies: `settlement_model` is `"direct"` or `"bridged"`.
+a transaction on it. It is always the chain the subscriber paid from — the
+money goes wallet to wallet there, with nothing bridged in between.
 
 `customer_id` is stable across every wallet that person ever pays from, which
 makes it the better key if you are storing one.

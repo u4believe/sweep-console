@@ -326,8 +326,9 @@ export function WalletSetupBanner({ hasCircleWallet }: Props) {
             Settles on
           </p>
           <div className="flex items-center gap-2.5">
-            <ChainMark chain="arc" size={20} />
-            <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 14.5 }}>Arc</span>
+            <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 14.5 }}>
+              The chain they pay from
+            </span>
             <span className="tag tag-neutral">Fixed</span>
           </div>
         </div>

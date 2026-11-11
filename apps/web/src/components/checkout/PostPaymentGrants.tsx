@@ -133,14 +133,6 @@ export function PostPaymentGrants({
         </p>
 
         <div style={{ borderTop: "1px solid var(--color-divider)", marginTop: 14 }}>
-          <div
-            className="flex items-center gap-3"
-            style={{ padding: "11px 0", borderBottom: "1px solid var(--color-divider)" }}
-          >
-            <span style={{ fontSize: 13.5 }}>Arc</span>
-            <span className="tag tag-outline">Authorized</span>
-          </div>
-
           {usable.map((t) => {
             const on = granted.includes(t.chain_key);
             return (
