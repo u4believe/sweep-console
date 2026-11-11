@@ -224,7 +224,20 @@ export async function grantRenewalMandates(
    * ones that landed — last in the list so the existing call sites, which
    * stop at `report`, keep compiling unchanged.
    */
-  onAttempt?: (index: number, total: number) => void
+  /**
+   * Fired as each chain is ATTEMPTED, carrying the chain ITSELF.
+   *
+   * It used to pass an index, and matching that against a rendered list went
+   * wrong twice over: the index was 1-based while the consumer treated it as a
+   * 0-based completed count, so the mark that pulsed was the chain AFTER the
+   * one being prompted — a payer watching the page saw the chain they had just
+   * signed light up. And the list walked here is the UNGRANTED subset while
+   * the list rendered is every usable chain, so the two diverged again as soon
+   * as anything was already authorized.
+   *
+   * The chain id cannot be misaligned by either, so it is what gets passed.
+   */
+  onAttempt?: (info: { index: number; total: number; chainId: number }) => void
 ): Promise<GrantFailure[]> {
   const now = Math.floor(Date.now() / 1000);
   const request = (client: Awaited<ReturnType<typeof connectorClientOnChain>>, t: GrantTarget) =>
@@ -305,7 +318,7 @@ export async function grantRenewalMandates(
      * The label is a claim about the chain in hand, so the index of the chain
      * in hand is what it gets, and nothing else writes to it.
      */
-    onAttempt?.(ctx.index, targets.length);
+    onAttempt?.({ index: ctx.index, total: targets.length, chainId: t.chain_id });
     let stage: "probe" | "upgrade" | "request" | "save" = "probe";
     let client: Awaited<ReturnType<typeof connectorClientOnChain>> | undefined;
     try {

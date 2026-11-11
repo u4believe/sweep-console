@@ -191,6 +191,17 @@ export function DelegatedRenewalToggle({
   const [busy, setBusy] = useState<number | "all" | null>(null);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [debugReport, setDebugReport] = useState<string[]>([]);
+  /**
+   * The chain whose wallet prompt is open, by id rather than by position.
+   *
+   * Matching a list position went wrong twice over: the index arrived 1-based
+   * and was read as a 0-based completed count, so the mark that pulsed was the
+   * chain AFTER the one being prompted — a payer saw the chain they had just
+   * signed light up. And the walked list is the ungranted subset while the
+   * rendered list is every usable chain, so the two diverged again the moment
+   * anything was already authorized.
+   */
+  const [signingChainId, setSigningChainId] = useState<number | null>(null);
   const [error, setError] = useState("");
 
   // Set for the duration of a grant. grantRenewalMandates switches the wallet's
@@ -293,7 +304,10 @@ export function DelegatedRenewalToggle({
                 advertisedChainIds: supportedChainIds,
               });
             },
-            (index, total) => setProgress({ done: index, total }),
+            ({ index, total, chainId }) => {
+              setProgress({ done: index, total });
+              setSigningChainId(chainId);
+            },
           );
 
       const failedIds = new Set(failures.map((f) => f.target.chain_id));
@@ -340,6 +354,7 @@ export function DelegatedRenewalToggle({
       workingRef.current = false;
       setBusy(null);
       setProgress({ done: 0, total: 0 });
+      setSigningChainId(null);
     }
   }
 
@@ -467,9 +482,9 @@ export function DelegatedRenewalToggle({
           */}
           {progress.total > 1 && (
             <div className="flex flex-wrap items-center gap-3" style={{ marginTop: 9 }}>
-              {usable.map((t, idx) => {
+              {usable.map((t) => {
                 const on = granted.includes(t.chain_id);
-                const inFlight = !on && idx === progress.done;
+                const inFlight = !on && t.chain_id === signingChainId;
                 return (
                   <span key={t.chain_id} className="flex items-center gap-1.5">
                     <span className={inFlight ? "animate-pulse" : undefined}>
