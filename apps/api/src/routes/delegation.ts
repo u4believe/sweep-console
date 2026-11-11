@@ -507,41 +507,65 @@ delegationRouter.post("/internal/checkout/:session_id/grant-revoke", async (req,
  * what gets logged is what the schema admits, not what was sent.
  */
 const GRANT_DIAGNOSTIC = z.object({
-  wallet_address: z.string().max(100).optional(),
-  target_chain_id: z.number().int().optional(),
-  target_chain_name: z.string().max(60).optional(),
-  active_chain_id: z.number().int().nullable().optional(),
-  advertised_chain_ids: z.array(z.number().int()).max(40).nullable().optional(),
-  stage: z.enum(["probe", "upgrade", "request", "save", "unknown"]).optional(),
+  wallet_address: z.string().max(100).nullish(),
+  target_chain_id: z.number().int().nullish(),
+  target_chain_name: z.string().max(60).nullish(),
+  active_chain_id: z.number().int().nullish(),
+  advertised_chain_ids: z.array(z.number().int()).max(40).nullish(),
+  stage: z.enum(["probe", "upgrade", "request", "save", "unknown"]).nullish(),
   /** "2 of 4" — one failure in a log is ambiguous without it. */
-  attempt: z.string().max(20).optional(),
+  attempt: z.string().max(20).nullish(),
   request_shape: z
     .object({
-      chain_id: z.number().int().optional(),
-      to: z.string().max(100).optional(),
-      expiry: z.number().int().optional(),
-      payee_count: z.number().int().max(20).optional(),
-      permission_type: z.string().max(60).optional(),
-      sends_redeemer: z.boolean().optional(),
+      chain_id: z.number().int().nullish(),
+      to: z.string().max(100).nullish(),
+      expiry: z.number().int().nullish(),
+      payee_count: z.number().int().max(20).nullish(),
+      permission_type: z.string().max(60).nullish(),
+      sends_redeemer: z.boolean().nullish(),
       /** What the payer's account is 7702-delegated to on the target chain. */
-      delegated_to: z.string().max(120).optional(),
+      delegated_to: z.string().max(120).nullish(),
     })
-    .optional(),
+    .nullish(),
   error_layers: z
     .array(
       z.object({
-        name: z.string().max(80).optional(),
-        code: z.union([z.number(), z.string().max(40)]).nullable().optional(),
-        message: z.string().max(600).optional(),
+        name: z.string().max(80).nullish(),
+        code: z.union([z.number(), z.string().max(40)]).nullish(),
+        message: z.string().max(600).nullish(),
       })
     )
     .max(8)
-    .optional(),
+    .nullish(),
 });
 
 delegationRouter.post("/internal/checkout/:session_id/grant-diagnostics", async (req, res) => {
+  /**
+   * A REPORT THAT DOES NOT PARSE IS STILL LOGGED, because the alternative
+   * loses the only copy.
+   *
+   * This answered 400 and logged nothing. The client sends
+   * `delegated_to: string | null` — null meaning "could not read the
+   * account's code" — and the field was declared .optional() without
+   * .nullable(), so zod rejected the whole body over one null. Every
+   * [grant-failure] report was discarded at the door for days while the
+   * server log was read as evidence that nothing was being sent.
+   *
+   * The schema's job here is to BOUND a payload, not to gate it. A report
+   * that fails it is still the only account of a failure anyone has, so it
+   * goes to the log as raw text, truncated, and the response is 204 either
+   * way.
+   */
   const parsed = GRANT_DIAGNOSTIC.safeParse(req.body);
-  if (!parsed.success) return err(res, "Could not read that report.", 400, "invalid_diagnostic");
+  if (!parsed.success) {
+    console.error(
+      `[grant-failure] session=${String(req.params.session_id).slice(0, 40)} ` +
+        `UNPARSEABLE (${parsed.error.issues[0]?.path.join(".") ?? "?"}: ` +
+        `${parsed.error.issues[0]?.message ?? "?"}) — raw: ` +
+        JSON.stringify(req.body).slice(0, 1200)
+    );
+    return res.status(204).end();
+  }
   const d = parsed.data;
 
   const shape = d.request_shape;
