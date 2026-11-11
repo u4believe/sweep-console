@@ -40,7 +40,6 @@ import {
 import { getRelayerAddress } from "../lib/chain/signers";
 import { settlementTargetFor } from "../lib/chain/settlement-target";
 import { mandateGrantsWhere, periodConsumed, mandatePeriodStart, periodCommitted } from "../lib/rail";
-import { advanceBridge } from "./bridge";
 import { payFeeToTreasury } from "../lib/chain/fee-payout";
 import { fireWebhook } from "../lib/webhooks/delivery";
 import { sendRailChargeReceipt } from "../lib/email/rail-receipt";
@@ -405,111 +404,20 @@ export async function executeCharge(chargeDbId: string): Promise<void> {
       return;
     }
 
-    // Funds move here. Everything after this point resumes; nothing re-pulls.
-    await redeemPeriodicTransfer({
-      chainId: plan.grant.chainId,
-      delegationManager: plan.grant.delegationManager as Address,
-      context: plan.grant.context as Hex,
-      delegate: plan.grant.delegateAddress as Address,
-      token: source.usdc,
-      /**
-       * WHATEVER THIS GRANT PINS, not whatever settlement is today.
-       *
-       * This was getSettlementAddress() — the settlement EOA — and a grant
-       * that pins the MSCA reverts a redeem to anything else with
-       * AllowedCalldataEnforcer:invalid-calldata. Which is what happened on
-       * 2026-10-28: chg_03084c773515e9f30fe4 died on Arbitrum seconds after
-       * the payer had authorized on all three chains, with the grant pinning
-       * the MSCA and this asking for the EOA.
-       *
-       * cctp-activate.ts carries a comment saying the split "moved the other
-       * two redemption sites and left this one behind". It was describing
-       * itself being fixed. This is the one that was actually left: the rail
-       * is the last redeem reading an address off configuration rather than
-       * out of the signed context.
-       *
-       * settlementTargetFor reads the pin, so a grant that names the EOA keeps
-       * working and one that names the MSCA starts to — which matters because
-       * both generations are live at once and a mandate outlives the config
-       * that made it.
-       */
-      recipient: settlementTargetFor(plan.grant.chainId, plan.grant.context as Hex).address,
-      // One redemption for the whole amount: splitting it would double the
-      // redeem gas and the enforcer counts both halves against the same period
-      // cap regardless. The fee moves on below.
-      amount: c.amount,
-    });
+    /**
+     * Direct settlement is the only path, so there is no middle state.
+     *
+     * The catch here used to leave the charge PENDING on a failure and say
+     * "the resume pass owns it now" — correct while a bridge could be
+     * half-finished, with the subscriber's money pulled and the mint still
+     * owed. redeemSplitTransfer has no such state: one redeemDelegations
+     * either moves both transfers or reverts and moves neither.
+     *
+     * So a failure is a failure, and the charge says so rather than sitting
+     * pending for a pass that no longer exists to pick it up.
+     */
   } catch (e) {
-    // Nothing moved, so this is safe to record as a plain failure and safe for the
-    // developer to retry with a new Idempotency-Key.
-    console.error(`[charge] ${c.chargeId} redeem failed on ${plan.chainKey}:`, e);
-    // The log above keeps the full revert, hex and all. What the developer
-    // sees is a sentence they can act on — see charge-failure.ts.
-    await failCharge(c, "redeem_failed", chargeFailureReason(e instanceof Error ? e.message : String(e)));
-    return;
+    console.error(`[charge] ${c.chargeId} settlement failed:`, e);
+    await failCharge(c, "internal_error", chargeFailureReason(e instanceof Error ? e.message : String(e)));
   }
-
-  // Stamp the grant so the next charge sees this period as consumed without an
-  // RPC call, and so the reconciler's view of the mandate stays honest.
-  await prisma.renewalDelegation.update({
-    where: { id: plan.grant.id },
-    data: { lastRedeemedAt: new Date() },
-  });
-
-  const bridge = await prisma.bridgeTransfer.create({
-    data: {
-      chargeId: c.id,
-      mandateId: plan.grant.id,
-      chainId: plan.grant.chainId,
-      sourceDomain: source.domain,
-      grossAmount: c.amount,
-      bridgedAmount: merchantShare,
-      mintRecipient: plan.payout,
-      status: "pulled",
-    },
-  });
-
-
-  try {
-    const outcome = await advanceBridge(bridge, (tx) =>
-      recordChargeSettled(c, plan.chainKey, tx, bridge.id)
-    );
-    if (!outcome.settled) {
-      console.log(`[charge] ${c.chargeId} burned, mint pending — resume pass will finish it`);
-    } else if (!outcome.mintTxHash) {
-      console.warn(`[charge] ${c.chargeId} settled with no mint tx to cite — see the cctp warning above`);
-    }
-  } catch (e) {
-    // The money is with the relayer or already burned. The charge stays pending on
-    // purpose: the resume pass owns it now, and marking it failed would tell the
-    // developer nothing was collected when in fact it is in flight.
-    console.error(`[charge] ${c.chargeId} bridge stalled (funds in flight, will resume):`, e);
-  }
-}
-
-/// Finish charges whose bridge is mid-flight. Mirrors the renewal pass's
-/// resume-before-pull step; without it a charge whose mint failed would sit
-/// pending forever with the subscriber's money already pulled.
-export async function resumeChargeBridges(): Promise<number> {
-  const rows = await prisma.bridgeTransfer.findMany({
-    where: { chargeId: { not: null }, status: { in: ["pulled", "burned"] } },
-    orderBy: { createdAt: "asc" },
-  });
-  let settled = 0;
-  for (const bridge of rows) {
-    const c = await loadCharge(bridge.chargeId!);
-    if (!c) {
-      console.error(`[charge/resume] bridge ${bridge.id} has no charge`);
-      continue;
-    }
-    const chainKey = chainKeyForId(bridge.chainId) ?? "source";
-    try {
-      const outcome = await advanceBridge(bridge, (tx) => recordChargeSettled(c, chainKey, tx, bridge.id));
-      if (outcome.settled) settled++;
-    } catch (e) {
-      console.error(`[charge/resume] ${c.chargeId} still stalled:`, e);
-    }
-  }
-  if (rows.length > 0) console.log(`[charge/resume] ${settled}/${rows.length} in-flight charges settled`);
-  return settled;
 }

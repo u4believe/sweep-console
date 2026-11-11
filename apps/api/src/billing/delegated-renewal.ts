@@ -23,18 +23,15 @@ import { prisma } from "../lib/prisma";
 import { selectPaymentChain } from "../lib/gateway/selector";
 import { chainKeyForId, getSourceChain } from "../lib/gateway/chains";
 import { assertAccountDeployed,
-  redeemPeriodicTransfer,
   decodePeriodTransferTerms,
   mandateCovers,
   periodicTransferExecution,
 } from "../lib/chain/delegation";
 import { ownerOfDelegateMsca, redeemBatchViaSelfBundler } from "../lib/chain/delegate-msca";
 import { ownerFor7702Delegate, redeemBatchVia7702 } from "../lib/chain/delegate-7702";
-import { settlementTargetFor } from "../lib/chain/settlement-target";
-import { directSettlementEnabled, treasuryPayee, redeemableFee} from "../lib/chain/direct-settlement";
+import { treasuryPayee, redeemableFee } from "../lib/chain/direct-settlement";
 import { splitTransferExecution, redeemSplitTransfer } from "../lib/chain/delegation";
 import { periodConsumed } from "../lib/rail";
-import { advanceBridge } from "./bridge";
 import { payFeeToTreasury } from "../lib/chain/fee-payout";
 import { claimPeriod, releaseClaim, periodKeyFor } from "./claims";
 import { getUsdcAddress } from "../lib/chain/contract";
@@ -68,7 +65,6 @@ async function recordRenewalSettled(
   settlementBlock: bigint | undefined,
   sourceChain: string,
   periodDurationSec: number,
-  bridgeId?: string
 ): Promise<void> {
   const newPeriodEnd = new Date(sub.currentPeriodEnd.getTime() + periodDurationSec * 1000);
   const [, renewalPayment] = await prisma.$transaction([
@@ -103,14 +99,6 @@ async function recordRenewalSettled(
       where: { id: mandateId },
       data: { lastRedeemedAt: new Date(), lastRedeemTx: settlementTxHash },
     }),
-    ...(bridgeId
-      ? [
-          prisma.bridgeTransfer.update({
-            where: { id: bridgeId },
-            data: { status: "minted", mintTxHash: settlementTxHash, mintedAt: new Date() },
-          }),
-        ]
-      : []),
   ]);
 
   void sendPaymentReceipt(renewalPayment.id);
@@ -310,30 +298,6 @@ async function prepareRenewal(
   const periodKey = periodKeyFor(sub);
 
   try {
-    // 0. Resume an in-flight bridge before any fresh pull — never re-pull while a
-    //    period's funds are already with the relayer (pulled) or burned & awaiting mint.
-    const pending = await prisma.bridgeTransfer.findFirst({
-      where: { subscriptionId: sub.id, status: { in: ["pulled", "burned"] } },
-    });
-    if (pending) {
-      const outcome = await advanceBridge(pending, (tx) =>
-        recordRenewalSettled(sub, pending.mandateId, pending.grossAmount, tx, undefined,
-          chainKeyForId(pending.chainId) ?? "source", periodDur, pending.id)
-      );
-      outcomes.push({
-        subscriptionId: sub.subscriptionId,
-        result: outcome.settled ? "settled" : "bridge_pending",
-        chain: chainKeyForId(pending.chainId) ?? "source",
-        txHash: (outcome.settled ? outcome.mintTxHash : null) ?? pending.burnTxHash ?? undefined,
-        detail: outcome.settled
-          ? outcome.mintTxHash
-            ? "resumed bridge → minted on Arc"
-            : "resumed bridge → delivered on Arc, mint tx unresolved"
-          : `resumed (${pending.status}) — mint pending, re-run pass`,
-      });
-      return null;
-    }
-
     // Charge what the plan LISTS, not what the grant permits. The grant's
     // periodAmount is the subscriber's signed CEILING, so reading it collected
     // the maximum the wallet allowed and a creator changing their price changed
@@ -469,46 +433,6 @@ async function prepareRenewal(
  * the grouping for none of the saving.
  */
 async function redeemPrepared(prepared: PreparedRenewal[], outcomes: RenewalOutcome[]): Promise<void> {
-  /// Arc settles directly to creator and treasury in two redeems and is
-  /// self-contained, so it is never batched. Unreachable today — MetaMask will
-  /// not sign a delegation on Arc, so no Arc grant exists.
-  for (const p of prepared.filter((x) => x.chosenKey === "arc")) {
-    try {
-      // Guards both redeems below: they share one mandate.
-      assertAccountDeployed(p.chosenMandate);
-      const settle = await redeemPeriodicTransfer({
-        chainId: p.chosenMandate.chainId,
-        delegationManager: p.chosenMandate.delegationManager as Address,
-        context: p.chosenMandate.context as Hex,
-        delegate: p.chosenMandate.delegateAddress as Address,
-        token: getUsdcAddress(),
-        recipient: p.creator,
-        amount: p.merchantShare,
-      });
-      p.redeemed = true;
-      if (p.fee > 0n) {
-        await redeemPeriodicTransfer({
-          chainId: p.chosenMandate.chainId,
-          delegationManager: p.chosenMandate.delegationManager as Address,
-          context: p.chosenMandate.context as Hex,
-          delegate: p.chosenMandate.delegateAddress as Address,
-          token: getUsdcAddress(),
-          recipient: treasuryAddress(),
-          amount: p.fee,
-        });
-      }
-      await recordRenewalSettled(p.sub, p.chosenMandate.id, p.amount, settle.txHash, settle.blockNumber, "arc", p.periodDur);
-      console.log(`[billing/tier2] renewed ${p.sub.subscriptionId} on Arc (tx ${settle.txHash})`);
-      outcomes.push({ subscriptionId: p.sub.subscriptionId, result: "settled", chain: "arc", txHash: settle.txHash });
-    } catch (e) {
-      const detail = e instanceof Error ? e.message : String(e);
-      // Only release when nothing moved. Once the first redeem lands the period
-      // is spent on chain and a retry would be refused by the enforcer anyway.
-      if (!p.redeemed) await releaseClaim(p.sub.id, p.periodKey).catch(() => {});
-      outcomes.push(outcomeForRedeemError(p.sub, detail));
-    }
-  }
-
   // Source-chain renewals, grouped by the transaction they could share: one
   // chain, one delegate. A batch is one handleOps, and handleOps is per chain.
   const groups = new Map<string, PreparedRenewal[]>();
@@ -631,39 +555,20 @@ async function redeemPrepared(prepared: PreparedRenewal[], outcomes: RenewalOutc
       const source = getSourceChain(p.chosenKey);
       try {
         assertAccountDeployed(p.chosenMandate);
-        if (directSettlementEnabled()) {
-          // Fee and remainder in ONE redeemDelegations — see
-          // redeemSplitTransfer. Nothing reaches the relayer that submits it.
-          const settled = await redeemSplitTransfer({
-            chainId: p.chosenMandate.chainId,
-            delegationManager: p.chosenMandate.delegationManager as Address,
-            context: p.chosenMandate.context as Hex,
-            delegate: p.chosenMandate.delegateAddress as Address,
-            token: source.usdc,
-            creator: p.creator,
-            treasury: treasuryPayee(),
-            periodAmount: p.amount,
-            fee: redeemableFee(p.creator, p.fee),
-          });
-          p.settlementTx = settled.txHash as Hex;
-        } else {
-          await redeemPeriodicTransfer({
-            chainId: p.chosenMandate.chainId,
-            delegationManager: p.chosenMandate.delegationManager as Address,
-            context: p.chosenMandate.context as Hex,
-            delegate: p.chosenMandate.delegateAddress as Address,
-            token: source.usdc,
-            // Whatever this grant pins — see the note in cctp-activate.ts.
-            recipient: settlementTargetFor(
-              p.chosenMandate.chainId,
-              p.chosenMandate.context as Hex
-            ).address,
-            // Still the full period in one redemption: splitting it would double
-            // the redeem gas and the enforcer counts both against the same period
-            // cap anyway. The fee moves on in the next step instead.
-            amount: p.amount,
-          });
-        }
+        // Fee and remainder in ONE redeemDelegations — see
+        // redeemSplitTransfer. Nothing reaches the relayer that submits it.
+        const settled = await redeemSplitTransfer({
+          chainId: p.chosenMandate.chainId,
+          delegationManager: p.chosenMandate.delegationManager as Address,
+          context: p.chosenMandate.context as Hex,
+          delegate: p.chosenMandate.delegateAddress as Address,
+          token: source.usdc,
+          creator: p.creator,
+          treasury: treasuryPayee(),
+          periodAmount: p.amount,
+          fee: redeemableFee(p.creator, p.fee),
+        });
+        p.settlementTx = settled.txHash as Hex;
         p.redeemed = true;
       } catch (e) {
         await releaseClaim(p.sub.id, p.periodKey).catch(() => {});
@@ -689,16 +594,7 @@ async function redeemPrepared(prepared: PreparedRenewal[], outcomes: RenewalOutc
  * for another reverts only once a payer has already signed.
  */
 function sourceExecutionFor(p: PreparedRenewal, usdc: Address) {
-  if (directSettlementEnabled()) {
-    return splitTransferExecution(usdc, p.creator, treasuryPayee(), p.amount, p.fee);
-  }
-  return periodicTransferExecution(
-    usdc,
-    // Settlement, not the delegate — a grant pinning the MSCA reverts a
-    // redeem to anything else.
-    settlementTargetFor(p.chosenMandate.chainId, p.chosenMandate.context as Hex).address,
-    p.amount
-  );
+  return splitTransferExecution(usdc, p.creator, treasuryPayee(), p.amount, p.fee);
 }
 
 async function finishSourceRenewal(p: PreparedRenewal, outcomes: RenewalOutcome[]): Promise<void> {
@@ -712,53 +608,28 @@ async function finishSourceRenewal(p: PreparedRenewal, outcomes: RenewalOutcome[
      * recorded against the SOURCE chain, because that is where it happened —
      * the old path recorded "arc" for every renewal regardless.
      */
-    if (directSettlementEnabled()) {
-      await recordRenewalSettled(
-        p.sub, p.chosenMandate.id, p.amount, p.settlementTx ?? null, undefined,
-        // No bridgeId: there is no bridge row to close, because nothing bridged.
-        p.chosenKey, p.periodDur
-      );
-      outcomes.push({
-        subscriptionId: p.sub.subscriptionId,
-        result: "settled",
-        chain: p.chosenKey,
-        txHash: p.settlementTx ?? undefined,
-        detail: `settled direct on ${p.chosenKey} — fee to treasury, remainder to the creator`,
-      });
-      return;
-    }
-
-    const bridge = await prisma.bridgeTransfer.create({
-      data: {
-        subscriptionId: p.sub.id,
-        mandateId: p.chosenMandate.id,
-        chainId: p.chosenMandate.chainId,
-        sourceDomain: source.domain,
-        grossAmount: p.amount,
-        bridgedAmount: p.merchantShare,
-        mintRecipient: p.creator,
-        status: "pulled",
-      },
-    });
-
-    const outcome = await advanceBridge(bridge, (tx) =>
-      recordRenewalSettled(p.sub, bridge.mandateId, bridge.grossAmount, tx, undefined,
-        p.chosenKey, p.periodDur, bridge.id)
+    await recordRenewalSettled(
+      p.sub, p.chosenMandate.id, p.amount, p.settlementTx ?? null, undefined,
+      p.chosenKey, p.periodDur
     );
     outcomes.push({
       subscriptionId: p.sub.subscriptionId,
-      result: outcome.settled ? "settled" : "bridge_pending",
+      result: "settled",
       chain: p.chosenKey,
-      txHash: (outcome.settled ? outcome.mintTxHash : null) ?? undefined,
-      detail: outcome.settled
-        ? outcome.mintTxHash
-          ? "source → pulled + bridged + minted on Arc"
-          : "source → pulled + bridged, delivered on Arc with no mint tx to cite"
-        : "source → pulled + burned, mint pending (re-run pass to resume)",
+      txHash: p.settlementTx ?? undefined,
+      detail: `settled direct on ${p.chosenKey} — fee to treasury, remainder to the creator`,
     });
+    return;
   } catch (e) {
-    // The funds are pulled. The claim stays, and the next pass resumes from
-    // whatever row exists rather than pulling again.
+    /**
+     * A failure here is final, where it used to be resumable.
+     *
+     * "The funds are pulled, the claim stays, the next pass resumes" was true
+     * of a bridge: the subscriber's USDC left their wallet and the mint was
+     * still owed, so re-running was the only way to finish. redeemSplitTransfer
+     * has no such state — one redeemDelegations moves both transfers or
+     * reverts and moves neither — so nothing is in flight to resume.
+     */
     const detail = e instanceof Error ? e.message : String(e);
     console.error(`[billing/tier2] renewal failed after the pull for ${p.sub.subscriptionId}:`, detail);
     outcomes.push({ subscriptionId: p.sub.subscriptionId, result: "error", chain: p.chosenKey, detail });

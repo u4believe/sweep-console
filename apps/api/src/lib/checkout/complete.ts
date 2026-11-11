@@ -21,7 +21,6 @@ import { findSameTierSubscription } from "./same-tier";
 import { resolveTier } from "./tiers";
 import { retirePriorActiveSubscriptions } from "../subscriptions/revoke";
 import type { CheckoutSession, Merchant, Plan } from "@prisma/client";
-import { directSettlementEnabled } from "../chain/direct-settlement";
 
 /// The platform's cut, in basis points — the same figure delegated-renewal.ts and
 /// cctp-activate.ts split with. Reported to the merchant so the event explains the
@@ -306,7 +305,9 @@ export async function completeCheckoutSession(input: CompleteCheckoutInput) {
      * from — there is no bridge and no Arc mint, so naming Arc would point a
      * developer at an explorer that has never seen this tx_hash.
      */
-    settlement_chain: directSettlementEnabled() ? paidFromChain : "arc",
+    // The chain they paid from, always — there is no bridge to a settlement
+    // chain any more, so there is no second answer to give.
+    settlement_chain: paidFromChain,
     current_period_end: periodEnd.toISOString(),
     trial_end: subscription.trialEnd?.toISOString() ?? null,
     // Nothing is escrowed, so there is no window to settle at the end of.

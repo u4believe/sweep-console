@@ -33,11 +33,9 @@ import {
   getPublicClient,
   getUsdcAddress,
 } from "../chain/contract";
-import { assertAccountDeployed, redeemPeriodicTransfer, redeemSplitTransfer, relayerBridgeToArc, rpcUrlForChain } from "../chain/delegation";
+import { assertAccountDeployed, redeemPeriodicTransfer, redeemSplitTransfer, rpcUrlForChain } from "../chain/delegation";
 import { settlementTargetFor } from "../chain/settlement-target";
 import { walletFor } from "../merchant-wallet";
-import { settleViaUserOp } from "../chain/settlement-userop";
-import { assertCctpContract, fetchAttestation, getTokenMessenger, receiveOnArc } from "../gateway/cctp";
 import { getSettlementAddress } from "../chain/signers";
 import { payFeeToTreasury, treasuryAddress } from "../chain/fee-payout";
 import { directSettlementEnabled, treasuryPayee, redeemableFee} from "../chain/direct-settlement";
@@ -250,196 +248,52 @@ export async function executeCrossChainActivation(sweepDbId: string): Promise<vo
      * the separate fee remittance — exists only to move money the platform
      * had to hold first. Under direct settlement it never holds it.
      */
-    if (directSettlementEnabled()) {
-      await setSweepStatus(sweepDbId, "depositing");
-      const settled = await redeemSplitTransfer({
-        chainId: mandate.chainId,
-        delegationManager: mandate.delegationManager as Address,
-        context: mandate.context as Hex,
-        delegate: mandate.delegateAddress as Address,
-        token: source.usdc,
-        creator: payout as Address,
-        treasury: treasuryPayee(),
-        periodAmount: amount,
-        fee: redeemableFee(payout, fee),
-      });
-
-      // The grant's period is spent. The enforcer knows; the database did not,
-      // and the renewal pass reads this.
-      await prisma.renewalDelegation.update({
-        where: { id: mandate.id },
-        data: { lastRedeemedAt: new Date(), lastRedeemTx: settled.txHash },
-      });
-
-      await completeCheckoutSession({
-        session,
-        walletAddress: subscriber,
-        activationMethod: "cctp",
-        email: sweep.subscriberEmail,
-        customerDbId: sweep.customerId,
-        // The settlement itself is the receipt — there is no mint to cite.
-        txHash: settled.txHash,
-        platformSettled: true,
-        sourceChain: chosenKey,
-      });
-
-      await withRetry(() =>
-        prisma.sweep.update({
-          where: { id: sweepDbId },
-          data: {
-            status: "complete",
-            activationTxHash: settled.txHash,
-            sourceChain: chosenKey,
-            error: null,
-          },
-        })
-      );
-      console.log(
-        `[checkout/cctp] ${sweep.sweepId} settled direct on ${chosenKey} — tx ${settled.txHash}`
-      );
-      return;
-    }
-
-    const settlementTarget = settlementTargetFor(mandate.chainId, mandate.context as Hex);
-
     await setSweepStatus(sweepDbId, "depositing");
-    await redeemPeriodicTransfer({
+    const settled = await redeemSplitTransfer({
       chainId: mandate.chainId,
       delegationManager: mandate.delegationManager as Address,
       context: mandate.context as Hex,
       delegate: mandate.delegateAddress as Address,
       token: source.usdc,
-      // Whatever THIS grant pins, which is not always the same address: a grant
-      // signed before the MSCA names the EOA and a newer one names the MSCA,
-      // and AllowedCalldataEnforcer reverts a redeem that goes anywhere else.
-      recipient: settlementTarget.address,
-      amount,
+      creator: payout as Address,
+      treasury: treasuryPayee(),
+      periodAmount: amount,
+      fee: redeemableFee(payout, fee),
     });
 
-    // Record that this grant's period is now spent. The enforcer knows, but the
-    // database did not, and the renewal pass reads this to decide whether an
-    // attempt is worth making — without it, the first renewal after a checkout
-    // pays gas for a transaction the enforcer is certain to reject.
-    await withRetry(() =>
-      prisma.renewalDelegation.update({
-        where: { id: mandate.id },
-        data: { lastRedeemedAt: new Date() },
-      })
-    );
-
-    // 2. CCTP Fast burn → mint the merchant's share DIRECTLY to their Arc payout
-    //    wallet. Settlement absorbs the bridge fee out of the platform's own cut,
-    //    so the merchant receives the full share.
-    await setSweepStatus(sweepDbId, "bridging");
-
-    /**
-     * One atomic UserOperation where the chain supports it.
-     *
-     * The batch carries the fee remittance too, so the payFeeToTreasury below
-     * is skipped on this path — see the comment there. Settlement pays its gas
-     * in USDC and needs no native token on the source chain.
-     */
-    const treasury = treasuryAddress();
-    // Follow the GRANT, not just the chain. Deciding this from the chain alone
-    // sent the pull to the EOA and then tried to burn from the MSCA, which
-    // holds nothing — a subscriber's money moved and the settle reverted.
-    const viaUserOp = !!treasury && settlementTarget.viaMsca;
-
-    /**
-     * Before the money moves, prove the burner exists.
-     *
-     * A call to an address with no code succeeds, so a testnet TokenMessenger
-     * on a mainnet deployment burns nothing while reporting success — which is
-     * exactly what happened to swp_a4436e70d1bbcc7f285a: the pull completed,
-     * the UserOperation said success, no CCTP message was emitted, and the
-     * payment then waited out its attestation timeout with the USDC sitting on
-     * the source chain.
-     *
-     * Checked here rather than inside the burn because by then the subscriber's
-     * USDC has already been pulled into settlement, and the honest place to
-     * refuse is before that.
-     */
-    await assertCctpContract(
-      createPublicClient({
-        chain: source.chain,
-        transport: http(rpcUrlForChain(source.chain.id)),
-      }),
-      getTokenMessenger(chosenKey),
-      "CCTP TokenMessenger",
-      `CCTP_TOKEN_MESSENGER_${chosenKey.toUpperCase()}`
-    );
-
-    let burnTxHash: Hex;
-    let maxFee: bigint;
-    if (viaUserOp) {
-      const settled = await settleViaUserOp({
-        chainId: source.chain.id,
-        token: source.usdc,
-        tokenMessenger: getTokenMessenger(chosenKey),
-        amount: merchantShare,
-        destinationDomain: ARC_DOMAIN,
-        mintRecipient: payout,
-        speed: "fast",
-        grossAmount: amount,
-        treasury: treasury!,
-      });
-      burnTxHash = settled.burnTxHash;
-      maxFee = settled.maxFee;
-    } else {
-      ({ burnTxHash, maxFee } = await relayerBridgeToArc({
-        chainId: source.chain.id,
-        token: source.usdc,
-        tokenMessenger: getTokenMessenger(chosenKey),
-        amount: merchantShare,
-        destinationDomain: ARC_DOMAIN,
-        mintRecipient: payout,
-        speed: "fast",
-      }));
-    }
-    // The platform's share, net of what the burn just cost. Exact rather than a
-    // balance sweep, so a concurrent collection's funds are never touched and
-    // settlement is left holding nothing.
-    // Already remitted inside the batch on the UserOp path, along with any
-    // top-up toward the gas floor — paying again here would send the fee twice.
-    if (!viaUserOp) {
-      await payFeeToTreasury({
-        chainId: source.chain.id,
-        token: source.usdc,
-        from: getSettlementAddress(),
-        amount: fee - maxFee,
-      });
-    }
-
-    const att = await fetchAttestation(source.domain, burnTxHash, { timeoutMs: 180_000, pollMs: 6_000 });
-
-    // 3. The mint IS the settlement. There is no third step any more.
-    await setSweepStatus(sweepDbId, "minting");
-    const txHash = await receiveOnArc(att);
+    // The grant's period is spent. The enforcer knows; the database did not,
+    // and the renewal pass reads this.
+    await prisma.renewalDelegation.update({
+      where: { id: mandate.id },
+      data: { lastRedeemedAt: new Date(), lastRedeemTx: settled.txHash },
+    });
 
     await completeCheckoutSession({
       session,
       walletAddress: subscriber,
       activationMethod: "cctp",
       email: sweep.subscriberEmail,
-      // Proven at activate time; without it this call falls back to the wallet
-      // link and attributes the subscription to the wrong customer.
       customerDbId: sweep.customerId,
-      txHash,
-      // Settled by the platform: no SubscriptionManager call, so there is nothing
-      // on-chain to verify and no escrow to mirror.
+      // The settlement itself is the receipt — there is no mint to cite.
+      txHash: settled.txHash,
       platformSettled: true,
-      // The chain the money was actually pulled from, so the receipt and the
-      // merchant's webhook name it rather than defaulting to Arc.
       sourceChain: chosenKey,
     });
 
     await withRetry(() =>
       prisma.sweep.update({
         where: { id: sweepDbId },
-        data: { status: "complete", activationTxHash: txHash, sourceChain: chosenKey, error: null },
+        data: {
+          status: "complete",
+          activationTxHash: settled.txHash,
+          sourceChain: chosenKey,
+          error: null,
+        },
       })
     );
-    console.log(`[checkout/cctp] ${sweep.sweepId} activated cross-chain — tx ${txHash}`);
+    console.log(
+      `[checkout/cctp] ${sweep.sweepId} settled direct on ${chosenKey} — tx ${settled.txHash}`
+    );
   } catch (e) {
     console.error(`[checkout/cctp] ${sweep.sweepId} activation failed:`, e);
     await setSweepStatus(sweepDbId, "failed", String(e instanceof Error ? e.message : e).slice(0, 500));

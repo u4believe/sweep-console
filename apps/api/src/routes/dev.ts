@@ -18,11 +18,9 @@ import { prisma } from "../lib/prisma";
 import { ids } from "../lib/ids";
 import {
   simulatePeriodicTransfer,
-  relayerBridgeToArc,
   getDelegateAddress,
   decodePeriodTransferTerms,
 } from "../lib/chain/delegation";
-import { fetchAttestation, getTokenMessenger, receiveOnArc } from "../lib/gateway/cctp";
 import { chainKeyForId, getSourceChain, ARC_DOMAIN } from "../lib/gateway/chains";
 import { runDelegatedRenewalsOnce } from "../billing/delegated-renewal";
 import { reconcileMandatesOnce } from "../billing/reconcile-mandates";
@@ -298,61 +296,4 @@ const burnSchema = z.object({
   amount: z.string().regex(/^\d+$/),
   mint_recipient: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
   speed: z.enum(["fast", "standard"]).default("standard"),
-});
-
-devRouter.post("/dev/test-bridge-burn", async (req, res) => {
-  const parsed = burnSchema.safeParse(req.body);
-  if (!parsed.success) return err(res, "Invalid payload", 400);
-  const d = parsed.data;
-
-  const chainKey = chainKeyForId(d.chain_id);
-  if (!chainKey || chainKey === "arc") {
-    return err(res, "chain_id must be a supported source chain", 400);
-  }
-
-  try {
-    const source = getSourceChain(chainKey);
-    const { burnTxHash } = await relayerBridgeToArc({
-      chainId: d.chain_id,
-      token: d.token as Address,
-      tokenMessenger: getTokenMessenger(chainKey),
-      amount: BigInt(d.amount),
-      destinationDomain: ARC_DOMAIN,
-      mintRecipient: d.mint_recipient as Address,
-      speed: d.speed,
-    });
-    return ok(res, { burn_tx_hash: burnTxHash, source_domain: source.domain });
-  } catch (e) {
-    console.error("[dev/test-bridge-burn]", e);
-    return err(res, e instanceof Error ? e.message : "Bridge burn failed", 500);
-  }
-});
-
-// ─── POST /dev/test-bridge-receive ───────────────────────────────────────────
-// Polls Iris briefly for the burn's attestation; if ready, mints on Arc and
-// returns the mint tx. If the attestation isn't ready yet, returns { pending:true }
-// so the harness can retry (rather than hang for the full attestation window).
-const receiveSchema = z.object({
-  source_domain: z.number().int().nonnegative(),
-  burn_tx_hash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
-});
-
-devRouter.post("/dev/test-bridge-receive", async (req, res) => {
-  const parsed = receiveSchema.safeParse(req.body);
-  if (!parsed.success) return err(res, "Invalid payload", 400);
-  const d = parsed.data;
-
-  try {
-    const att = await fetchAttestation(d.source_domain, d.burn_tx_hash as Hex, {
-      timeoutMs: 60_000,
-      pollMs: 5_000,
-    });
-    const mintTxHash = await receiveOnArc(att);
-    return ok(res, { mint_tx_hash: mintTxHash });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes("Timed out")) return ok(res, { pending: true });
-    console.error("[dev/test-bridge-receive]", e);
-    return err(res, msg, 500);
-  }
 });

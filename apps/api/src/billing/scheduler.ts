@@ -3,7 +3,6 @@ import { transitionTrials, retryWebhooks } from "./engine";
 import { runDelegatedRenewalsOnce } from "./delegated-renewal";
 import { reconcileMandatesOnce } from "./reconcile-mandates";
 import { runMandateExpiryOnce } from "./mandate-expiry";
-import { resumeChargeBridges } from "./direct-charge";
 import { revokeOrphanGrantsOnce } from "../lib/subscriptions/orphan-grants";
 import { checkRelayerDelegationsOnce } from "./delegation-watch";
 
@@ -85,15 +84,6 @@ export function startBillingEngine(): void {
     } finally {
       passRunning = false;
     }
-  });
-
-  // Rail charges in flight. A charge is pulled, burned, attested and minted; if
-  // the mint fails the subscriber's money is already with the relayer, so this
-  // pass is the only thing that finishes it. Every 5 minutes rather than daily,
-  // because a developer polling GET /v1/charges/:id is waiting on it — and it
-  // resumes, never re-pulls.
-  cron.schedule("*/5 * * * *", async () => {
-    await resumeChargeBridges().catch((e) => console.error("[cron] resumeChargeBridges error:", e));
   });
 
   cron.schedule("*/10 * * * *", async () => {
