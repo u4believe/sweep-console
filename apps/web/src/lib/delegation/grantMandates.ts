@@ -213,6 +213,7 @@ export async function grantRenewalMandates(
       payee_count: number;
       permission_type: string;
       sends_redeemer: boolean;
+      sends_from: string;
       delegated_to: string | null;
     };
     error: unknown;
@@ -392,7 +393,17 @@ export async function grantRenewalMandates(
           expiry: t.expiry_sec,
           payee_count: t.payees?.length ?? 0,
           permission_type: "erc20-token-periodic",
-          sends_redeemer: true,
+          /**
+           * The REAL values, not a constant.
+           *
+           * This was hardcoded `true` in 051e889, when redeemer was always
+           * sent. 2deb0f4 made it opt-in and this line kept claiming it was
+           * sent — so four reports said redeemer=SENT about a request that
+           * omitted it, which is the diagnostic lying about the one thing it
+           * exists to establish.
+           */
+          sends_redeemer: Boolean(t.pin_redeemer),
+          sends_from: walletAddress,
           /**
            * WHAT THE PAYER'S ACCOUNT IS DELEGATED TO on this chain, which is
            * the fact that explained a month of 4100s and -32603s in one line.

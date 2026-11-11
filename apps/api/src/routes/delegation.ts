@@ -511,7 +511,15 @@ const GRANT_DIAGNOSTIC = z.object({
   target_chain_id: z.number().int().nullish(),
   target_chain_name: z.string().max(60).nullish(),
   active_chain_id: z.number().int().nullish(),
-  advertised_chain_ids: z.array(z.number().int()).max(40).nullish(),
+  /**
+   * 64, because the wallet answered with 43 and the cap was 40.
+   *
+   * Every report from a four-chain run was rejected on this field alone. The
+   * number was a guess at "more than anyone would list" made when the probe
+   * had never been seen answering — MetaMask advertises ERC-7715 on 43 chains
+   * and will add more.
+   */
+  advertised_chain_ids: z.array(z.number().int()).max(64).nullish(),
   stage: z.enum(["probe", "upgrade", "request", "save", "unknown"]).nullish(),
   /** "2 of 4" — one failure in a log is ambiguous without it. */
   attempt: z.string().max(20).nullish(),
@@ -523,6 +531,8 @@ const GRANT_DIAGNOSTIC = z.object({
       payee_count: z.number().int().max(20).nullish(),
       permission_type: z.string().max(60).nullish(),
       sends_redeemer: z.boolean().nullish(),
+      /** The documented `from`, added in 9adb161. */
+      sends_from: z.string().max(100).nullish(),
       /** What the payer's account is 7702-delegated to on the target chain. */
       delegated_to: z.string().max(120).nullish(),
     })
@@ -590,7 +600,8 @@ delegationRouter.post("/internal/checkout/:session_id/grant-diagnostics", async 
     console.error(
       `[grant-failure] request sent: chainId=${shape.chain_id ?? "?"} to=${shape.to ?? "?"} ` +
         `expiry=${shape.expiry ?? "?"} permission=${shape.permission_type ?? "?"} ` +
-        `payees=${shape.payee_count ?? 0} redeemer=${shape.sends_redeemer ? "SENT" : "omitted"}`
+        `payees=${shape.payee_count ?? 0} redeemer=${shape.sends_redeemer ? "SENT" : "omitted"} ` +
+        `from=${shape.sends_from ?? "OMITTED"}`
     );
     console.error(
       `[grant-failure] payer account delegated to: ${shape.delegated_to ?? "unknown"}`
