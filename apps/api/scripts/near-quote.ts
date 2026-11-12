@@ -139,6 +139,38 @@ const SAMPLE_RECIPIENT: Record<string, string> = {
  */
 const PAYOUT_SYMBOLS = ["USDC", "USDT"] as const;
 
+/**
+ * Destinations we will not offer, and why each one is off.
+ *
+ * A chain NEAR lists is not automatically a chain a creator should be able to
+ * pick. These three each fail for a different reason, and none of them is
+ * fixable from our side:
+ *
+ *   stellar  the payout cannot land unless the RECIPIENT has already
+ *            established a USDC trustline. The quote says so outright —
+ *            "Destination address does not have a trustline for this" — so
+ *            offering it means either teaching every creator what a trustline
+ *            is or watching payouts fail at the last step.
+ *
+ *   xlayer   "No liquidity available". Coverage follows solver inventory
+ *            rather than a protocol guarantee, and nothing quotes this route
+ *            today. A destination that sometimes has no price is worse than
+ *            one that is absent.
+ *
+ *   miden    untested here rather than unsupported — we have no address to
+ *            validate against, so we cannot say what a payout to it does.
+ *            Offering an untested rail for real money is the wrong order.
+ *
+ * Kept as a named map rather than deleted from a list, so the next person
+ * sees the reasoning instead of wondering why three of NEAR's chains are
+ * missing.
+ */
+const DESTINATIONS_OFF: Record<string, string> = {
+  stellar: "recipient must hold a USDC trustline first",
+  xlayer: "no solver liquidity",
+  miden: "untested — no address to validate against",
+};
+
 function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
   return i > -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
@@ -218,6 +250,7 @@ async function matrix(amount: number, fromChain: string): Promise<void> {
   const rows = all
     .filter((t) => (PAYOUT_SYMBOLS as readonly string[]).includes((t.symbol ?? "").toUpperCase()))
     .filter((t) => t.assetId !== src.assetId)
+    .filter((t) => !DESTINATIONS_OFF[(t.blockchain ?? "").toLowerCase()])
     .sort((a, b) => `${a.blockchain}${a.symbol}`.localeCompare(`${b.blockchain}${b.symbol}`));
 
   console.log(`\n${amount} USDC on ${fromChain} -> stablecoin elsewhere   (dry run, nothing moves)\n`);
@@ -260,6 +293,11 @@ async function matrix(amount: number, fromChain: string): Promise<void> {
           : "")
     );
   }
+
+  const off = Object.entries(DESTINATIONS_OFF)
+    .filter(([c]) => all.some((t) => (t.blockchain ?? "").toLowerCase() === c))
+    .map(([c, why]) => `${c} (${why})`);
+  if (off.length > 0) console.log(`\n  not offered: ${off.join(", ")}`);
 
   priced.sort((a, b) => a.cost - b.cost);
   if (priced.length > 0) {
