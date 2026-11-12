@@ -373,7 +373,22 @@ function useScrollReveal(disabled: boolean) {
  * twice is noise. It stops dead under prefers-reduced-motion — an infinite
  * horizontal scroll is the single worst offender for motion sensitivity.
  */
-const MARQUEE: Array<{ kind: "chain" | "token" | "logo"; key?: ChainKey; label: string; src?: string; h?: number }> = [
+/**
+ * `showLabel` is for a logo that is a MARK rather than a wordmark.
+ *
+ * MetaMask's and Circle's artwork already says their names, so a label beside
+ * them would print it twice. NEAR's token mark does not — it rode the strip as
+ * an unexplained green circle, which is no use to someone who does not already
+ * recognise it.
+ */
+const MARQUEE: Array<{
+  kind: "chain" | "token" | "logo";
+  key?: ChainKey;
+  label: string;
+  src?: string;
+  h?: number;
+  showLabel?: boolean;
+}> = [
   { kind: "chain", key: "base", label: "Base" },
   { kind: "chain", key: "arbitrum", label: "Arbitrum" },
   { kind: "chain", key: "optimism", label: "Optimism" },
@@ -387,7 +402,7 @@ const MARQUEE: Array<{ kind: "chain" | "token" | "logo"; key?: ChainKey; label: 
   { kind: "logo", label: "Circle", src: CIRCLE_LOGO, h: 32 },
   // NEAR rides the strip as artwork, not a chain: nothing is paid or settled
   // there. It is where a creator's cross-chain withdrawal would route.
-  { kind: "logo", label: "NEAR Protocol", src: NEAR_TOKEN, h: 40 },
+  { kind: "logo", label: "NEAR Protocol", src: NEAR_TOKEN, h: 40, showLabel: true },
 ];
 
 function Marquee() {
@@ -399,17 +414,31 @@ function Marquee() {
       {MARQUEE.map((m) => (
         <Fragment key={k + m.label}>
           {m.kind === "logo" ? (
-            <img
-              src={m.src}
-              alt=""
+            <span
               style={{
-                height: m.h,
-                width: "auto",
-                display: "block",
-                // Circle's mark is dark artwork; invert it onto navy.
-                filter: m.label === "Circle" ? "brightness(0) invert(1)" : "none",
+                display: "flex",
+                alignItems: "center",
+                gap: 14,
+                fontSize: 24,
+                fontWeight: 500,
+                color: "#fff",
+                whiteSpace: "nowrap",
+                letterSpacing: "-0.01em",
               }}
-            />
+            >
+              <img
+                src={m.src}
+                alt=""
+                style={{
+                  height: m.h,
+                  width: "auto",
+                  display: "block",
+                  // Circle's mark is dark artwork; invert it onto navy.
+                  filter: m.label === "Circle" ? "brightness(0) invert(1)" : "none",
+                }}
+              />
+              {m.showLabel && m.label}
+            </span>
           ) : (
             <span
               style={{

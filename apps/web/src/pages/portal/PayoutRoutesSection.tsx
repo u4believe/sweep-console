@@ -49,6 +49,38 @@ function eta(secs: number | null): string {
   return `about ${Math.round(secs / 60)} minutes`;
 }
 
+/**
+ * What a creator is agreeing to, in the four places this path differs from
+ * the withdrawal they already know.
+ *
+ * Each one is a thing that WILL happen, not a disclaimer: prices do move,
+ * the arriving amount is smaller than the leaving one, a wrong address is
+ * gone, and the delivery is someone else's network. A creator who learns any
+ * of those afterwards has been misled by omission, however well the fee
+ * breakdown above was laid out.
+ *
+ * Four, and no more. A fifth box is where people stop reading and start
+ * clicking, which costs more than the fifth thing is worth saying.
+ */
+const POLICIES: Array<{ id: string; text: string }> = [
+  {
+    id: "price",
+    text: "Prices are live and differ by destination chain. The quote can change before the transfer completes.",
+  },
+  {
+    id: "amount",
+    text: "I may receive slightly less than I send. The destination network's fee and the protocol's execution fee come out of the amount.",
+  },
+  {
+    id: "final",
+    text: "Payouts are final. If the destination address is wrong, the funds cannot be recovered.",
+  },
+  {
+    id: "network",
+    text: "Delivery is handled by NEAR Intents, not Sweep Console. Times are estimates, and a failed route refunds to my payout wallet on the original chain.",
+  },
+];
+
 export function PayoutRoutesSection() {
   const [balance, setBalance] = useState<BalanceData | null>(null);
   const [dests, setDests] = useState<Destination[]>([]);
@@ -66,6 +98,17 @@ export function PayoutRoutesSection() {
   const [quoteErr, setQuoteErr] = useState("");
   const [quoting, setQuoting] = useState(false);
   const [quotedAt, setQuotedAt] = useState<number | null>(null);
+
+  /**
+   * Ticked boxes, by id — and deliberately NOT remembered across quotes.
+   *
+   * A creator agrees that THIS price may move and THIS amount may arrive
+   * short. Carrying the ticks over to a re-priced route would turn a
+   * considered agreement into a formality they clicked past once, which is
+   * the failure mode the boxes exist to prevent. They reset with the quote.
+   */
+  const [agreed, setAgreed] = useState<Record<string, boolean>>({});
+  const allAgreed = POLICIES.every((p) => agreed[p.id]);
 
   useEffect(() => {
     fetch(`${API_URL}/portal/wallet/circle/balance`, { credentials: "include" })
@@ -176,9 +219,11 @@ export function PayoutRoutesSection() {
     if (timer.current) clearTimeout(timer.current);
     if (!ready) {
       setQuote(null);
+      setAgreed({});
       return;
     }
     setQuote(null);
+    setAgreed({});
     timer.current = setTimeout(() => void runQuote(), 600);
     return () => {
       if (timer.current) clearTimeout(timer.current);
@@ -376,6 +421,73 @@ export function PayoutRoutesSection() {
                 Priced {new Date(quotedAt).toLocaleTimeString()} · re-prices as you edit
               </p>
             )}
+
+            {/* AFTER the price, not before it. Terms shown first are terms
+                read before there is anything to judge them against; a
+                creator can only agree that 99.97 may arrive short once they
+                have seen the 99.97. */}
+            <fieldset
+              style={{
+                marginTop: 30,
+                border: "1px solid var(--color-divider)",
+                borderRadius: "var(--radius-md)",
+                padding: "14px 16px",
+                maxWidth: 520,
+                margin: 0,
+              }}
+            >
+              <legend
+                className="uppercase"
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  letterSpacing: "0.08em",
+                  color: "var(--color-neutral-700)",
+                  padding: "0 6px",
+                }}
+              >
+                Before you withdraw
+              </legend>
+              {POLICIES.map((p) => (
+                <label
+                  key={p.id}
+                  htmlFor={`pr-ack-${p.id}`}
+                  className="flex gap-2.5"
+                  style={{ fontSize: 12.5, lineHeight: 1.45, marginTop: 8, cursor: "pointer" }}
+                >
+                  <input
+                    id={`pr-ack-${p.id}`}
+                    type="checkbox"
+                    checked={Boolean(agreed[p.id])}
+                    onChange={(e) =>
+                      setAgreed((prev) => ({ ...prev, [p.id]: e.target.checked }))
+                    }
+                    style={{ marginTop: 2, flex: "none", accentColor: "var(--color-accent)" }}
+                  />
+                  <span>{p.text}</span>
+                </label>
+              ))}
+            </fieldset>
+
+            {/* A button that cannot work is worse than no button, so this
+                says which it is. Enabled-looking-but-dead is how a creator
+                concludes the product is broken rather than early. */}
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ padding: "8px 14px", fontSize: 12.5 }}
+                disabled
+                title="Cross-chain withdrawals aren't enabled yet"
+              >
+                Withdraw to {dstLabel}
+              </button>
+              <span style={{ fontSize: 11.5, color: "var(--color-neutral-600)" }}>
+                {allAgreed
+                  ? "Not enabled yet — this path quotes only for now."
+                  : `Tick all four to continue (${POLICIES.filter((p) => agreed[p.id]).length} of ${POLICIES.length}).`}
+              </span>
+            </div>
           </>
         ) : null}
       </div>
