@@ -13,6 +13,7 @@ import {
   type Kpi,
 } from "@/components/portal/primitives";
 import { WithdrawSection } from "./WithdrawSection";
+import { PayoutRoutesSection } from "./PayoutRoutesSection";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -581,6 +582,12 @@ export function DashboardPage() {
       {data?.walletAddress && data.walletType === "circle" && (
         <WithdrawSection walletId={data.walletAddress} />
       )}
+
+      {/* Beneath the withdrawal it extends, and gated the same way: the
+          quote prices a transfer OUT of the Circle wallet, so a creator on an
+          external wallet has nothing here to act on — they move their own
+          funds and would use the route directly. */}
+      {data?.walletAddress && data.walletType === "circle" && <PayoutRoutesSection />}
 
       <Section
         title="Recent activity"

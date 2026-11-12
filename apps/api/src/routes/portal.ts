@@ -7,6 +7,16 @@ import type { Prisma } from "@prisma/client";
 import { WALLET_SELECT, walletFor, walletWrite } from "../lib/merchant-wallet";
 import { circleBlockchain, circleBlockchains, circleUserIdForType, creatorAccountType, usdcOnSettlementChain, readCreatorWalletChains, formatUsdc, parseUsdc } from "../lib/circle";
 import { directSettlementEnabled } from "../lib/chain/direct-settlement";
+import {
+  destinations as nearDestinations,
+  chainLabel as nearChainLabel,
+  oneClickChainFor,
+  quotePayout,
+  hasPartnerKey,
+  EXECUTION_FEE_BPS,
+  DESTINATIONS_OFF,
+  PAYOUT_SYMBOLS,
+} from "../lib/chain/near-intents";
 import { portalScope } from "../middleware/portalAuth";
 import { prisma, withRetry } from "../lib/prisma";
 import { ids } from "../lib/ids";
@@ -3930,3 +3940,101 @@ portalRouter.post(
     }
   },
 );
+
+// ─── Cross-chain payouts (NEAR Intents) ───────────────────────────────────────
+//
+// QUOTE ONLY. Both routes below are dry: they price a payout to a chain we do
+// not settle on and return nothing that can be paid into. Execution is a
+// separate decision, and a separate route when it comes.
+//
+// The partner key lives on the server, which is the reason these exist at all
+// rather than the dashboard calling 1Click directly — in a Vite bundle the key
+// would be readable from the network tab.
+
+// ─── GET /portal/payouts/destinations ─────────────────────────────────────────
+
+portalRouter.get("/payouts/destinations", async (req, res) => {
+  const from = typeof req.query.from === "string" ? req.query.from : "";
+  try {
+    const list = await nearDestinations(oneClickChainFor(from) ?? undefined);
+    return ok(res, {
+      destinations: list,
+      /**
+       * Said once, here, so the UI never has to hardcode a fee it might
+       * outlive. 1bp with a key, 25bp without — and a deployment that lost
+       * the variable should say so on screen rather than quote 24bp light.
+       */
+      execution_fee_bps: EXECUTION_FEE_BPS(),
+      partner_key: hasPartnerKey(),
+      unavailable: Object.entries(DESTINATIONS_OFF).map(([chain, why]) => ({
+        chain,
+        label: nearChainLabel(chain),
+        why,
+      })),
+    });
+  } catch (e) {
+    return serverError(res, "portal/payouts/destinations", e, "We couldn't list payout destinations.");
+  }
+});
+
+// ─── POST /portal/payouts/quote ───────────────────────────────────────────────
+
+const payoutQuoteSchema = z.object({
+  /** Circle's code for the chain the balance sits on: BASE, ARB, OP, MONAD. */
+  from: z.string().trim().toUpperCase(),
+  /** 1Click's slug for where it should land: sol, tron, pol, … */
+  to: z.string().trim().toLowerCase(),
+  asset: z.enum(PAYOUT_SYMBOLS),
+  amount: z
+    .string()
+    .regex(/^\d+(\.\d+)?$/, "Invalid amount")
+    .refine((v) => parseFloat(v) > 0, "Amount must be positive"),
+  /** Where it lands. Shape-checked per chain before 1Click is asked. */
+  recipient: z.string().trim().min(2).max(120),
+});
+
+portalRouter.post("/payouts/quote", async (req, res) => {
+  const dbId = (req as PortalRequest).merchantDbId;
+  const parsed = payoutQuoteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return validationError(
+      res,
+      Object.fromEntries(
+        Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [k, v?.[0] ?? "Invalid"]),
+      ),
+    );
+  }
+  const { from, to, asset, amount, recipient } = parsed.data;
+  const fromSlug = oneClickChainFor(from);
+  if (!fromSlug) return err(res, `We don't settle on ${from}, so there is nothing to pay out from it.`, 400);
+
+  try {
+    /**
+     * The refund address is the creator's OWN payout wallet, never the
+     * recipient they just typed.
+     *
+     * A route can fail after the deposit is made, and the refund goes back on
+     * the ORIGIN chain. Sending it to a destination-chain address would put
+     * the money somewhere that address may not exist.
+     */
+    const merchant = await withRetry(() =>
+      prisma.merchant.findUniqueOrThrow({ where: { id: dbId }, select: WALLET_SELECT }),
+    );
+    const w = walletFor(merchant, portalScope(req).isTestMode);
+    const refundTo = w.address;
+    if (!refundTo) return err(res, "Set up your payout wallet first.", 409, "no_payout_wallet");
+
+    const result = await quotePayout({
+      fromChain: fromSlug,
+      toChain: to,
+      symbol: asset,
+      amount,
+      recipient,
+      refundTo,
+    });
+    if (!result.ok) return err(res, result.why, 422, "no_route");
+    return ok(res, { quote: result.quote, from, to, asset });
+  } catch (e) {
+    return serverError(res, "portal/payouts/quote", e, "We couldn't price that payout.");
+  }
+});
