@@ -50,9 +50,43 @@ import "dotenv/config";
  *   the same payout to NEAR loses 0.23%. A creator must see the quote before
  *   committing, and the dry endpoint makes showing it free.
  *
- * LIMITATION: this quotes USDC to USDC. A Bitcoin payout wants USDC -> BTC,
- * which is a different destination asset and not covered here — hence
- * "USDC is not listed on btc", which is true and beside the point.
+ * WHAT THE MATRIX FOUND, 12 Nov 2026, from base:
+ *
+ *   TWO COSTS, NOT ONE. Destination gas is fixed, and the USDC/USDT peg
+ *   spread is proportional and currently in our favour — so the same route
+ *   gets cheaper with size, and past a few hundred USDC several USDT
+ *   destinations come out NET POSITIVE:
+ *
+ *                    20 USDC      100 USDC     500 USDC
+ *       eth/USDC      0.304        0.310        0.360     fixed L1 gas
+ *       eth/USDT      0.283        0.213       -0.136     spread overtakes gas
+ *       tron/USDT     0.847        0.777        0.436
+ *       near/USDT    -0.016          —         -0.253
+ *       sol/USDT     -0.006          —         -0.243
+ *
+ *   A NEGATIVE COST IS A MARKET CONDITION, NOT A FEATURE. It is USDT trading
+ *   a touch above USDC at quote time; it can invert. Never promise it — quote
+ *   it.
+ *
+ *   TRON IS THE EXPENSIVE ONE, which is the opposite of what its volume
+ *   suggests: 4.2% of a 20 USDC payout, 0.09% of a 500 one. It is also the
+ *   only route most USDT holders actually want. So it argues for a
+ *   per-destination minimum rather than dropping the destination.
+ *
+ *   CHEAP EVERYWHERE ELSE: near, op, gnosis, sol, bsc, pol, avax and arb all
+ *   land under 0.1% on 20 USDC — fractions of a cent.
+ *
+ *   THREE ROUTES REFUSE, each for its own reason worth surfacing in a UI
+ *   rather than reporting as an error:
+ *     stellar   "Destination address does not have a trustline for this" —
+ *               Stellar needs the recipient to hold a USDC trustline first.
+ *     xlayer    "No liquidity available" — solver inventory, exactly the gap
+ *               the docs warn coverage follows.
+ *     miden     no sample address here, so untested rather than unsupported.
+ *
+ * LIMITATION: stablecoins only, by design. A Bitcoin payout wants USDC -> BTC,
+ * a different destination asset — hence "USDC is not listed on btc", which is
+ * true and beside the point.
  */
 const API = "https://1click.chaindefuser.com";
 
@@ -66,17 +100,44 @@ type Token = {
   decimals: number;
 };
 
-/** A plausible address per destination, so the quote is not refused on shape. */
+/**
+ * A shape-valid address per destination, because the API validates the
+ * recipient before it will quote.
+ *
+ * These are for SHAPE ONLY. `dry: true` means no depositAddress ever comes
+ * back, so nothing can be paid to any of them — but a quote is refused
+ * outright on a malformed recipient, so each destination needs one that
+ * parses. An all-zeroes Solana address, for instance, is rejected.
+ */
 const SAMPLE_RECIPIENT: Record<string, string> = {
+  // EVM, one shape for all of them
+  eth: "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f", base: "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f", arb: "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f", op: "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f", monad: "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f",
+  pol: "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f", bsc: "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f", avax: "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f", gnosis: "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f", scroll: "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f",
+  xlayer: "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f", hypercore: "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f",
+  // non-EVM
   sol: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+  near: "intents.near",
+  tron: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+  ton: "EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N",
+  stellar: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7",
+  aptos: "0x0000000000000000000000000000000000000000000000000000000000000001",
+  sui: "0x0000000000000000000000000000000000000000000000000000000000000002",
   btc: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
-  eth: "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f",
-  base: "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f",
-  arb: "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f",
-  op: "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f",
-  monad: "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f",
-  near: "example.near",
 };
+
+/**
+ * STABLECOINS ONLY, which is a product decision and a convenient one.
+ *
+ * USDC reaches 16 chains and USDT 13, and the union is wider than either —
+ * USDT is the only way to reach TRON and TON, which between them carry more
+ * stablecoin volume than most of the USDC set. Meanwhile USDT is NOT on Base,
+ * Arbitrum or Monad, so it can only ever be a DESTINATION here: the source
+ * leg is always the USDC a creator was paid in.
+ *
+ * One source asset, two destination assets, no volatility to explain to a
+ * creator. A BTC or SOL payout would be a different product.
+ */
+const PAYOUT_SYMBOLS = ["USDC", "USDT"] as const;
 
 function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -135,7 +196,83 @@ async function quote(input: {
   return { ok: true, q };
 }
 
+/**
+ * Every stablecoin destination, priced from one source.
+ *
+ * The point is comparison, not completeness: which destinations are worth
+ * offering at all. A fixed destination-gas cost means the answer depends
+ * entirely on the payout size, so this prints the cost in USDC as well as a
+ * percentage — a creator cares about the former.
+ */
+async function matrix(amount: number, fromChain: string): Promise<void> {
+  const all = await tokens();
+  const src = usdcOn(all, fromChain);
+  if (!src) {
+    console.log(`USDC is not listed on "${fromChain}" — it cannot be a source.`);
+    process.exitCode = 1;
+    return;
+  }
+  const amountMicro = String(Math.round(amount * 1_000_000));
+  const refundTo = arg("refund-to") ?? "0x18e0699EE5c7dd9D558D56f0C2b2f6C3a5b6747f";
+
+  const rows = all
+    .filter((t) => (PAYOUT_SYMBOLS as readonly string[]).includes((t.symbol ?? "").toUpperCase()))
+    .filter((t) => t.assetId !== src.assetId)
+    .sort((a, b) => `${a.blockchain}${a.symbol}`.localeCompare(`${b.blockchain}${b.symbol}`));
+
+  console.log(`\n${amount} USDC on ${fromChain} -> stablecoin elsewhere   (dry run, nothing moves)\n`);
+  console.log(`  ${"destination".padEnd(14)} ${"asset".padEnd(6)} ${"out".padStart(12)} ${"cost".padStart(10)} ${"%".padStart(8)}   time`);
+
+  const priced: Array<{ chain: string; sym: string; cost: number }> = [];
+  for (const t of rows) {
+    const chain = (t.blockchain ?? "").toLowerCase();
+    const sym = (t.symbol ?? "").toUpperCase();
+    /**
+     * Some chains list the same symbol twice — hypercore carries USDC as both
+     * hip1 and erc20 — and two identical-looking rows read as a bug. The tail
+     * of the asset id is what tells them apart.
+     */
+    const variant = t.assetId.split(":").pop()?.split("-")[0] ?? "";
+    const recipient = SAMPLE_RECIPIENT[chain];
+    if (!recipient) {
+      console.log(`  ${chain.padEnd(14)} ${sym.padEnd(6)} ${"—".padStart(12)}  no sample address for this chain`);
+      continue;
+    }
+    const res = await quote({
+      originAsset: src.assetId,
+      destinationAsset: t.assetId,
+      amountMicro,
+      refundTo,
+      recipient,
+    });
+    if (!res.ok) {
+      console.log(`  ${chain.padEnd(14)} ${sym.padEnd(6)} ${"—".padStart(12)}  ${res.why.slice(0, 54)}`);
+      continue;
+    }
+    const out = Number(res.q.amountOutFormatted ?? "0");
+    const cost = amount - out;
+    priced.push({ chain, sym, cost });
+    console.log(
+      `  ${chain.padEnd(14)} ${sym.padEnd(6)} ${out.toFixed(6).padStart(12)} ${cost.toFixed(6).padStart(10)} ` +
+        `${((cost / amount) * 100).toFixed(3).padStart(7)}%   ~${res.q.timeEstimate ?? "?"}s` +
+        (rows.filter((r) => r.blockchain === t.blockchain && r.symbol === t.symbol).length > 1
+          ? `   [${variant}]`
+          : "")
+    );
+  }
+
+  priced.sort((a, b) => a.cost - b.cost);
+  if (priced.length > 0) {
+    console.log(`\n  cheapest: ${priced.slice(0, 5).map((p) => `${p.chain}/${p.sym} ${p.cost.toFixed(4)}`).join("  ")}`);
+    console.log(`  dearest:  ${priced.slice(-3).map((p) => `${p.chain}/${p.sym} ${p.cost.toFixed(4)}`).join("  ")}`);
+  }
+}
+
 async function main() {
+  if (process.argv.includes("--matrix")) {
+    await matrix(Number(arg("amount") ?? "20"), (arg("from") ?? "base").toLowerCase());
+    return;
+  }
   const toChain = (arg("to") ?? "sol").toLowerCase();
   const amount = Number(arg("amount") ?? "2");
   const amountMicro = String(Math.round(amount * 1_000_000));
