@@ -90,6 +90,27 @@ import "dotenv/config";
  */
 const API = "https://1click.chaindefuser.com";
 
+/**
+ * The partner JWT, if this deployment has one.
+ *
+ * Without it NEAR treats the caller as an unregistered integrator and injects
+ * its own `appFees` into every quote — on the cheap destinations that
+ * surcharge is several times the actual gas, so an unauthenticated quote is
+ * not a price you can show a creator. The key is a bearer JWT issued by the
+ * Partners Portal against a "Distribution Channel" key (1Click is one); it
+ * identifies the integrator, so it belongs in the service environment and
+ * never in the repo.
+ *
+ * Absent, everything still runs — the numbers are just the retail ones, and
+ * the footer says so rather than letting them pass as final.
+ */
+const JWT = (process.env.NEAR_1CLICK_JWT ?? "").trim();
+
+/** Bearer auth when registered, bare otherwise. The API accepts both. */
+function authHeaders(): Record<string, string> {
+  return JWT ? { Authorization: `Bearer ${JWT}` } : {};
+}
+
 /** Our settlement chains, as 1Click names them. */
 const SOURCE_CHAINS = ["base", "arb", "op", "monad"] as const;
 
@@ -177,7 +198,7 @@ function arg(name: string, fallback?: string): string | undefined {
 }
 
 async function tokens(): Promise<Token[]> {
-  const r = await fetch(`${API}/v0/tokens`);
+  const r = await fetch(`${API}/v0/tokens`, { headers: authHeaders() });
   if (!r.ok) throw new Error(`GET /v0/tokens → ${r.status}`);
   return (await r.json()) as Token[];
 }
@@ -216,7 +237,7 @@ async function quote(input: {
   };
   const r = await fetch(`${API}/v0/quote`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
   });
   const json = (await r.json().catch(() => ({}))) as Record<string, unknown>;
@@ -375,9 +396,12 @@ async function main() {
   }
 
   console.log(
-    `\nNo partner JWT is set, so these include the appFees NEAR injects for ` +
-      `unregistered integrators. A JWT from the Partners Portal waives the protocol fee — ` +
-      `get it before pricing this for creators.\n`
+    JWT
+      ? `\nQuoted as a registered partner (NEAR_1CLICK_JWT set), so no appFees are ` +
+          `injected. These are the prices a creator would actually pay.\n`
+      : `\nNo partner JWT is set, so these include the appFees NEAR injects for ` +
+          `unregistered integrators. A JWT from the Partners Portal waives the protocol fee — ` +
+          `get it before pricing this for creators. Set NEAR_1CLICK_JWT and re-run.\n`
   );
 }
 
