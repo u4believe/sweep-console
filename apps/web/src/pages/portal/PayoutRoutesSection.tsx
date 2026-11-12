@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Kicker, Section } from "@/components/portal/primitives";
+import { apiFetch, wasCancelled } from "@/lib/stepup";
+import { throwApiError } from "@/lib/errors";
+import { loadCircleSdk } from "@/lib/circleSdk";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -22,6 +25,19 @@ type BalanceData = { usdcBalance: string; chains?: ChainBalance[] };
 
 type Destination = { chain: string; label: string; symbols: string[] };
 type Unavailable = { chain: string; label: string; why: string };
+
+type Payout = {
+  id: string;
+  status: string;
+  to_label: string;
+  asset: string;
+  amount: string | null;
+  amount_out: string | null;
+  destination_tx_hash: string | null;
+  deposit_explorer_url: string | null;
+  failure_reason: string | null;
+  terminal: boolean;
+};
 
 type Quote = {
   amountIn: string;
@@ -81,6 +97,78 @@ const POLICIES: Array<{ id: string; text: string }> = [
   },
 ];
 
+/**
+ * What a creator reads while a payout is in the air, and after it lands.
+ *
+ * ONE LINE PER STATE, naming what is true of their money rather than what the
+ * protocol calls it. "PROCESSING" is a status; "it left your wallet and the
+ * network is delivering it" is an answer. The two failure states are kept
+ * apart for the same reason: refunded money is back, and stranded money is
+ * not, and a creator must never have to work out which from a colour.
+ */
+function PayoutProgressNote({ payout }: { payout: Payout }) {
+  const line: Record<string, string> = {
+    depositing: "Waiting for you to confirm in your wallet.",
+    pending_deposit: `Sent. Waiting for the network to see it — usually under a minute.`,
+    processing: `Deposit confirmed. ${payout.to_label} delivery is in progress.`,
+    succeeded: `Delivered${payout.amount_out ? ` — ${Number(payout.amount_out).toFixed(2)} ${payout.asset}` : ""} on ${payout.to_label}.`,
+    refunded: "The route couldn't complete, so your USDC was returned to your payout wallet.",
+    failed: "This payout failed.",
+    stranded: "This payout didn't arrive and the deposit window has closed.",
+  };
+  const bad = payout.status === "failed" || payout.status === "stranded";
+  const good = payout.status === "succeeded";
+
+  return (
+    <div
+      className="mt-4"
+      style={{
+        border: `1px solid ${bad ? "var(--color-accent-700)" : "var(--color-divider)"}`,
+        borderRadius: "var(--radius-md)",
+        padding: "12px 14px",
+        maxWidth: 520,
+      }}
+    >
+      <p
+        className="m-0"
+        style={{ fontSize: 13, fontWeight: 600, color: bad ? "var(--color-accent-700)" : undefined }}
+      >
+        {line[payout.status] ?? "In progress."}
+      </p>
+      {payout.failure_reason && (
+        <p className="m-0 mt-1.5" style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>
+          {payout.failure_reason}
+        </p>
+      )}
+      <p className="m-0 mt-2" style={{ fontSize: 11.5, color: "var(--color-neutral-600)" }}>
+        {payout.id}
+        {payout.deposit_explorer_url && (
+          <>
+            {" · "}
+            <a href={payout.deposit_explorer_url} target="_blank" rel="noreferrer" style={{ color: "var(--color-accent)" }}>
+              deposit transaction
+            </a>
+          </>
+        )}
+        {/* Shown as text, not a link: we do not keep an explorer for every
+            chain NEAR reaches, and a link to the wrong one is worse than
+            none. */}
+        {good && payout.destination_tx_hash && (
+          <>
+            {" · "}
+            {payout.to_label} tx {payout.destination_tx_hash.slice(0, 10)}…
+          </>
+        )}
+      </p>
+      {bad && (
+        <p className="m-0 mt-2" style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
+          Quote this payout id to support. It is also in your recent activity.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function PayoutRoutesSection() {
   const [balance, setBalance] = useState<BalanceData | null>(null);
   const [dests, setDests] = useState<Destination[]>([]);
@@ -123,6 +211,14 @@ export function PayoutRoutesSection() {
   /** Opens the accepted terms for re-reading. Agreed is not forgotten. */
   const [reviewing, setReviewing] = useState(false);
 
+  /** Whether the button does anything, as the SERVER sees it. */
+  const [canExecute, setCanExecute] = useState(false);
+  const [closedReason, setClosedReason] = useState<string | null>(null);
+  /** The payout in flight, once there is one. */
+  const [payout, setPayout] = useState<Payout | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sendErr, setSendErr] = useState("");
+
   useEffect(() => {
     fetch(`${API_URL}/portal/wallet/circle/balance`, { credentials: "include" })
       .then((r) => r.json())
@@ -157,6 +253,8 @@ export function PayoutRoutesSection() {
             unavailable?: Unavailable[];
             partner_key?: boolean;
             terms_accepted_at?: string | null;
+            execution_enabled?: boolean;
+            execution_closed_reason?: string | null;
           };
           error?: { message?: string };
         }) => {
@@ -169,6 +267,8 @@ export function PayoutRoutesSection() {
           setUnavailable(j.data?.unavailable ?? []);
           setPartnerKey(j.data?.partner_key !== false);
           setAcceptedAt(j.data?.terms_accepted_at ?? null);
+          setCanExecute(Boolean(j.data?.execution_enabled));
+          setClosedReason(j.data?.execution_closed_reason ?? null);
         },
       )
       .catch(() => setListErr("We couldn't reach the payout network just now."));
@@ -277,6 +377,117 @@ export function PayoutRoutesSection() {
     };
   }, [allAgreed, acceptedAt]);
 
+  /**
+   * Send it.
+   *
+   * Three steps the creator sees as one: the server takes a live quote and
+   * writes the record, Circle takes their PIN, and we tell the server the
+   * money left. The record exists BEFORE the PIN — so a creator who abandons
+   * the modal leaves a row the poller closes by itself, rather than a deposit
+   * address nothing knows about.
+   */
+  async function handleWithdraw() {
+    if (!canExecute || !quote || !ready) return;
+    setSending(true);
+    setSendErr("");
+    try {
+      const res = await apiFetch(`/portal/payouts/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from, to, asset, amount, recipient: recipient.trim() }),
+      });
+      if (!res.ok) {
+        if (await wasCancelled(res)) { setSending(false); return; }
+        await throwApiError(res, "We couldn't start that payout");
+      }
+      const body = (await res.json()) as {
+        data?: {
+          payout_id?: string;
+          userToken?: string;
+          encryptionKey?: string;
+          challengeId?: string;
+          appId?: string;
+        };
+      };
+      const d = body.data ?? {};
+      if (!d.challengeId || !d.userToken || !d.encryptionKey || !d.payout_id) {
+        setSending(false);
+        setSendErr("We couldn't start the transfer. Nothing has been sent.");
+        return;
+      }
+
+      const { W3SSdk } = await loadCircleSdk();
+      const sdk = new W3SSdk();
+      sdk.setAppSettings({ appId: import.meta.env.VITE_CIRCLE_APP_ID ?? d.appId ?? "" });
+      sdk.setAuthentication({ userToken: d.userToken, encryptionKey: d.encryptionKey });
+
+      sdk.execute(d.challengeId, async (e) => {
+        setSending(false);
+        if (e) {
+          /**
+           * The PIN was refused or cancelled, so nothing left the wallet.
+           * Said in exactly those words, because the alternative reading —
+           * that the money went somewhere and failed — is the frightening
+           * one, and it is not what happened.
+           */
+          setSendErr(`Transfer not sent: ${e.message ?? "the PIN step was cancelled"}. No money moved.`);
+          return;
+        }
+        // Circle has it. Tell the server so the row stops saying "depositing"
+        // even if this tab closes in the next second.
+        try {
+          const r2 = await fetch(`${API_URL}/portal/payouts/${d.payout_id}/deposited`, {
+            method: "POST",
+            credentials: "include",
+          });
+          const j2 = (await r2.json()) as { data?: { payout?: Payout } };
+          if (j2.data?.payout) setPayout(j2.data.payout);
+        } catch {
+          // The poller reaches the same conclusion a minute later.
+          setPayout({
+            id: d.payout_id!,
+            status: "pending_deposit",
+            to_label: dstLabel,
+            asset,
+            amount,
+            amount_out: null,
+            destination_tx_hash: null,
+            deposit_explorer_url: null,
+            failure_reason: null,
+            terminal: false,
+          });
+        }
+      });
+    } catch (e) {
+      setSending(false);
+      setSendErr(e instanceof Error ? e.message : "Something went wrong. Nothing has been sent.");
+    }
+  }
+
+  /**
+   * Follow it to the end.
+   *
+   * Every three seconds while it is live — these routes settle in 30-90
+   * seconds, so anything slower would show a spinner for most of a payout
+   * that had already landed. Stops dead on a terminal status rather than
+   * polling a finished payout forever.
+   */
+  useEffect(() => {
+    if (!payout || payout.terminal) return;
+    const id = setInterval(() => {
+      void (async () => {
+        try {
+          const r = await fetch(`${API_URL}/portal/payouts/${payout.id}`, { credentials: "include" });
+          const j = (await r.json()) as { data?: { payout?: Payout } };
+          if (j.data?.payout) setPayout(j.data.payout);
+        } catch {
+          /* Transient. The next tick asks again. */
+        }
+      })();
+    }, 3000);
+    return () => clearInterval(id);
+  }, [payout]);
+
   const funded = (balance?.chains ?? []).filter((c) => c.read);
   const srcLabel = from ? chainLabel(from) : "";
   const dstLabel = dests.find((d) => d.chain === to)?.label ?? to;
@@ -292,17 +503,28 @@ export function PayoutRoutesSection() {
 
   return (
     <Section title="Withdraw to another chain">
-      <p className="m-0 mb-1" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
-        Price a payout to a chain Sweep doesn't settle on — Solana, Polygon, Tron and{" "}
-        {Math.max(dests.length - 3, 0)} more — paid in USDC or USDT.
+      <p
+        className={canExecute ? "m-0 mb-4" : "m-0 mb-1"}
+        style={{ fontSize: 13, color: "var(--color-neutral-700)" }}
+      >
+        {canExecute ? "Withdraw to" : "Price a payout to"} a chain Sweep doesn't settle on —{" "}
+        {dests.slice(0, 3).map((d) => d.label).join(", ")}
+        {/* "and 0 more" is what a hardcoded list of three says on a deployment
+            with exactly three destinations. Counted, and omitted at zero. */}
+        {dests.length > 3 ? ` and ${dests.length - 3} more` : ""} — paid in USDC or USDT.
       </p>
 
       {/* Said before the form, not after it. A creator who fills five fields
           and then learns nothing can be sent has been wasted, and the panel
-          looks broken rather than early. */}
-      <p className="tag tag-outline mb-4" style={{ padding: "8px 12px", marginTop: 12 }}>
-        Quotes only for now — nothing moves. These are live prices from the payout network.
-      </p>
+          looks broken rather than early.
+
+          It also has to STOP saying it once the path is live, or the panel
+          contradicts its own button. */}
+      {!canExecute && (
+        <p className="tag tag-outline mb-4" style={{ padding: "8px 12px", marginTop: 12 }}>
+          Quotes only for now — nothing moves. These are live prices from the payout network.
+        </p>
+      )}
 
       {/* A deployment that lost the key quotes 24bp light and would look
           cheaper than it is. On screen, because that is where the number gets
@@ -532,7 +754,6 @@ export function PayoutRoutesSection() {
                     className="btn btn-primary"
                     style={{ padding: "8px 14px", fontSize: 12.5 }}
                     disabled
-                    title="Cross-chain withdrawals aren't enabled yet"
                   >
                     Withdraw to {dstLabel}
                   </button>
@@ -549,15 +770,29 @@ export function PayoutRoutesSection() {
                     type="button"
                     className="btn btn-primary"
                     style={{ padding: "8px 14px", fontSize: 12.5 }}
-                    disabled
-                    title="Cross-chain withdrawals aren't enabled yet"
+                    disabled={!canExecute || sending || Boolean(payout && !payout.terminal)}
+                    onClick={() => void handleWithdraw()}
                   >
-                    Withdraw to {dstLabel}
+                    {sending ? "Opening your wallet…" : `Withdraw to ${dstLabel}`}
                   </button>
-                  <span style={{ fontSize: 11.5, color: "var(--color-neutral-600)" }}>
-                    Not enabled yet — this path quotes only for now.
-                  </span>
+                  {/* Why it is off, not merely that it is. A creator told
+                      "not enabled" learns nothing they can act on; one told
+                      it is mainnet-only knows to stop waiting for a sandbox
+                      that will never exist. */}
+                  {!canExecute && (
+                    <span style={{ fontSize: 11.5, color: "var(--color-neutral-600)" }}>
+                      {closedReason ?? "Not enabled on your account yet."}
+                    </span>
+                  )}
                 </div>
+
+                {sendErr && (
+                  <p className="m-0 mt-3" style={{ fontSize: 12.5, color: "var(--color-accent-700)", maxWidth: 520 }}>
+                    {sendErr}
+                  </p>
+                )}
+
+                {payout && <PayoutProgressNote payout={payout} />}
 
                 {/* The agreement stays readable without being re-demanded.
                     A creator who wants to check what they agreed to can; one

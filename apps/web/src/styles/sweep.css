@@ -431,6 +431,14 @@ textarea.input { min-height: 90px; resize: vertical; }
 .tag-accent-2 { background: var(--color-accent-200); color: var(--color-accent); }
 .tag-neutral { background: var(--color-neutral-200); color: var(--color-neutral-900); }
 .tag-outline { border: 1px solid var(--color-accent-300); color: var(--color-accent); }
+/* A state that cost someone money, which the palette had no way to say.
+   `failed` shared `.tag-outline` with `pending` — so a payout that never
+   arrived and one still on its way were the same colour. */
+.tag-danger { background: #FDECEC; color: #A1241C; border: 1px solid #F2C4C0; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .tag-danger { background: #3A1A17; color: #F6B6AF; border-color: #6A2C25; }
+}
+:root[data-theme="dark"] .tag-danger { background: #3A1A17; color: #F6B6AF; border-color: #6A2C25; }
 
 /* ══════════════════════════════════════════════════════════════════════════
    Tables

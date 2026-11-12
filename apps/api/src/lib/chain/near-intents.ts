@@ -320,3 +320,233 @@ export async function quotePayout(input: {
     },
   };
 }
+
+// ─── Execution ────────────────────────────────────────────────────────────────
+//
+// Everything above is dry. Everything below can move money, and is reachable
+// only behind the flag in `payoutsEnabled()`.
+
+/**
+ * Is the cross-chain payout path open on this deployment, for this merchant?
+ *
+ * THREE GATES, ALL OF WHICH MUST PASS, because NEAR Intents has no testnet:
+ * the first execution anyone performs is real money on mainnet, so there is
+ * no staging environment in which a mistake is free. The flag IS the staging
+ * environment.
+ *
+ *   1. NEAR_PAYOUTS_ENABLED=true — the deploy-time switch, off by default, so
+ *      this ships dormant and is turned on without a release.
+ *   2. Live mode only. A sandbox payout would quote and settle against
+ *      mainnet liquidity under a test-mode account, which is the one case
+ *      where "it's only the sandbox" would be false.
+ *   3. NEAR_PAYOUTS_MERCHANTS, when set, limits it to those merchant ids —
+ *      so "on" can mean "on for me" before it means "on for everyone".
+ */
+export function payoutsEnabled(opts: { isTestMode: boolean; merchantId?: string }): boolean {
+  if (process.env.NEAR_PAYOUTS_ENABLED !== "true") return false;
+  if (opts.isTestMode) return false;
+  const allow = (process.env.NEAR_PAYOUTS_MERCHANTS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (allow.length === 0) return true;
+  return opts.merchantId ? allow.includes(opts.merchantId) : false;
+}
+
+/** Why the path is shut, in words a creator can read. Null when it is open. */
+export function payoutsClosedReason(opts: { isTestMode: boolean; merchantId?: string }): string | null {
+  if (payoutsEnabled(opts)) return null;
+  if (opts.isTestMode) {
+    // Stated plainly rather than as "not enabled": there is no test mode for
+    // this path and there never will be, so waiting for one is a waste.
+    return "Cross-chain withdrawals run on mainnet only — NEAR Intents has no test network.";
+  }
+  return "Cross-chain withdrawals aren't enabled on your account yet.";
+}
+
+export type LiveQuote = Quote & {
+  /** One-time, single-use, and the only place a deposit may be sent. */
+  depositAddress: string;
+  /** Required by some chains; absent means the chain does not use one. */
+  depositMemo: string | null;
+  /** After this the quote's price is no longer promised. */
+  deadline: string;
+  /** After this the address stops accepting a deposit at all. */
+  timeWhenInactive: string | null;
+};
+
+/**
+ * Take a REAL quote — the same request without `dry`, which returns somewhere
+ * to pay.
+ *
+ * Separated from `quotePayout` by more than a boolean on purpose. Every caller
+ * of that function is safe by construction; this one hands back an address
+ * that real money can be sent to, and the two should not be one call with a
+ * flag that could be passed wrongly.
+ */
+export async function openPayout(input: {
+  fromChain: string;
+  toChain: string;
+  symbol: PayoutSymbol;
+  amount: string;
+  recipient: string;
+  refundTo: string;
+}): Promise<{ ok: true; quote: LiveQuote } | { ok: false; why: string }> {
+  const dry = await quotePayout(input);
+  // The dry quote is the validator: destination allowed, address shaped, pair
+  // listed, amount sane. Re-running those checks here would be a second
+  // opinion that could disagree with the first.
+  if (!dry.ok) return dry;
+
+  const all = await payoutTokens();
+  const src = tokenFor(all, "USDC", input.fromChain)!;
+  const dst = tokenFor(all, input.symbol, input.toChain)!;
+  const amountMicro = BigInt(Math.round(Number(input.amount) * 10 ** src.decimals)).toString();
+
+  let r: Response;
+  try {
+    r = await fetch(`${API}/v0/quote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({
+        dry: false,
+        swapType: "EXACT_INPUT",
+        slippageTolerance: 100,
+        originAsset: src.assetId,
+        depositType: "ORIGIN_CHAIN",
+        destinationAsset: dst.assetId,
+        amount: amountMicro,
+        refundTo: input.refundTo,
+        refundType: "ORIGIN_CHAIN",
+        recipient: input.recipient.trim(),
+        recipientType: "DESTINATION_CHAIN",
+        deadline: new Date(Date.now() + 30 * 60_000).toISOString(),
+      }),
+    });
+  } catch (e) {
+    return { ok: false, why: `We couldn't reach the payout network just now (${String(e)}).` };
+  }
+
+  const json = (await r.json().catch(() => ({}))) as {
+    message?: string;
+    quote?: Record<string, unknown>;
+    timestamp?: string;
+  };
+  if (!r.ok) return { ok: false, why: String(json.message ?? `The payout network refused (${r.status}).`) };
+  const q = json.quote;
+  if (!q) return { ok: false, why: "No solver took this route. Try again, or a different destination." };
+
+  const depositAddress = typeof q.depositAddress === "string" ? q.depositAddress : "";
+  if (!depositAddress) {
+    // Refused rather than guessed. Without an address there is nowhere to pay,
+    // and a half-written record would be worse than no record.
+    return { ok: false, why: "The payout network returned no deposit address. Nothing has been sent." };
+  }
+
+  return {
+    ok: true,
+    quote: {
+      ...dry.quote,
+      amountOut: String(q.amountOutFormatted ?? dry.quote.amountOut),
+      depositAddress,
+      depositMemo: typeof q.depositMemo === "string" && q.depositMemo ? q.depositMemo : null,
+      deadline: String(q.deadline ?? new Date(Date.now() + 30 * 60_000).toISOString()),
+      timeWhenInactive: typeof q.timeWhenInactive === "string" ? q.timeWhenInactive : null,
+    },
+  };
+}
+
+/** 1Click's own vocabulary, kept verbatim where we store it. */
+export type UpstreamStatus =
+  | "PENDING_DEPOSIT"
+  | "KNOWN_DEPOSIT_TX"
+  | "INCOMPLETE_DEPOSIT"
+  | "PROCESSING"
+  | "SUCCESS"
+  | "REFUNDED"
+  | "FAILED";
+
+export type PayoutProgress = {
+  upstream: UpstreamStatus | string;
+  /** Our mapping of it; see the schema comment on CrossChainPayout.status. */
+  status: "pending_deposit" | "processing" | "succeeded" | "refunded" | "failed";
+  destinationTxHash: string | null;
+  depositTxHash: string | null;
+  amountOutMicro: bigint | null;
+  reason: string | null;
+};
+
+/**
+ * Where a payout has got to.
+ *
+ * `INCOMPLETE_DEPOSIT` maps to failed rather than pending: it means a deposit
+ * arrived for less than the quote asked, which no amount of waiting fixes.
+ * The refund path is 1Click's, and REFUNDED is its own terminal state so the
+ * creator is told their money came back rather than that it was lost.
+ */
+export async function payoutProgress(
+  depositAddress: string,
+  depositMemo?: string | null,
+): Promise<{ ok: true; progress: PayoutProgress } | { ok: false; why: string }> {
+  const qs = new URLSearchParams({ depositAddress });
+  if (depositMemo) qs.set("depositMemo", depositMemo);
+  let r: Response;
+  try {
+    r = await fetch(`${API}/v0/status?${qs.toString()}`, { headers: authHeaders() });
+  } catch (e) {
+    return { ok: false, why: `status unreachable: ${String(e)}` };
+  }
+  if (r.status === 404) {
+    // 1Click does not know this address. Before a deposit that is normal —
+    // the caller decides whether it is old enough to be alarming.
+    return { ok: false, why: "not_found" };
+  }
+  const json = (await r.json().catch(() => ({}))) as {
+    status?: string;
+    message?: string;
+    swapDetails?: Record<string, unknown>;
+  };
+  if (!r.ok) return { ok: false, why: String(json.message ?? `status ${r.status}`) };
+
+  const upstream = String(json.status ?? "");
+  const d = json.swapDetails ?? {};
+  const firstHash = (v: unknown): string | null => {
+    if (typeof v === "string") return v;
+    if (Array.isArray(v) && v.length > 0) {
+      const h = v[0] as Record<string, unknown> | string;
+      if (typeof h === "string") return h;
+      const inner = (h?.hash ?? h?.txHash) as unknown;
+      return typeof inner === "string" ? inner : null;
+    }
+    return null;
+  };
+
+  const map: Record<string, PayoutProgress["status"]> = {
+    PENDING_DEPOSIT: "pending_deposit",
+    KNOWN_DEPOSIT_TX: "processing",
+    PROCESSING: "processing",
+    SUCCESS: "succeeded",
+    REFUNDED: "refunded",
+    FAILED: "failed",
+    INCOMPLETE_DEPOSIT: "failed",
+  };
+  const status = map[upstream] ?? "processing";
+  const outRaw = d.amountOut ?? d.destinationAmount;
+  let amountOutMicro: bigint | null = null;
+  if (typeof outRaw === "string" && /^\d+$/.test(outRaw)) amountOutMicro = BigInt(outRaw);
+
+  return {
+    ok: true,
+    progress: {
+      upstream,
+      status,
+      destinationTxHash: firstHash(d.destinationChainTxHashes ?? d.destinationTxHash),
+      depositTxHash: firstHash(d.originChainTxHashes ?? d.depositTxHash),
+      amountOutMicro,
+      reason:
+        upstream === "INCOMPLETE_DEPOSIT"
+          ? "Less arrived at the deposit address than the quote asked for, so the route could not complete."
+          : null,
+    },
+  };
+}

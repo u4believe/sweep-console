@@ -12,11 +12,16 @@ import {
   chainLabel as nearChainLabel,
   oneClickChainFor,
   quotePayout,
+  openPayout,
+  payoutProgress,
+  payoutsEnabled,
+  payoutsClosedReason,
   hasPartnerKey,
   EXECUTION_FEE_BPS,
   DESTINATIONS_OFF,
   PAYOUT_SYMBOLS,
 } from "../lib/chain/near-intents";
+import { recordPayoutProgress, payoutView } from "../lib/portal/cross-chain-payouts";
 import { portalScope } from "../middleware/portalAuth";
 import { prisma, withRetry } from "../lib/prisma";
 import { ids } from "../lib/ids";
@@ -3956,6 +3961,7 @@ portalRouter.post(
 portalRouter.get("/payouts/destinations", async (req, res) => {
   const from = typeof req.query.from === "string" ? req.query.from : "";
   const dbId = (req as PortalRequest).merchantDbId;
+  const scope = portalScope(req);
   try {
     const [list, merchant] = await Promise.all([
       nearDestinations(oneClickChainFor(from) ?? undefined),
@@ -3971,6 +3977,16 @@ portalRouter.get("/payouts/destinations", async (req, res) => {
        * for someone who accepted them a month ago.
        */
       terms_accepted_at: merchant?.nearPayoutTermsAt?.toISOString() ?? null,
+      /**
+       * Whether the button does anything, decided by the server.
+       *
+       * The browser cannot know: the flag, the mode and the allowlist all
+       * live here. A client guessing would eventually guess "enabled" on a
+       * deployment where it is not, and the creator would meet the refusal
+       * after filling the form instead of before.
+       */
+      execution_enabled: payoutsEnabled({ isTestMode: scope.isTestMode, merchantId: dbId }),
+      execution_closed_reason: payoutsClosedReason({ isTestMode: scope.isTestMode, merchantId: dbId }),
       /**
        * Said once, here, so the UI never has to hardcode a fee it might
        * outlive. 1bp with a key, 25bp without — and a deployment that lost
@@ -4081,5 +4097,254 @@ portalRouter.post("/payouts/accept-terms", async (req, res) => {
     return ok(res, { accepted_at: at.toISOString(), already: false });
   } catch (e) {
     return serverError(res, "portal/payouts/accept-terms", e, "We couldn't record that.");
+  }
+});
+
+// ─── POST /portal/payouts/execute ─────────────────────────────────────────────
+//
+// THE ONLY ROUTE HERE THAT MOVES MONEY. It takes a real quote, writes the
+// record BEFORE the transfer is offered, and hands back a Circle challenge.
+//
+// The order matters and is the point: if the row were written after the
+// transfer, a browser closed in between would leave USDC sitting at a deposit
+// address nothing in this system knows about. Writing first means the worst
+// case is a row that never gets a deposit, which the poller closes by itself.
+
+const executeSchema = z.object({
+  from: z.string().trim().toUpperCase(),
+  to: z.string().trim().toLowerCase(),
+  asset: z.enum(PAYOUT_SYMBOLS),
+  amount: z
+    .string()
+    .regex(/^\d+(\.\d+)?$/, "Invalid amount")
+    .refine((v) => parseFloat(v) > 0, "Amount must be positive"),
+  recipient: z.string().trim().min(2).max(120),
+});
+
+portalRouter.post(
+  "/payouts/execute",
+  requireStepUp("payout.withdraw"),
+  async (req, res) => {
+    const dbId = (req as PortalRequest).merchantDbId;
+    const scope = portalScope(req);
+
+    // The flag first, before anything is quoted or read. A refusal should cost
+    // nothing and reach the creator before they have waited for a network.
+    const closed = payoutsClosedReason({ isTestMode: scope.isTestMode, merchantId: dbId });
+    if (closed) return err(res, closed, 403, "payouts_disabled");
+
+    const parsed = executeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return validationError(
+        res,
+        Object.fromEntries(
+          Object.entries(parsed.error.flatten().fieldErrors).map(([k, v]) => [k, v?.[0] ?? "Invalid"]),
+        ),
+      );
+    }
+    const { from, to, asset, amount, recipient } = parsed.data;
+    const fromSlug = oneClickChainFor(from);
+    if (!fromSlug) return err(res, `We don't settle on ${from}.`, 400);
+
+    try {
+      const merchant = await withRetry(() =>
+        prisma.merchant.findUniqueOrThrow({
+          where: { id: dbId },
+          select: { ...WALLET_SELECT, nearPayoutTermsAt: true },
+        }),
+      );
+
+      // The terms are a precondition, not a formality. A creator who has not
+      // accepted them cannot have been shown the finality warning.
+      if (!merchant.nearPayoutTermsAt) {
+        return err(res, "Accept the cross-chain payout terms first.", 409, "terms_required");
+      }
+
+      const w = walletFor(merchant, scope.isTestMode);
+      if (w.type !== "circle" || !w.circleWalletId) {
+        return err(res, "This path needs a Sweep-held payout wallet.", 409, "no_circle_wallet");
+      }
+      const refundTo = w.address;
+      if (!refundTo) return err(res, "Set up your payout wallet first.", 409, "no_payout_wallet");
+
+      /**
+       * The chain's own wallet record and token id, and a balance check
+       * against THAT chain.
+       *
+       * Under direct settlement each chain is a separate Circle wallet with
+       * the same address, so "the" wallet is not a thing — and a transfer
+       * naming the wrong one fails after the creator has entered their PIN.
+       */
+      const multi = await readCreatorWalletChains(dbId);
+      if (!multi.ok) {
+        return err(res, "We couldn't check your balance just now. Try again shortly.", 503, "balance_unavailable");
+      }
+      const chosen = multi.chains.find((c) => c.blockchain === from);
+      if (!chosen || !chosen.read) {
+        return err(res, `We couldn't read your ${from} balance just now.`, 503, "balance_unavailable");
+      }
+      if (chosen.usdc < parseUsdc(amount)) {
+        return err(
+          res,
+          `Insufficient balance on ${from}. Available: ${formatUsdc(chosen.usdc)} USDC`,
+          400,
+        );
+      }
+      const chainRead = await getCircleWalletBalances(chosen.walletId);
+      if (!chainRead.ok) {
+        return err(res, "We couldn't check your balance just now. Try again shortly.", 503, "balance_unavailable");
+      }
+      const token = chainRead.balances.find((b) => b.token.symbol === "USDC");
+      if (!token) return err(res, `No USDC on ${from} to withdraw.`, 404, "no_balance");
+
+      // Only now, with everything else verified, do we take a quote that
+      // returns somewhere to pay.
+      const live = await openPayout({
+        fromChain: fromSlug,
+        toChain: to,
+        symbol: asset,
+        amount,
+        recipient,
+        refundTo,
+      });
+      if (!live.ok) return err(res, live.why, 422, "no_route");
+      const q = live.quote;
+
+      const payout = await withRetry(() =>
+        prisma.crossChainPayout.create({
+          data: {
+            payoutId: `cxp_${randomBytes(9).toString("hex")}`,
+            merchantId: dbId,
+            isTestMode: scope.isTestMode,
+            fromChain: fromSlug,
+            toChain: to,
+            asset,
+            amount: parseUsdc(amount),
+            recipient,
+            refundTo,
+            depositAddress: q.depositAddress,
+            depositMemo: q.depositMemo,
+            quotedOut: parseUsdc(q.amountOut),
+            minOut: parseUsdc(q.minAmountOut),
+            withdrawFee: parseUsdc(q.withdrawFee),
+            deadline: new Date(q.deadline),
+            inactiveAt: q.timeWhenInactive ? new Date(q.timeWhenInactive) : null,
+            status: "created",
+          },
+        }),
+      );
+
+      const { userToken, encryptionKey } = await getCircleUserToken(dbId);
+      const { challengeId } = await createCircleTransferChallenge(
+        userToken,
+        chosen.walletId,
+        token.token.id,
+        q.depositAddress,
+        amount,
+      );
+
+      await withRetry(() =>
+        prisma.crossChainPayout.update({
+          where: { id: payout.id },
+          data: { status: "depositing" },
+        }),
+      );
+
+      console.log(
+        `[portal/payouts] ${dbId} ${payout.payoutId} ${amount} USDC ${fromSlug}→${to}/${asset}`,
+      );
+      return ok(res, {
+        payout_id: payout.payoutId,
+        userToken,
+        encryptionKey,
+        challengeId,
+        appId: process.env.NEXT_PUBLIC_CIRCLE_APP_ID,
+        quote: payoutView(payout),
+      });
+    } catch (e) {
+      return serverError(res, "portal/payouts/execute", e, "We couldn't start that payout.");
+    }
+  },
+);
+
+// ─── POST /portal/payouts/:id/deposited ───────────────────────────────────────
+//
+// The browser reporting that Circle accepted the PIN. Advisory only — the
+// poller would reach the same conclusion from 1Click — but it moves the row
+// off "depositing" immediately, so a creator who closes the tab has a record
+// that already says the money left.
+
+portalRouter.post("/payouts/:id/deposited", async (req, res) => {
+  const dbId = (req as unknown as PortalRequest).merchantDbId;
+  try {
+    const row = await withRetry(() =>
+      prisma.crossChainPayout.findFirst({
+        where: { payoutId: String(req.params.id), merchantId: dbId },
+      }),
+    );
+    if (!row) return err(res, "No such payout.", 404);
+    if (row.status !== "created" && row.status !== "depositing") {
+      return ok(res, { payout: payoutView(row) });
+    }
+    const updated = await withRetry(() =>
+      prisma.crossChainPayout.update({
+        where: { id: row.id },
+        data: { status: "pending_deposit", depositedAt: new Date() },
+      }),
+    );
+    return ok(res, { payout: payoutView(updated) });
+  } catch (e) {
+    return serverError(res, "portal/payouts/deposited", e, "We couldn't update that payout.");
+  }
+});
+
+// ─── GET /portal/payouts/:id ──────────────────────────────────────────────────
+//
+// Refreshes from 1Click on the way past, because the creator is watching this
+// one right now and a minute of cron latency is the difference between a
+// progress indicator and a frozen screen.
+
+portalRouter.get("/payouts/:id", async (req, res) => {
+  const dbId = (req as unknown as PortalRequest).merchantDbId;
+  try {
+    const row = await withRetry(() =>
+      prisma.crossChainPayout.findFirst({
+        where: { payoutId: String(req.params.id), merchantId: dbId },
+      }),
+    );
+    if (!row) return err(res, "No such payout.", 404);
+    const fresh = await recordPayoutProgress(row).catch(() => row);
+    return ok(res, { payout: payoutView(fresh) });
+  } catch (e) {
+    return serverError(res, "portal/payouts/:id", e, "We couldn't check that payout.");
+  }
+});
+
+// ─── GET /portal/payouts ──────────────────────────────────────────────────────
+//
+// The list the dashboard's recent activity reads. Not refreshed per row: a
+// list of five would mean five upstream calls on every dashboard load, and
+// the poller is already keeping them current.
+
+portalRouter.get("/payouts", async (req, res) => {
+  const limit = Number(req.query.limit);
+  const take = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 100) : 20;
+  try {
+    const rows = await withRetry(() =>
+      prisma.crossChainPayout.findMany({
+        where: {
+          merchantId: (req as PortalRequest).merchantDbId,
+          isTestMode: portalScope(req).isTestMode,
+          // A quote nobody acted on is not activity. Only rows where a
+          // transfer was at least offered belong in a creator's history.
+          status: { not: "created" },
+        },
+        orderBy: { createdAt: "desc" },
+        take,
+      }),
+    );
+    return ok(res, rows.map(payoutView));
+  } catch (e) {
+    return serverError(res, "portal/payouts", e, "We couldn't load your cross-chain payouts.");
   }
 });

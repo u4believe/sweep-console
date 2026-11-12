@@ -299,7 +299,16 @@ const TAG_BY_STATUS: Record<string, string> = {
   trialing: "tag-outline",
   pending: "tag-outline",
   past_due: "tag-outline",
-  failed: "tag-outline",
+  // Money that did not arrive reads differently from money still on its way.
+  // These shared `tag-outline` with `pending`, which is the one confusion a
+  // status tag must not create.
+  failed: "tag-danger",
+  stranded: "tag-danger",
+  // Cross-chain payouts in flight. Unmapped they fell to `tag-neutral`, the
+  // same grey as `cancelled` — a payout mid-delivery reading as a dead one.
+  pending_deposit: "tag-outline",
+  processing: "tag-outline",
+  depositing: "tag-outline",
   cancelled: "tag-neutral",
   canceled: "tag-neutral",
   refunded: "tag-neutral",

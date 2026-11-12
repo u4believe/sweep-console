@@ -63,7 +63,26 @@ interface Withdrawal {
   createdAt: string;
 }
 
-/** One row of the activity table, from either source. */
+/**
+ * A cross-chain payout, as the activity list needs it.
+ *
+ * Carried separately from Withdrawal because the two fail differently. A
+ * Circle withdrawal is done when the chain confirms it; a cross-chain payout
+ * can confirm on the origin chain and still never arrive — which is exactly
+ * the case this row exists to make visible.
+ */
+interface CrossChainPayout {
+  id: string;
+  status: string;
+  toLabel: string;
+  asset: string;
+  amount: string | null;
+  depositTxHash: string | null;
+  depositExplorerUrl: string | null;
+  createdAt: string;
+}
+
+/** One row of the activity table, from any source. */
 type ActivityRow = {
   key: string;
   amount: number;
@@ -303,6 +322,7 @@ export function DashboardPage() {
   const [chartPayments, setChartPayments] = useState<Payment[]>([]);
   const [recent, setRecent] = useState<Payment[]>([]);
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [payouts, setPayouts] = useState<CrossChainPayout[]>([]);
   /**
    * Payments and payouts in one list, newest first, trimmed to five.
    *
@@ -337,6 +357,27 @@ export function DashboardPage() {
       createdAt: w.createdAt,
       txHash: w.txHash,
       explorerUrl: w.explorerUrl,
+      outgoing: true,
+    })),
+    /**
+     * Cross-chain payouts, which Circle's webhook cannot describe.
+     *
+     * The deposit leg confirms on the origin chain like any other
+     * withdrawal — so without this row, a payout that left the wallet and
+     * never arrived would appear in this very table as a SUCCESSFUL
+     * withdrawal. The destination is put in the Plan column because that is
+     * the question a creator asks of a payout: not which plan, but where did
+     * it go.
+     */
+    ...payouts.map((p) => ({
+      key: `x_${p.id}`,
+      amount: Math.round(Number(p.amount ?? 0) * 1_000_000),
+      kind: "payout",
+      status: p.status,
+      plan: `→ ${p.toLabel} ${p.asset}`,
+      createdAt: p.createdAt,
+      txHash: p.depositTxHash,
+      explorerUrl: p.depositExplorerUrl,
       outgoing: true,
     })),
   ]
@@ -397,6 +438,28 @@ export function DashboardPage() {
         );
       })
       .catch(() => { /* the activity list degrades to payments only */ });
+
+    // Cross-chain payouts. Empty until the path is enabled, so this costs a
+    // 200 with no rows rather than being conditional on a flag the browser
+    // would have to learn first.
+    fetch(`${API_URL}/portal/payouts?limit=5`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((json: { data?: Array<Record<string, unknown>> }) => {
+        if (!json.data) return;
+        setPayouts(
+          json.data.map((p) => ({
+            id: String(p.id),
+            status: String(p.status ?? ""),
+            toLabel: String(p.to_label ?? ""),
+            asset: String(p.asset ?? "USDC"),
+            amount: (p.amount as string | null) ?? null,
+            depositTxHash: (p.deposit_tx_hash as string | null) ?? null,
+            depositExplorerUrl: (p.deposit_explorer_url as string | null) ?? null,
+            createdAt: String(p.created_at),
+          }))
+        );
+      })
+      .catch(() => { /* the activity list degrades to payments and withdrawals */ });
 
     fetch(`${API_URL}/portal/payments?limit=5`, { credentials: "include" })
       .then((r) => r.json())

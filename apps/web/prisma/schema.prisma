@@ -91,6 +91,7 @@ model Merchant {
   /// Null for everyone until they first use the path, which is what makes the
   /// boxes appear exactly once.
   nearPayoutTermsAt    DateTime?
+  crossChainPayouts    CrossChainPayout[]
   pendingWalletAddress String? // address awaiting signature verification
   pendingWalletIsTestMode Boolean? // which mode the pending verification is for
   walletNonce          String? // nonce the merchant must sign with the pending wallet
@@ -1065,4 +1066,78 @@ model IdempotencyKey {
 
   @@unique([merchantId, key])
   @@map("idempotency_keys")
+}
+
+/// A withdrawal routed through NEAR Intents to a chain we do not settle on.
+///
+/// THE ROW IS WRITTEN BEFORE THE MONEY MOVES, which is the whole reason this
+/// model exists rather than leaning on WalletWithdrawal. A cross-chain payout
+/// has two legs: USDC leaves the creator's wallet to a one-time deposit
+/// address, and a solver delivers on the far chain. Circle's webhook sees only
+/// the first, so a deposit that is never filled looks — in every screen we
+/// have — like a withdrawal that succeeded. Recording the intent up front is
+/// what makes the difference between "sent" and "arrived" expressible at all.
+///
+/// The deposit address is the join key back to 1Click: it is issued per quote,
+/// single-use, and goes inactive a few days later, so it identifies exactly
+/// one payout for exactly as long as that payout can still move.
+model CrossChainPayout {
+  id         String   @id @default(cuid())
+  payoutId   String   @unique /// "cxp_…", the id a creator sees
+  merchantId String
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  isTestMode Boolean
+
+  /// What was asked for. `fromChain` is our key ("base"), `toChain` is
+  /// 1Click's slug ("sol") — deliberately not normalised to one vocabulary,
+  /// because each half is only ever spoken to the system that uses it.
+  fromChain String
+  toChain   String
+  asset     String /// USDC | USDT, as delivered
+  amount    BigInt /// micro-USDC leaving the wallet
+  recipient String
+  /// Where a failed route sends the money back to: the creator's own payout
+  /// wallet on the ORIGIN chain, never the recipient they typed.
+  refundTo  String
+
+  /// What the quote promised, kept so a delivered amount can be compared
+  /// against what was agreed rather than against nothing.
+  depositAddress String    @unique
+  depositMemo    String? /// some chains require one; absent means none
+  quotedOut      BigInt
+  minOut         BigInt
+  withdrawFee    BigInt
+  deadline       DateTime
+  /// When the deposit address stops accepting a deposit at all. Past this
+  /// with no deposit seen, the payout is dead rather than slow.
+  inactiveAt     DateTime?
+
+  /// created → depositing → pending_deposit → processing → succeeded
+  ///                                                     ↘ refunded | failed
+  ///                                                     ↘ stranded
+  ///
+  /// `stranded` is ours, not 1Click's: the deposit left the wallet and the
+  /// route never reached a terminal state before the address went inactive.
+  /// It exists because that is the case a creator most needs told about, and
+  /// the one no upstream status will ever report.
+  status        String  @default("created")
+  /// 1Click's own last word, kept verbatim beside our mapping so a status
+  /// they add later is visible instead of silently becoming "processing".
+  upstreamStatus String?
+  failureReason String?
+
+  /// Leg one: the Circle transfer out of the creator's wallet.
+  circleTxHash String?
+  /// Leg two: what the solver delivered, and where.
+  destinationTxHash String?
+  amountOut         BigInt?
+
+  createdAt   DateTime  @default(now())
+  depositedAt DateTime?
+  settledAt   DateTime?
+  /// When the poller last asked. Null means never asked.
+  checkedAt   DateTime?
+
+  @@index([merchantId, isTestMode, createdAt])
+  @@index([status, createdAt])
 }

@@ -5,6 +5,7 @@ import { reconcileMandatesOnce } from "./reconcile-mandates";
 import { runMandateExpiryOnce } from "./mandate-expiry";
 import { revokeOrphanGrantsOnce } from "../lib/subscriptions/orphan-grants";
 import { checkRelayerDelegationsOnce } from "./delegation-watch";
+import { pollCrossChainPayoutsOnce } from "./payout-watch";
 
 // Registers every billing cron job. Pure side-effect-on-call (no auto-start on
 // import) so it can be driven from TWO places without double-registering:
@@ -102,6 +103,25 @@ export function startBillingEngine(): void {
   cron.schedule("*/10 * * * *", async () => {
     await checkRelayerDelegationsOnce().catch((e) =>
       console.error("[cron] delegationWatch error:", e)
+    );
+  });
+
+  /**
+   * Cross-chain payouts, every minute.
+   *
+   * Far more often than anything else here, and deliberately: these routes
+   * settle in 30-90 seconds, so a ten-minute cadence would mean a creator
+   * who closed the tab sees "processing" for ten minutes after the money has
+   * already landed. It is also the only job that can discover a STRANDED
+   * payout — a deposit that left the wallet and never arrived — which no
+   * upstream status will ever report on its own.
+   *
+   * Cheap: one call per payout still in flight, and there are rarely more
+   * than a handful. A terminal payout is never asked about again.
+   */
+  cron.schedule("* * * * *", async () => {
+    await pollCrossChainPayoutsOnce().catch((e) =>
+      console.error("[cron] crossChainPayouts error:", e)
     );
   });
 
