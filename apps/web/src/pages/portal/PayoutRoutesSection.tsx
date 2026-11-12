@@ -109,6 +109,19 @@ export function PayoutRoutesSection() {
    */
   const [agreed, setAgreed] = useState<Record<string, boolean>>({});
   const allAgreed = POLICIES.every((p) => agreed[p.id]);
+  /**
+   * When this creator accepted the terms — null until they have, undefined
+   * until we know.
+   *
+   * Held on the merchant, not in this browser: the agreement should survive a
+   * new laptop and a cleared cache, and "they ticked it once" is a weaker
+   * record than the date they did. undefined suppresses the boxes while the
+   * answer is in flight, so they never flash up for someone who agreed months
+   * ago.
+   */
+  const [acceptedAt, setAcceptedAt] = useState<string | null | undefined>(undefined);
+  /** Opens the accepted terms for re-reading. Agreed is not forgotten. */
+  const [reviewing, setReviewing] = useState(false);
 
   useEffect(() => {
     fetch(`${API_URL}/portal/wallet/circle/balance`, { credentials: "include" })
@@ -143,6 +156,7 @@ export function PayoutRoutesSection() {
             destinations?: Destination[];
             unavailable?: Unavailable[];
             partner_key?: boolean;
+            terms_accepted_at?: string | null;
           };
           error?: { message?: string };
         }) => {
@@ -154,6 +168,7 @@ export function PayoutRoutesSection() {
           setDests(j.data?.destinations ?? []);
           setUnavailable(j.data?.unavailable ?? []);
           setPartnerKey(j.data?.partner_key !== false);
+          setAcceptedAt(j.data?.terms_accepted_at ?? null);
         },
       )
       .catch(() => setListErr("We couldn't reach the payout network just now."));
@@ -219,16 +234,48 @@ export function PayoutRoutesSection() {
     if (timer.current) clearTimeout(timer.current);
     if (!ready) {
       setQuote(null);
-      setAgreed({});
+      if (!acceptedAt) setAgreed({});
       return;
     }
     setQuote(null);
-    setAgreed({});
+    // Ticks reset with the price only while the agreement is still being
+    // asked for. Once it is recorded there is nothing to re-ask, and clearing
+    // them would put the boxes back in front of someone who is done with them.
+    if (!acceptedAt) setAgreed({});
     timer.current = setTimeout(() => void runQuote(), 600);
     return () => {
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [ready, runQuote]);
+  }, [ready, runQuote, acceptedAt]);
+
+  /**
+   * The fourth tick IS the acceptance; there is no separate "I agree" button.
+   *
+   * Recorded the moment it happens rather than on submit, because submit does
+   * not exist yet and a creator who ticked all four has already done the
+   * thing we are asking them to do. Optimistic: the boxes collapse
+   * immediately, and a failed write leaves them shown rather than claiming an
+   * agreement the server never stored.
+   */
+  useEffect(() => {
+    if (!allAgreed || acceptedAt !== null) return;
+    let live = true;
+    void (async () => {
+      try {
+        const res = await fetch(`${API_URL}/portal/payouts/accept-terms`, {
+          method: "POST",
+          credentials: "include",
+        });
+        const j = (await res.json()) as { data?: { accepted_at?: string } };
+        if (live && res.ok && j.data?.accepted_at) setAcceptedAt(j.data.accepted_at);
+      } catch {
+        /* Left unaccepted, so the boxes stay and it can be tried again. */
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [allAgreed, acceptedAt]);
 
   const funded = (balance?.chains ?? []).filter((c) => c.read);
   const srcLabel = from ? chainLabel(from) : "";
@@ -425,69 +472,140 @@ export function PayoutRoutesSection() {
             {/* AFTER the price, not before it. Terms shown first are terms
                 read before there is anything to judge them against; a
                 creator can only agree that 99.97 may arrive short once they
-                have seen the 99.97. */}
-            <fieldset
-              style={{
-                marginTop: 30,
-                border: "1px solid var(--color-divider)",
-                borderRadius: "var(--radius-md)",
-                padding: "14px 16px",
-                maxWidth: 520,
-                margin: 0,
-              }}
-            >
-              <legend
-                className="uppercase"
-                style={{
-                  fontSize: 10.5,
-                  fontWeight: 700,
-                  letterSpacing: "0.08em",
-                  color: "var(--color-neutral-700)",
-                  padding: "0 6px",
-                }}
-              >
-                Before you withdraw
-              </legend>
-              {POLICIES.map((p) => (
-                <label
-                  key={p.id}
-                  htmlFor={`pr-ack-${p.id}`}
-                  className="flex gap-2.5"
-                  style={{ fontSize: 12.5, lineHeight: 1.45, marginTop: 8, cursor: "pointer" }}
-                >
-                  <input
-                    id={`pr-ack-${p.id}`}
-                    type="checkbox"
-                    checked={Boolean(agreed[p.id])}
-                    onChange={(e) =>
-                      setAgreed((prev) => ({ ...prev, [p.id]: e.target.checked }))
-                    }
-                    style={{ marginTop: 2, flex: "none", accentColor: "var(--color-accent)" }}
-                  />
-                  <span>{p.text}</span>
-                </label>
-              ))}
-            </fieldset>
+                have seen the 99.97.
 
-            {/* A button that cannot work is worse than no button, so this
-                says which it is. Enabled-looking-but-dead is how a creator
-                concludes the product is broken rather than early. */}
-            <div className="mt-4 flex items-center gap-3">
-              <button
-                type="button"
-                className="btn btn-primary"
-                style={{ padding: "8px 14px", fontSize: 12.5 }}
-                disabled
-                title="Cross-chain withdrawals aren't enabled yet"
-              >
-                Withdraw to {dstLabel}
-              </button>
-              <span style={{ fontSize: 11.5, color: "var(--color-neutral-600)" }}>
-                {allAgreed
-                  ? "Not enabled yet — this path quotes only for now."
-                  : `Tick all four to continue (${POLICIES.filter((p) => agreed[p.id]).length} of ${POLICIES.length}).`}
-              </span>
-            </div>
+                And ONCE. The boxes are a first-use gate, not a per-withdrawal
+                ritual — a checkbox that reappears every time stops being read
+                by the third time it does, which defeats the only thing it was
+                for. What replaces it is a line naming the date, so the
+                agreement stays visible without being re-demanded. */}
+            {acceptedAt === undefined ? null : acceptedAt === null ? (
+              <>
+                <fieldset
+                  style={{
+                    marginTop: 30,
+                    border: "1px solid var(--color-divider)",
+                    borderRadius: "var(--radius-md)",
+                    padding: "14px 16px",
+                    maxWidth: 520,
+                  }}
+                >
+                  <legend
+                    className="uppercase"
+                    style={{
+                      fontSize: 10.5,
+                      fontWeight: 700,
+                      letterSpacing: "0.08em",
+                      color: "var(--color-neutral-700)",
+                      padding: "0 6px",
+                    }}
+                  >
+                    Before your first cross-chain withdrawal
+                  </legend>
+                  {POLICIES.map((p) => (
+                    <label
+                      key={p.id}
+                      htmlFor={`pr-ack-${p.id}`}
+                      className="flex gap-2.5"
+                      style={{ fontSize: 12.5, lineHeight: 1.45, marginTop: 8, cursor: "pointer" }}
+                    >
+                      <input
+                        id={`pr-ack-${p.id}`}
+                        type="checkbox"
+                        checked={Boolean(agreed[p.id])}
+                        onChange={(e) =>
+                          setAgreed((prev) => ({ ...prev, [p.id]: e.target.checked }))
+                        }
+                        style={{ marginTop: 2, flex: "none", accentColor: "var(--color-accent)" }}
+                      />
+                      <span>{p.text}</span>
+                    </label>
+                  ))}
+                  <p className="m-0 mt-3" style={{ fontSize: 11.5, color: "var(--color-neutral-600)" }}>
+                    You'll only be asked this once.
+                  </p>
+                </fieldset>
+
+                <div className="mt-4 flex items-center gap-3">
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ padding: "8px 14px", fontSize: 12.5 }}
+                    disabled
+                    title="Cross-chain withdrawals aren't enabled yet"
+                  >
+                    Withdraw to {dstLabel}
+                  </button>
+                  <span style={{ fontSize: 11.5, color: "var(--color-neutral-600)" }}>
+                    Tick all four to continue ({POLICIES.filter((p) => agreed[p.id]).length} of{" "}
+                    {POLICIES.length}).
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mt-5 flex items-center gap-3">
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ padding: "8px 14px", fontSize: 12.5 }}
+                    disabled
+                    title="Cross-chain withdrawals aren't enabled yet"
+                  >
+                    Withdraw to {dstLabel}
+                  </button>
+                  <span style={{ fontSize: 11.5, color: "var(--color-neutral-600)" }}>
+                    Not enabled yet — this path quotes only for now.
+                  </span>
+                </div>
+
+                {/* The agreement stays readable without being re-demanded.
+                    A creator who wants to check what they agreed to can; one
+                    who does not is not made to tick it again. */}
+                <p className="m-0 mt-3" style={{ fontSize: 11.5, color: "var(--color-neutral-600)" }}>
+                  Payout terms accepted{" "}
+                  {new Date(acceptedAt).toLocaleDateString(undefined, {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                  .{" "}
+                  <button
+                    type="button"
+                    onClick={() => setReviewing((v) => !v)}
+                    style={{
+                      font: "inherit",
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      color: "var(--color-accent)",
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    {reviewing ? "Hide" : "Review"}
+                  </button>
+                </p>
+                {reviewing && (
+                  <ul
+                    className="m-0 mt-2"
+                    style={{
+                      fontSize: 12,
+                      lineHeight: 1.5,
+                      color: "var(--color-neutral-700)",
+                      maxWidth: 520,
+                      paddingLeft: 18,
+                    }}
+                  >
+                    {POLICIES.map((p) => (
+                      <li key={p.id} style={{ marginTop: 4 }}>
+                        {p.text}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
           </>
         ) : null}
       </div>

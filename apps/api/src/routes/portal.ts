@@ -3955,10 +3955,22 @@ portalRouter.post(
 
 portalRouter.get("/payouts/destinations", async (req, res) => {
   const from = typeof req.query.from === "string" ? req.query.from : "";
+  const dbId = (req as PortalRequest).merchantDbId;
   try {
-    const list = await nearDestinations(oneClickChainFor(from) ?? undefined);
+    const [list, merchant] = await Promise.all([
+      nearDestinations(oneClickChainFor(from) ?? undefined),
+      withRetry(() =>
+        prisma.merchant.findUnique({ where: { id: dbId }, select: { nearPayoutTermsAt: true } }),
+      ),
+    ]);
     return ok(res, {
       destinations: list,
+      /**
+       * Sent with the list the panel already fetches, so the terms do not
+       * cost a second round-trip — and so the boxes never flash on screen
+       * for someone who accepted them a month ago.
+       */
+      terms_accepted_at: merchant?.nearPayoutTermsAt?.toISOString() ?? null,
       /**
        * Said once, here, so the UI never has to hardcode a fee it might
        * outlive. 1bp with a key, 25bp without — and a deployment that lost
@@ -4036,5 +4048,38 @@ portalRouter.post("/payouts/quote", async (req, res) => {
     return ok(res, { quote: result.quote, from, to, asset });
   } catch (e) {
     return serverError(res, "portal/payouts/quote", e, "We couldn't price that payout.");
+  }
+});
+
+// ─── POST /portal/payouts/accept-terms ────────────────────────────────────────
+
+/**
+ * Record that this merchant has accepted the cross-chain payout terms.
+ *
+ * IDEMPOTENT, AND FIRST WRITE WINS. Re-accepting does not move the date: the
+ * date is the evidence, and overwriting it on every later visit would erase
+ * exactly the fact worth keeping. A creator who wants to see the terms again
+ * reads them; they do not re-sign them.
+ */
+portalRouter.post("/payouts/accept-terms", async (req, res) => {
+  const dbId = (req as PortalRequest).merchantDbId;
+  try {
+    const existing = await withRetry(() =>
+      prisma.merchant.findUniqueOrThrow({
+        where: { id: dbId },
+        select: { nearPayoutTermsAt: true },
+      }),
+    );
+    if (existing.nearPayoutTermsAt) {
+      return ok(res, { accepted_at: existing.nearPayoutTermsAt.toISOString(), already: true });
+    }
+    const at = new Date();
+    await withRetry(() =>
+      prisma.merchant.update({ where: { id: dbId }, data: { nearPayoutTermsAt: at } }),
+    );
+    console.log(`[portal/payouts] ${dbId} accepted the cross-chain payout terms`);
+    return ok(res, { accepted_at: at.toISOString(), already: false });
+  } catch (e) {
+    return serverError(res, "portal/payouts/accept-terms", e, "We couldn't record that.");
   }
 });

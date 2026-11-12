@@ -79,6 +79,18 @@ model Merchant {
   // more columns for a state that exists for minutes. One flag records which
   // mode the pending address belongs to, so a verification begun in test
   // cannot be completed into the live slot.
+  /// When this merchant accepted the cross-chain payout terms, if they have.
+  ///
+  /// A TIMESTAMP RATHER THAN A FLAG, and on the merchant rather than in the
+  /// browser, because this records an agreement and not a UI preference. A
+  /// creator who accepted that a payout is final and unrecoverable should
+  /// still have accepted it from their phone, from a new laptop, and after
+  /// clearing their site data — and if it is ever disputed, "they ticked it"
+  /// is a weaker answer than the date they did.
+  ///
+  /// Null for everyone until they first use the path, which is what makes the
+  /// boxes appear exactly once.
+  nearPayoutTermsAt    DateTime?
   pendingWalletAddress String? // address awaiting signature verification
   pendingWalletIsTestMode Boolean? // which mode the pending verification is for
   walletNonce          String? // nonce the merchant must sign with the pending wallet
