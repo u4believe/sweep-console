@@ -21,10 +21,12 @@ import "dotenv/config";
  *      Optimism or Monad, while the live token list has all four — Optimism
  *      and Monad through a different bridge, which is worth knowing before
  *      relying on them.
- *   2. The real all-in cost, which is not the quoted fee. Without a partner
- *      JWT NEAR injects its own appFees, so a quote taken now prices the
- *      route as an unregistered integrator sees it. That is the honest number
- *      to design against until the JWT exists.
+ *   2. The route cost — the spread and the destination withdrawal fee — which
+ *      is NOT the all-in cost. 1Click's own spread fee is charged at
+ *      execution and does not appear in a dry quote: the same pair quotes
+ *      identically with and without an API key (measured, to six decimals).
+ *      So every number here is a route cost, and `feeNote()` below says what
+ *      execution adds on top of it.
  *   3. Whether a route is quotable at all. Coverage follows solver inventory
  *      rather than a protocol whitelist, so a thinly traded leg can simply
  *      return nothing — and that is a product decision, not an error.
@@ -325,6 +327,32 @@ async function matrix(amount: number, fromChain: string): Promise<void> {
     console.log(`\n  cheapest: ${priced.slice(0, 5).map((p) => `${p.chain}/${p.sym} ${p.cost.toFixed(4)}`).join("  ")}`);
     console.log(`  dearest:  ${priced.slice(-3).map((p) => `${p.chain}/${p.sym} ${p.cost.toFixed(4)}`).join("  ")}`);
   }
+
+  feeNote();
+}
+
+/**
+ * What execution adds to every row above.
+ *
+ * A dry quote prices the ROUTE: the solver's spread plus the destination
+ * withdrawal fee. It does not price 1Click's own cut, which is taken at
+ * execution — the same pair quotes to the same six decimals with and without
+ * a key, so nothing below can be read off the table.
+ *
+ * Per NEAR's published schedule, that cut is 25bps for an unauthenticated
+ * caller and 1bp on stablecoin pairs for a keyed one. Our payouts are
+ * stablecoin-only, so the key is the difference between 25bps and 1bp on
+ * every withdrawal — larger than most of the route costs it sits beside, and
+ * enough to flip the negative rows positive.
+ */
+function feeNote(): void {
+  console.log(
+    JWT
+      ? `\n  Route cost only. Keyed (NEAR_1CLICK_JWT set), so execution adds ~1bp ` +
+          `(0.010%) on these stablecoin pairs.\n`
+      : `\n  Route cost only, and NO KEY IS SET — execution adds 25bp (0.250%) to ` +
+          `every row. Set NEAR_1CLICK_JWT to pay 1bp on stablecoin pairs instead.\n`
+  );
 }
 
 async function main() {
@@ -395,14 +423,7 @@ async function main() {
     );
   }
 
-  console.log(
-    JWT
-      ? `\nQuoted as a registered partner (NEAR_1CLICK_JWT set), so no appFees are ` +
-          `injected. These are the prices a creator would actually pay.\n`
-      : `\nNo partner JWT is set, so these include the appFees NEAR injects for ` +
-          `unregistered integrators. A JWT from the Partners Portal waives the protocol fee — ` +
-          `get it before pricing this for creators. Set NEAR_1CLICK_JWT and re-run.\n`
-  );
+  feeNote();
 }
 
 main();
