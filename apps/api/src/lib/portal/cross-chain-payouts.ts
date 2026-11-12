@@ -16,20 +16,40 @@ import { prisma, withRetry } from "../prisma";
 import { payoutProgress, chainLabel } from "../chain/near-intents";
 import { explorerTxUrl } from "../explorer";
 
-/** States from which nothing more will happen. */
+/**
+ * States from which nothing more will happen.
+ *
+ * `refunding` is deliberately NOT here. 1Click's contract says a short
+ * deposit "is refunded by deadline", so it is a state on the way to REFUNDED
+ * and must stay watched — stopping there would leave a creator looking at
+ * "incomplete" while their money was already on its way back.
+ */
 export const TERMINAL = ["succeeded", "refunded", "failed", "stranded"] as const;
 export const isTerminal = (status: string): boolean =>
   (TERMINAL as readonly string[]).includes(status);
 
 /**
- * How long after the deposit address goes inactive we stop hoping.
+ * How long past the deadline we keep hoping.
  *
- * 1Click's address is good for roughly three days. Past that plus this grace,
- * a payout that has not reached a terminal state is not slow — nothing is
- * coming, and continuing to show it as "processing" tells a creator to keep
- * waiting for money that will not arrive.
+ * `deadline` is the hard one — the SDK defines it as "time when the deposit
+ * address becomes inactive and funds may be lost" — while `timeWhenInactive`
+ * only means the address goes cold and processing slows. Measured, 1Click
+ * returns the same instant for both, about 72 hours out, and ignores the
+ * deadline we ask for entirely.
+ *
+ * Past that plus this grace, a payout still not finished is not slow. Nothing
+ * is coming, and leaving it as "processing" tells a creator to keep waiting
+ * for money that will not arrive.
  */
 const GRACE_MS = 60 * 60_000;
+
+/** True once the deposit window has closed with room to spare. */
+function windowClosed(row: CrossChainPayout): boolean {
+  // The deadline is authoritative; inactiveAt is the fallback for rows
+  // written before one was recorded.
+  const hard = row.deadline ?? row.inactiveAt;
+  return Boolean(hard && Date.now() > hard.getTime() + GRACE_MS);
+}
 
 /**
  * Ask 1Click about one payout and write down what it says.
@@ -49,7 +69,7 @@ export async function recordPayoutProgress(row: CrossChainPayout): Promise<Cross
      * this whole model exists for, and it is still not conclusive on its own
      * — so it is only fatal once the address can no longer be used.
      */
-    const dead = row.inactiveAt && Date.now() > row.inactiveAt.getTime() + GRACE_MS;
+    const dead = windowClosed(row);
     if (dead && row.depositedAt) {
       return withRetry(() =>
         prisma.crossChainPayout.update({
@@ -85,6 +105,37 @@ export async function recordPayoutProgress(row: CrossChainPayout): Promise<Cross
 
   const p = res.progress;
   const settled = p.status === "succeeded" || p.status === "refunded" || p.status === "failed";
+
+  /**
+   * THE CASE THAT DOES NOT ANNOUNCE ITSELF.
+   *
+   * A fresh deposit address answers 200 PENDING_DEPOSIT, not 404 — measured —
+   * and it keeps answering that forever if a deposit never reaches it. So a
+   * payout whose USDC left the wallet and never arrived produces a perfectly
+   * successful status read, every minute, for ever. Detecting it from an
+   * error would have detected it never.
+   *
+   * Past the deadline, still not finished, and money did leave: that is
+   * stranded, and only we can say so.
+   */
+  if (!settled && windowClosed(row)) {
+    const strandedNow = Boolean(row.depositedAt) && p.status !== "refunding";
+    return withRetry(() =>
+      prisma.crossChainPayout.update({
+        where: { id: row.id },
+        data: {
+          status: strandedNow ? "stranded" : "failed",
+          upstreamStatus: p.upstream,
+          checkedAt: new Date(),
+          settledAt: new Date(),
+          failureReason: strandedNow
+            ? "The deposit left your wallet but the network never completed the route, and the " +
+              "deposit window has closed. Contact support with this payout's id."
+            : "The deposit window closed before this payout was funded. No money moved.",
+        },
+      }),
+    );
+  }
 
   return withRetry(() =>
     prisma.crossChainPayout.update({

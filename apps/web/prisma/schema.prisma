@@ -1107,19 +1107,29 @@ model CrossChainPayout {
   quotedOut      BigInt
   minOut         BigInt
   withdrawFee    BigInt
+  /// THE HARD ONE: "time when the deposit address becomes inactive and funds
+  /// may be lost", per 1Click's own contract. Note it is NOT the deadline we
+  /// asked for — 1Click ignores that and returns about 72 hours (measured).
   deadline       DateTime
-  /// When the deposit address stops accepting a deposit at all. Past this
-  /// with no deposit seen, the payout is dead rather than slow.
+  /// The softer marker: when the address goes cold and processing slows.
+  /// Measured, 1Click returns the same instant as `deadline` for both, but
+  /// they are different promises and only `deadline` bounds the money.
   inactiveAt     DateTime?
 
   /// created → depositing → pending_deposit → processing → succeeded
-  ///                                                     ↘ refunded | failed
-  ///                                                     ↘ stranded
+  ///                                         ↘ refunding  → refunded
+  ///                                                      ↘ failed
+  ///                                                      ↘ stranded
+  ///
+  /// `refunding` is a short deposit on its way back: 1Click's contract says a
+  /// deposit below `minAmountIn` "is refunded by deadline", so it resolves to
+  /// `refunded` and must not be treated as an ending.
   ///
   /// `stranded` is ours, not 1Click's: the deposit left the wallet and the
-  /// route never reached a terminal state before the address went inactive.
-  /// It exists because that is the case a creator most needs told about, and
-  /// the one no upstream status will ever report.
+  /// route never completed before the deadline. It exists because no upstream
+  /// status will ever report it — a deposit address that never receives
+  /// anything answers PENDING_DEPOSIT for ever, so the absence has to be
+  /// inferred from the clock, and we are the only party holding both facts.
   status        String  @default("created")
   /// 1Click's own last word, kept verbatim beside our mapping so a status
   /// they add later is visible instead of silently becoming "processing".

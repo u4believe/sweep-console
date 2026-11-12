@@ -419,7 +419,13 @@ export async function openPayout(input: {
         refundTo: input.refundTo,
         refundType: "ORIGIN_CHAIN",
         recipient: input.recipient.trim(),
-        recipientType: "DESTINATION_CHAIN",
+        /**
+         * ADVISORY. 1Click overrides it: asked for 30 minutes, it returns
+         * about 72 hours, and sets `timeWhenInactive` to the same instant
+         * (measured). So the window a payout really has is whatever comes
+         * back, which is why the record stores the response's value and never
+         * this one.
+         */
         deadline: new Date(Date.now() + 30 * 60_000).toISOString(),
       }),
     });
@@ -469,7 +475,7 @@ export type UpstreamStatus =
 export type PayoutProgress = {
   upstream: UpstreamStatus | string;
   /** Our mapping of it; see the schema comment on CrossChainPayout.status. */
-  status: "pending_deposit" | "processing" | "succeeded" | "refunded" | "failed";
+  status: "pending_deposit" | "processing" | "refunding" | "succeeded" | "refunded" | "failed";
   destinationTxHash: string | null;
   depositTxHash: string | null;
   amountOutMicro: bigint | null;
@@ -479,10 +485,14 @@ export type PayoutProgress = {
 /**
  * Where a payout has got to.
  *
- * `INCOMPLETE_DEPOSIT` maps to failed rather than pending: it means a deposit
- * arrived for less than the quote asked, which no amount of waiting fixes.
- * The refund path is 1Click's, and REFUNDED is its own terminal state so the
- * creator is told their money came back rather than that it was lost.
+ * `INCOMPLETE_DEPOSIT` is NOT an ending, which is the correction that matters
+ * most here. The SDK's own contract says a deposit below `minAmountIn` "is
+ * refunded by deadline" — so it is a state on the way to REFUNDED, and
+ * calling it failed would tell a creator their money was lost at the exact
+ * moment it was being sent back. It maps to `refunding` and stays watched.
+ *
+ * REFUNDED is the ending that follows, and is kept distinct from FAILED for
+ * the same reason: refunded money is back in the creator's wallet.
  */
 export async function payoutProgress(
   depositAddress: string,
@@ -528,7 +538,7 @@ export async function payoutProgress(
     SUCCESS: "succeeded",
     REFUNDED: "refunded",
     FAILED: "failed",
-    INCOMPLETE_DEPOSIT: "failed",
+    INCOMPLETE_DEPOSIT: "refunding",
   };
   const status = map[upstream] ?? "processing";
   const outRaw = d.amountOut ?? d.destinationAmount;
@@ -545,7 +555,8 @@ export async function payoutProgress(
       amountOutMicro,
       reason:
         upstream === "INCOMPLETE_DEPOSIT"
-          ? "Less arrived at the deposit address than the quote asked for, so the route could not complete."
+          ? "Less arrived than the quote required, so the route can't complete. " +
+            "The network returns the deposit to your payout wallet."
           : null,
     },
   };

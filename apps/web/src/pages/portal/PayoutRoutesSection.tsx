@@ -111,6 +111,8 @@ function PayoutProgressNote({ payout }: { payout: Payout }) {
     depositing: "Waiting for you to confirm in your wallet.",
     pending_deposit: `Sent. Waiting for the network to see it — usually under a minute.`,
     processing: `Deposit confirmed. ${payout.to_label} delivery is in progress.`,
+    // Not a failure, and must not read as one: the money is on its way back.
+    refunding: "Less arrived than the route required. Your USDC is being returned.",
     succeeded: `Delivered${payout.amount_out ? ` — ${Number(payout.amount_out).toFixed(2)} ${payout.asset}` : ""} on ${payout.to_label}.`,
     refunded: "The route couldn't complete, so your USDC was returned to your payout wallet.",
     failed: "This payout failed.",

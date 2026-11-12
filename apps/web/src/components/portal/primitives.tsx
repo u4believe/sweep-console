@@ -307,6 +307,7 @@ const TAG_BY_STATUS: Record<string, string> = {
   // Cross-chain payouts in flight. Unmapped they fell to `tag-neutral`, the
   // same grey as `cancelled` — a payout mid-delivery reading as a dead one.
   pending_deposit: "tag-outline",
+  refunding: "tag-outline",
   processing: "tag-outline",
   depositing: "tag-outline",
   cancelled: "tag-neutral",
