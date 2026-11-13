@@ -243,7 +243,14 @@ export function PayoutRoutesSection({ embedded = false }: { embedded?: boolean }
   const [sendErr, setSendErr] = useState("");
 
   useEffect(() => {
-    fetch(`${API_URL}/portal/wallet/circle/balance`, { credentials: "include" })
+    /**
+     * ?refresh=1, always. This panel needs the PER-CHAIN breakdown, and the
+     * balance route answers a recent request from cache with the total only.
+     * The same-chain Withdraw tab loads first and warms that cache, so by the
+     * time a creator switched here the reply had no `chains` — no source
+     * selector, so no quote, so no Withdraw button.
+     */
+    fetch(`${API_URL}/portal/wallet/circle/balance?refresh=1`, { credentials: "include" })
       .then((r) => r.json())
       .then((j: { data?: BalanceData }) => {
         if (!j.data) return;
@@ -512,7 +519,20 @@ export function PayoutRoutesSection({ embedded = false }: { embedded?: boolean }
     return () => clearInterval(id);
   }, [payout]);
 
-  const funded = (balance?.chains ?? []).filter((c) => c.read);
+  /**
+   * The chains a payout can leave from.
+   *
+   * From the balance read when it has a breakdown. When it does not — Circle
+   * unreachable, a stale reply — the four settlement chains are still listed,
+   * unpriced, rather than hiding the selector: without a source there is no
+   * quote and no button, and the server checks the balance on the chain
+   * chosen before anything moves.
+   */
+  const SOURCE_CODES = ["BASE", "ARB", "OP", "MONAD"];
+  const breakdown = (balance?.chains ?? []).filter((c) => c.read);
+  const funded: Array<ChainBalance & { known: boolean }> = breakdown.length
+    ? breakdown.map((c) => ({ ...c, known: true }))
+    : SOURCE_CODES.map((code) => ({ blockchain: code, usdcBalance: "0", read: false, known: false }));
   const srcLabel = from ? chainLabel(from) : "";
   const dstLabel = dests.find((d) => d.chain === to)?.label ?? to;
 
@@ -654,8 +674,14 @@ export function PayoutRoutesSection({ embedded = false }: { embedded?: boolean }
             <select id="pr-from" className="input" value={from} onChange={(e) => setFrom(e.target.value)}>
               <option value="">Select a chain…</option>
               {funded.map((c) => (
-                <option key={c.blockchain} value={c.blockchain} disabled={parseFloat(c.usdcBalance) <= 0}>
-                  {chainLabel(c.blockchain)} — {parseFloat(c.usdcBalance).toFixed(2)} USDC
+                <option
+                  key={c.blockchain}
+                  value={c.blockchain}
+                  disabled={c.known && parseFloat(c.usdcBalance) <= 0}
+                >
+                  {c.known
+                    ? `${chainLabel(c.blockchain)} — ${parseFloat(c.usdcBalance).toFixed(2)} USDC`
+                    : chainLabel(c.blockchain)}
                 </option>
               ))}
             </select>
@@ -828,6 +854,45 @@ export function PayoutRoutesSection({ embedded = false }: { embedded?: boolean }
             {payout && <PayoutProgressNote payout={payout} />}
           </>
         ) : null}
+
+        {/* The button is always on the page. It used to exist only once a
+            quote had come back, so a creator with a missing field — or a
+            route that would not price — saw a form with no way to submit it
+            and no hint that one was coming. Disabled, with the reason. */}
+        {!quote && (
+          <div className="mt-5 flex items-center gap-3">
+            <button
+              type="button"
+              className="btn"
+              style={{
+                padding: "8px 14px",
+                fontSize: 12.5,
+                background: "var(--color-accent)",
+                color: "var(--color-accent-ink, #fff)",
+                opacity: 0.45,
+                cursor: "not-allowed",
+              }}
+              disabled
+            >
+              {to ? `Withdraw to ${dstLabel}` : "Withdraw"}
+            </button>
+            <span style={{ fontSize: 11.5, color: "var(--color-neutral-600)" }}>
+              {quoting
+                ? "Getting a price…"
+                : !from
+                  ? "Choose the chain to send from."
+                  : !to
+                    ? "Choose a destination."
+                    : !(parseFloat(amount) > 0)
+                      ? "Enter an amount."
+                      : recipient.trim().length < 2
+                        ? "Enter the destination address."
+                        : quoteErr
+                          ? "Fix the issue above to continue."
+                          : "Waiting for a price…"}
+            </span>
+          </div>
+        )}
       </div>
 
         </>
