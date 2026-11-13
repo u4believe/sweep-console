@@ -12,8 +12,7 @@ import {
   StatusTag,
   type Kpi,
 } from "@/components/portal/primitives";
-import { WithdrawSection } from "./WithdrawSection";
-import { PayoutRoutesSection } from "./PayoutRoutesSection";
+import { WithdrawPanel } from "./WithdrawPanel";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -642,15 +641,12 @@ export function DashboardPage() {
         </section>
       </div>
 
+      {/* One card, two destinations. Circle-held wallets only: both flows
+          move USDC OUT of a wallet we hold, and a creator on an external
+          wallet moves their own funds. */}
       {data?.walletAddress && data.walletType === "circle" && (
-        <WithdrawSection walletId={data.walletAddress} />
+        <WithdrawPanel walletId={data.walletAddress} />
       )}
-
-      {/* Beneath the withdrawal it extends, and gated the same way: the
-          quote prices a transfer OUT of the Circle wallet, so a creator on an
-          external wallet has nothing here to act on — they move their own
-          funds and would use the route directly. */}
-      {data?.walletAddress && data.walletType === "circle" && <PayoutRoutesSection />}
 
       <Section
         title="Recent activity"

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { isStaleBuildError, STALE_BUILD_MESSAGE, recoverFromStaleBuild } from "@/lib/chunk";
 import { Kicker, Section } from "@/components/portal/primitives";
 import { apiFetch, messageOf, wasCancelled } from "@/lib/stepup";
@@ -64,7 +64,18 @@ function timeAgo(iso: string): string {
  * whose payout wallet is Circle-held — an external wallet is theirs to move
  * from directly.
  */
-export function WithdrawSection({ walletId }: { walletId: string }) {
+export function WithdrawSection({
+  walletId,
+  embedded = false,
+}: {
+  walletId: string;
+  /**
+   * Rendered inside WithdrawPanel, which already owns the card and title.
+   * A second <Section> here would draw a card inside a card and repeat the
+   * heading under the tab the creator just pressed.
+   */
+  embedded?: boolean;
+}) {
   const [balance, setBalance] = useState<BalanceData | null>(null);
   const [balanceErr, setBalanceErr] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -290,10 +301,13 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
     }
   }
 
+  const Wrap = embedded ? Fragment : Section;
+  const wrapProps = embedded ? {} : { title: "Withdraw revenue" };
+
   return (
-    <Section title="Withdraw revenue">
+    <Wrap {...wrapProps}>
       <p className="m-0 mb-5" style={{ fontSize: 13, color: "var(--color-neutral-700)" }}>
-        Transfer USDC from your Circle wallet to any EVM address.
+        Transfer USDC from your Circle wallet to any EVM address on the same chain.
       </p>
 
       <div
@@ -511,6 +525,6 @@ export function WithdrawSection({ walletId }: { walletId: string }) {
           {withdrawing ? "Awaiting confirmation…" : "Withdraw"}
         </button>
       </form>
-    </Section>
+    </Wrap>
   );
 }

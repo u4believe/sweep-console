@@ -437,7 +437,13 @@ function Marquee() {
                   filter: m.label === "Circle" ? "brightness(0) invert(1)" : "none",
                 }}
               />
-              {m.showLabel && m.label}
+              {/* The strip runs at -0.01em to keep the chain names tight, and
+                  that tightens the SPACE glyph too — enough that "NEAR
+                  Protocol" in Plus Jakarta reads as one word. Only the
+                  two-word labels need the gap put back. */}
+              {m.showLabel && (
+                <span style={{ letterSpacing: "normal", wordSpacing: "0.12em" }}>{m.label}</span>
+              )}
             </span>
           ) : (
             <span
