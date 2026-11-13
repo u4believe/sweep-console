@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { formatUnits } from "viem";
 import { HAIRLINE } from "./CheckoutFrame";
-import { settlementNote, useSweepConfig } from "@/lib/useSweepConfig";
+import { settlementNote } from "@/lib/useSweepConfig";
 
 // Matches CheckoutShell's labels exactly — a preview that priced differently
 // from the real thing would be worse than no preview.
@@ -10,6 +11,16 @@ const INTERVAL_LABELS: Record<string, string> = {
   monthly: "/ month",
   yearly: "/ year",
 };
+
+/**
+ * The checkout's blue, solid.
+ *
+ * `.btn-primary` fills with --color-accent-fill, a gradient that runs out to
+ * #6B6EEA — on a full-width button that violet end is most of what the eye
+ * sees, so step 01 read purple beside step 02's solid-blue chain selection.
+ * One flat accent here makes the two steps the same colour.
+ */
+const ACCENT_SOLID = "var(--color-accent)";
 
 /** One choosable option, priced. The plan's own terms are the tier with a null id. */
 export interface ShowcaseTier {
@@ -22,13 +33,20 @@ export interface ShowcaseTier {
 }
 
 /**
- * The pricing table a subscriber sees before paying — the whole of checkout step
- * 01, minus the frame around it.
+ * Checkout step 01 — choose a plan — drawn in step 02's language.
+ *
+ * It was a full-width pricing table: a 52px headline over separate cards, each
+ * with its own button. Step 02 is one centred 540px card with a hairline
+ * header row and radio rows marked by an accent bar. Two steps of one
+ * checkout looked like two different products, so this is now the same card:
+ * a header, one row per tier, the selected tier's features beneath it, and a
+ * single button.
  *
  * It lives apart from CheckoutShell so the merchant portal can render the exact
  * same markup as a preview. A preview must not be a checkout in a costume: it
  * omits onChoose, and with no handler there is nothing here that can reach a
- * session, a wallet, or a payment — the cards simply have no live buttons.
+ * session, a wallet, or a payment — the rows still select, so a merchant can
+ * see each tier's features, but the button is inert.
  */
 export function PlanShowcase({
   merchantName,
@@ -42,129 +60,150 @@ export function PlanShowcase({
   tierOptions: ShowcaseTier[];
   /** A tier id, or the literal "default" for the plan's own terms. Null = no badge. */
   recommendedTierId?: string | null;
-  /** Omit to render inert cards (preview). */
+  /** Omit to render an inert button (preview). */
   onChoose?: (tierId: string | null) => void;
 }) {
-  // Served by /config, not baked in: this line is a promise about where the
-  // payer's money ends up.
-  // One "recommended" tier takes the surface fill, mirroring the landing pricing.
-  // The merchant picks this on the plan screen. No pick means no badge — we
-  // deliberately no longer guess at the middle card, because a guess and a
-  // deliberate choice looked identical and there was no way to clear one.
-  const recommendedId = recommendedTierId === "default" ? null : recommendedTierId ?? undefined;
+  // The merchant picks the recommended tier on the plan screen. No pick means
+  // no badge — a guess and a deliberate choice would look identical.
+  const isRecommended = (t: ShowcaseTier) =>
+    recommendedTierId === "default" ? t.id === null : !!recommendedTierId && t.id === recommendedTierId;
 
+  // Start on the recommended tier when there is one, so the common case is a
+  // single click; otherwise the first.
+  const initial = tierOptions.find(isRecommended) ?? tierOptions[0];
+  const [selected, setSelected] = useState<string | null>(initial?.id ?? null);
+  const chosen = tierOptions.find((t) => t.id === selected) ?? initial;
+
+  const price = (t: ShowcaseTier) => (t.amount === 0 ? "Free" : formatUnits(BigInt(t.amount), 6));
 
   return (
-    <div style={{ padding: "clamp(28px,5vw,52px) clamp(16px,3vw,32px) 44px" }}>
-      <p
-        className="m-0 uppercase"
-        style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.14em", color: "var(--color-accent)", marginBottom: 10 }}
-      >
-        {merchantName}
-      </p>
-      <h1
-        className="m-0"
-        style={{ fontSize: "clamp(34px, 5vw, 52px)", letterSpacing: "-0.04em", lineHeight: 1.02, marginBottom: 10 }}
-      >
-        Choose your plan
-      </h1>
-      <p className="m-0" style={{ fontSize: 15.5, lineHeight: 1.6, color: "var(--color-neutral-800)", marginBottom: 32 }}>
-        {description || "Pay in USDC from any supported chain. Cancel anytime from your own wallet."}
-      </p>
-
-      {/*
-        Separate cards with a gap, not cells of one ruled grid.
-
-        `columnClass` is gone with it: auto-fit sizes the track from the
-        content, so two tiers make two columns and five wrap, without the
-        component having to be told how many there are — and without the
-        Tailwind-scanner dance of writing the class names as whole literals.
-      */}
+    <div
+      className="mx-auto w-full"
+      style={{ maxWidth: 1040, padding: "clamp(16px,3vw,28px) clamp(16px,3vw,32px) 22px" }}
+    >
+      {/* Same card as step 02: width, ground, radius, ring and shadow. */}
       <div
-        className="grid"
-        style={{ gap: 14, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,260px),1fr))" }}
+        className="mx-auto w-full"
+        style={{
+          maxWidth: 540,
+          background: "var(--color-bg)",
+          borderRadius: "var(--radius-lg)",
+          boxShadow: "0 0 0 1px var(--color-neutral-400), var(--shadow-lg)",
+          overflow: "hidden",
+        }}
       >
-        {tierOptions.map((t) => {
-          const free = t.amount === 0;
-          const recommended = recommendedTierId === "default" ? t.id === null : t.id === recommendedId;
-          const features = t.features.length ? t.features : ["Full access"];
-          return (
-            <div
-              key={t.id ?? "default"}
-              className="flex flex-col gap-3"
-              style={{
-                padding: 22,
-                background: "var(--color-bg)",
-                borderRadius: "var(--radius-lg)",
-                // The recommended tier is lifted and ringed in accent rather
-                // than tinted: on a tinted ground a tinted cell is the one
-                // that recedes.
-                boxShadow: recommended
-                  ? "0 0 0 1px var(--color-accent), 0 24px 48px -32px rgba(35,35,80,0.45)"
-                  : "0 0 0 1px var(--color-neutral-400)",
-              }}
-            >
-              <div className="flex items-center gap-2.5" style={{ minHeight: 22 }}>
-                <span className="uppercase" style={{ fontSize: 11, letterSpacing: "0.14em" }}>{t.name}</span>
-                {recommended && <span className="tag tag-outline">Recommended</span>}
-              </div>
+        {/* Header row, set like step 02's "Your plan" row. */}
+        <div style={{ padding: "11px 18px 9px", borderBottom: HAIRLINE }}>
+          <p
+            className="m-0 uppercase"
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: "0.1em",
+              lineHeight: 1.3,
+              color: "var(--color-neutral-800)",
+            }}
+          >
+            Choose your plan
+          </p>
+          <p className="m-0 mt-1" style={{ fontWeight: 700, fontSize: 16, lineHeight: 1.15 }}>
+            {merchantName}
+          </p>
+          <p className="m-0 mt-1.5" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--color-neutral-700)" }}>
+            {description || "Pay in USDC from any supported chain. Cancel anytime from your own wallet."}
+          </p>
+        </div>
 
-              <p
-                className="m-0"
-                style={{
-                  fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 54,
-                  lineHeight: 1, letterSpacing: "-0.04em",
-                }}
-              >
-                {free ? "Free" : formatUnits(BigInt(t.amount), 6)}
-                {!free && (
-                  <span style={{ fontSize: 15, fontWeight: 500, color: "var(--color-neutral-700)" }}>
-                    {INTERVAL_LABELS[t.interval] ?? ""}
-                  </span>
-                )}
-              </p>
-
-              <p className="m-0" style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>
-                {t.trialDays > 0 ? `${t.trialDays}-day free trial` : "No trial"}
-              </p>
-
-              <div
-                className="flex flex-col gap-[7px]"
-                style={{ borderTop: HAIRLINE, paddingTop: 16, marginTop: 4 }}
-              >
-                {features.map((f, i) => (
-                  <span key={i} className="flex gap-2.5" style={{ fontSize: 13, lineHeight: 1.45 }}>
-                    <span style={{ color: "var(--color-accent)", fontFamily: "var(--font-heading)", fontWeight: 700 }}>
-                      —
-                    </span>
-                    {f}
-                  </span>
-                ))}
-              </div>
-
+        {/* Tier rows — the chain rows' radio pattern: hairline between, a
+            3px accent bar and surface fill on the selected one. */}
+        <div role="radiogroup" aria-label="Plans" className="flex flex-col">
+          {tierOptions.map((t, i) => {
+            const on = (chosen?.id ?? null) === t.id;
+            return (
               <button
+                key={t.id ?? "default"}
                 type="button"
-                onClick={onChoose ? () => onChoose(t.id) : undefined}
-                // Inert in preview: still drawn, so the merchant sees the real
-                // card, but not focusable and not clickable.
-                disabled={!onChoose}
-                className="btn btn-primary btn-block"
+                role="radio"
+                aria-checked={on}
+                onClick={() => setSelected(t.id)}
+                className="flex items-center gap-3.5 text-left"
                 style={{
-                  marginTop: "auto",
-                  padding: "12px 16px",
-                  ...(onChoose ? {} : { cursor: "default", opacity: 1 }),
+                  background: on ? "var(--color-surface)" : "transparent",
+                  border: 0,
+                  borderTop: i === 0 ? 0 : HAIRLINE,
+                  borderLeft: `3px solid ${on ? ACCENT_SOLID : "transparent"}`,
+                  padding: "11px 18px 11px 15px",
+                  cursor: "pointer",
+                  fontFamily: "var(--font-body)",
                 }}
               >
-                {free ? "Start free →" : `Choose ${t.name} →`}
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2">
+                    <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 14.5 }}>
+                      {t.name}
+                    </span>
+                    {isRecommended(t) && <span className="tag tag-outline">Recommended</span>}
+                  </span>
+                  <span className="mt-0.5 block" style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
+                    {t.trialDays > 0 ? `${t.trialDays}-day free trial` : "No trial"}
+                  </span>
+                </span>
+                <span className="shrink-0" style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 14 }}>
+                  {price(t)}{" "}
+                  {t.amount > 0 && (
+                    <span style={{ fontSize: 11.5, fontWeight: 500, color: "var(--color-neutral-700)" }}>
+                      USDC {INTERVAL_LABELS[t.interval] ?? ""}
+                    </span>
+                  )}
+                </span>
               </button>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
 
-      <p className="m-0" style={{ fontSize: 11.5, color: "var(--color-neutral-700)", marginTop: 16 }}>
-        {settlementNote()} · gasless renewals · one signature covers every supported chain
-      </p>
+        {/* What the selected tier includes — shown for one tier at a time, so
+            the rows stay a comparison of name and price, as step 02 is. */}
+        {chosen && (
+          <div style={{ borderTop: HAIRLINE, padding: "12px 18px 4px" }}>
+            <p
+              className="m-0 uppercase"
+              style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", color: "var(--color-neutral-800)" }}
+            >
+              {chosen.name} includes
+            </p>
+            <div className="mt-2 flex flex-col gap-[6px]">
+              {(chosen.features.length ? chosen.features : ["Full access"]).map((f, i) => (
+                <span key={i} className="flex gap-2.5" style={{ fontSize: 13, lineHeight: 1.45 }}>
+                  <span style={{ color: ACCENT_SOLID, fontWeight: 700 }}>✓</span>
+                  {f}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{ padding: "14px 18px 16px" }}>
+          <button
+            type="button"
+            onClick={onChoose && chosen ? () => onChoose(chosen.id) : undefined}
+            // Inert in preview: drawn, so the merchant sees the real card,
+            // but not clickable.
+            disabled={!onChoose}
+            className="btn btn-block"
+            style={{
+              padding: "12px 16px",
+              background: ACCENT_SOLID,
+              color: "var(--color-accent-ink, #fff)",
+              ...(onChoose ? {} : { cursor: "default", opacity: 1 }),
+            }}
+          >
+            {chosen && chosen.amount === 0 ? "Start free →" : `Continue with ${chosen?.name ?? "this plan"} →`}
+          </button>
+          <p className="m-0 mt-2.5 text-center" style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
+            {settlementNote()} · gasless renewals · one signature covers every supported chain
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
