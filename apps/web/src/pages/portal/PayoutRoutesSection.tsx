@@ -233,8 +233,6 @@ export function PayoutRoutesSection({ embedded = false }: { embedded?: boolean }
    * ago.
    */
   const [acceptedAt, setAcceptedAt] = useState<string | null | undefined>(undefined);
-  /** Opens the accepted terms for re-reading. Agreed is not forgotten. */
-  const [reviewing, setReviewing] = useState(false);
 
   /** Whether the button does anything, as the SERVER sees it. */
   const [canExecute, setCanExecute] = useState(false);
@@ -832,51 +830,6 @@ export function PayoutRoutesSection({ embedded = false }: { embedded?: boolean }
         ) : null}
       </div>
 
-          {/* The agreement stays readable without being re-demanded. */}
-          {acceptedAt && (
-            <p className="m-0 mt-4" style={{ fontSize: 11.5, color: "var(--color-neutral-600)" }}>
-              Payout terms accepted{" "}
-              {new Date(acceptedAt).toLocaleDateString(undefined, {
-                year: "numeric",
-                month: "short",
-                day: "numeric",
-              })}
-              .{" "}
-              <button
-                type="button"
-                onClick={() => setReviewing((v) => !v)}
-                style={{
-                  font: "inherit",
-                  background: "none",
-                  border: "none",
-                  padding: 0,
-                  color: "var(--color-accent)",
-                  cursor: "pointer",
-                  textDecoration: "underline",
-                }}
-              >
-                {reviewing ? "Hide" : "Review"}
-              </button>
-            </p>
-          )}
-          {reviewing && (
-            <ul
-              className="m-0 mt-2"
-              style={{
-                fontSize: 12,
-                lineHeight: 1.5,
-                color: "var(--color-neutral-700)",
-                maxWidth: 520,
-                paddingLeft: 18,
-              }}
-            >
-              {POLICIES.map((p) => (
-                <li key={p.id} style={{ marginTop: 4 }}>
-                  {p.text}
-                </li>
-              ))}
-            </ul>
-          )}
         </>
       )}
 
