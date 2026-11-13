@@ -48,6 +48,31 @@ const USER_FACING: { test: RegExp; say: string }[] = [
   },
   { test: /\brejected\b|\bdenied\b|cancell?ed by|user cancell?ed/i, say: "You cancelled the request." },
   {
+    /**
+     * A wallet that genuinely cannot service
+     * wallet_requestExecutionPermissions — the ERC-7715 advanced-permissions
+     * feature. It arrives identically on every chain, which is how it is told
+     * apart from a per-chain problem, and the raw text names viem and a
+     * method, which tells a subscriber nothing they can act on.
+     *
+     * ABOVE the generic "not supported" rule, which was matching this first
+     * and answering with a line that names no version. This rule only ever
+     * fired because it also matched the 4100 text — and that text turned out
+     * to mean something else entirely, so without the move the version advice
+     * would have become unreachable.
+     *
+     * The capability probe cannot be trusted to have caught it first:
+     * getSupportedDelegationChainIds is documented as inconclusive on
+     * MetaMask builds that refuse the probe and then service the request
+     * anyway, so the UI offers every chain and lets the attempt judge.
+     */
+    test: /method not (supported|found)|unsupported method/i,
+    say:
+      "Your wallet can't authorize recurring permissions. This needs MetaMask v13.23.0 or " +
+      "newer — check Settings → About in MetaMask and update if it is older. If it is current, " +
+      "switch this account to a smart account from the MetaMask account menu and try again.",
+  },
+  {
     test: /does not support|not supported|unsupported (chain|method)/i,
     say: "This wallet can't do that. MetaMask supports it today.",
   },
@@ -93,24 +118,25 @@ const USER_FACING: { test: RegExp; say: string }[] = [
   },
   {
     /**
-     * EIP-1193 4100, which MetaMask returns for a METHOD it does not offer as
-     * readily as for an account it has not been granted.
+     * 4100 SPLIT OUT FROM "the wallet can't do this", because it is usually
+     * not that.
      *
-     * On the grant path it means the wallet cannot service
-     * wallet_requestExecutionPermissions — the ERC-7715 advanced-permissions
-     * feature — and it arrives identically on every chain, which is how it is
-     * told apart from a per-chain problem. The raw text names viem and a
-     * method, which tells a subscriber nothing they can act on, and the
-     * capability probe cannot be trusted to have caught it first:
-     * getSupportedDelegationChainIds is documented as inconclusive on MetaMask
-     * builds that refuse the probe and then service the request anyway, so the
-     * UI deliberately offers every chain and lets the attempt judge.
+     * It was matched by the rule above and answered with a version number, so
+     * a subscriber whose MetaMask was perfectly current was sent to check
+     * Settings → About and found nothing wrong. The real cause, in every case
+     * we have traced: the account lost its authorization for this site after
+     * a run of permission prompts was rejected, and the wallet then refuses
+     * before showing a prompt at all.
+     *
+     * The grant loop now re-authorizes and retries by itself, so reaching
+     * this message means that was refused too — which makes "approve the
+     * reconnect" the only instruction worth giving.
      */
-    test: /has not been authorized by the user|\b4100\b|method not (supported|found)|unsupported method/i,
+    test: /has not been authorized by the user|\b4100\b/i,
     say:
-      "Your wallet can't authorize recurring permissions. This needs MetaMask v13.23.0 or " +
-      "newer — check Settings → About in MetaMask and update if it is older. If it is current, " +
-      "switch this account to a smart account from the MetaMask account menu and try again.",
+      "Your wallet hasn't authorized this site for that account. MetaMask does this after " +
+      "permission prompts are rejected. Reconnect when your wallet asks and approve it — or " +
+      "open MetaMask → Settings → Connected sites, remove this site, and connect again.",
   },
 ];
 

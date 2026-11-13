@@ -76,6 +76,22 @@ export function isUserRejection(e: unknown): boolean {
   return unwrapError(e).some((l) => l.code === 4001 || l.code === "ACTION_REJECTED");
 }
 
+/**
+ * EIP-1193 4100 — "the requested method and/or account has not been
+ * authorized by the user".
+ *
+ * On this path it is almost never a wallet too old to speak ERC-7715. It is
+ * an ACCOUNT that has lost its standing with the site, which MetaMask does
+ * after a run of permission prompts is rejected — and it then refuses before
+ * showing any prompt, so it looks like a capability problem and is not one.
+ * The two are told apart by whether re-authorizing the site clears it.
+ */
+export function isUnauthorized(e: unknown): boolean {
+  return unwrapError(e).some(
+    (l) => l.code === 4100 || /not been authorized by the user/i.test(String(l.message ?? ""))
+  );
+}
+
 /// -32002 = "request already pending" — the signature of a superseded request,
 /// which is what we expect if the wallet is queueing/killing our 2nd+ grant.
 export function isRequestSuperseded(e: unknown): boolean {

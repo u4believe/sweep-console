@@ -26,6 +26,8 @@ import { wagmiConfig } from "@/lib/wagmi";
 import type { GrantTarget } from "@/lib/gateway";
 import {
   isRequestSuperseded,
+  isUnauthorized,
+  isUserRejection,
   logGrantAttempt,
   logGrantFailure,
   logGrantSuccess,
@@ -169,6 +171,45 @@ async function readPermittedAccounts(
   }
 }
 
+/**
+ * Ask the wallet to re-authorize this site for this account.
+ *
+ * THE FIX FOR THE 4100 NOBODY COULD REPRODUCE. Rejecting a run of permission
+ * prompts — three or four in a row, which is exactly what this loop asks for
+ * — leaves MetaMask treating the account as no longer authorized for the
+ * site. Every later `wallet_requestExecutionPermissions` then fails with 4100
+ * before a prompt is ever shown, and it keeps failing: a reload does not
+ * clear it, because nothing is broken in the page. The account's standing
+ * with the site is.
+ *
+ * `wallet_requestPermissions` is what re-establishes it, and it is the same
+ * thing a subscriber would achieve by hand through Settings → Connected sites
+ * → remove → reconnect. Doing it for them turns a dead end into one extra
+ * prompt.
+ *
+ * Returns true only if the account we need is connected afterwards, so a
+ * caller can tell "recovered" from "the subscriber refused again".
+ */
+async function reauthorizeSite(
+  client: Awaited<ReturnType<typeof connectorClientOnChain>> | undefined,
+  account: Address
+): Promise<boolean> {
+  if (!client) return false;
+  try {
+    await client.request({
+      method: "wallet_requestPermissions",
+      params: [{ eth_accounts: {} }],
+    } as never);
+  } catch (e) {
+    // 4001 here is the subscriber declining the reconnect, which is a real
+    // answer and not an error to retry past.
+    console.warn(`[grant] re-authorization refused:`, e);
+    return false;
+  }
+  const after = await readPermittedAccounts(client);
+  return Boolean(after?.some((a) => a.toLowerCase() === account.toLowerCase()));
+}
+
 async function readDelegationTarget(
   client: Awaited<ReturnType<typeof connectorClientOnChain>> | undefined,
   account: Address
@@ -278,6 +319,8 @@ export async function grantRenewalMandates(
 
   let done = 0;
   const failures: GrantFailure[] = [];
+  /** Re-authorization is per site and per account, so it is asked for once. */
+  let reauthorized = false;
   for (const t of targets) {
     const ctx = { index: done + failures.length + 1, total: targets.length, targetChainId: t.chain_id, chainName: t.name };
     /**
@@ -363,8 +406,26 @@ export async function grantRenewalMandates(
         logGrantFailure(ctx, e, await readActiveChainId(client));
         // A superseded (-32002) request means the wallet killed ours, not the
         // user rejecting it — retry once now that the chain switch has settled.
-        if (!isRequestSuperseded(e)) throw e;
-        mandate = await request(await connectorClientOnChain(t.chain_id), t);
+        if (isRequestSuperseded(e)) {
+          mandate = await request(await connectorClientOnChain(t.chain_id), t);
+        } else if (isUnauthorized(e) && !reauthorized) {
+          /**
+           * 4100 before any prompt appears: the account has lost its standing
+           * with this site, almost always because an earlier run of prompts
+           * was rejected. Re-authorize and try once more.
+           *
+           * ONCE PER RUN, not per chain. The authorization is per site and
+           * per account, so a second chain hitting the same wall needs no
+           * second prompt — and asking four times is how a subscriber ends
+           * up here in the first place.
+           */
+          console.warn(`[grant] 4100 on ${t.name}; asking the wallet to re-authorize this site`);
+          reauthorized = true;
+          if (!(await reauthorizeSite(client, walletAddress as Address))) throw e;
+          mandate = await request(await connectorClientOnChain(t.chain_id), t);
+        } else {
+          throw e;
+        }
       }
       logGrantSuccess(ctx, await readActiveChainId(client));
 
@@ -457,6 +518,34 @@ export async function grantRenewalMandates(
         },
         error: e,
       });
+
+      /**
+       * STOP ASKING. This is what put accounts in the broken state.
+       *
+       * A subscriber who presses reject has answered for the session, not for
+       * one chain — but the loop went on to prompt for the next, and the
+       * next. Three or four rejections in a row is precisely what makes
+       * MetaMask drop the account's authorization for the site, and from then
+       * on every grant attempt fails with 4100 before a prompt appears. The
+       * recovery above handles accounts already in that state; this is what
+       * stops new ones arriving in it.
+       *
+       * Only a genuine 4001 ends the run. A chain that fails for its own
+       * reason — an unrecognised 7702 delegation, a refused switch — leaves
+       * the others worth trying, and those are the cases where partial
+       * success is the right outcome.
+       */
+      if (isUserRejection(e)) {
+        console.warn(
+          `[grant] rejected on ${t.name}; not prompting for the remaining ` +
+            `${targets.length - ctx.index} chain(s). Asking again after a refusal is what ` +
+            `costs the account its authorization for this site.`
+        );
+        for (const skipped of targets.slice(ctx.index)) {
+          failures.push({ target: skipped, error: e });
+        }
+        break;
+      }
     }
   }
 
