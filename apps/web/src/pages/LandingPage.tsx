@@ -116,7 +116,7 @@ const STEPS = [
 
 /** v4's feature rules. The colour is the little bar beside the number. */
 const FEATURES = [
-  { n: "01", color: "#CD94E6", title: "Gasless by default", body: "We submit every transaction and cover network and bridge costs. Subscribers pay the exact plan amount." },
+  { n: "01", color: "#CD94E6", title: "Gasless by default", body: "We submit every transaction and cover the network costs. Subscribers pay the exact plan amount." },
   { n: "02", color: "#FF7A90", title: "Renewals with a fallback", body: "Authorize every chain once. If Base runs dry, the renewal charges whichever chain holds a full period." },
   { n: "03", color: "#9EE8F0", title: "Email-anchored customers", body: "A 6-digit code verifies each subscriber. Returning customers are recognised with the wallet they paid with." },
   { n: "04", color: "#CD94E6", title: "Plans, tiers and trials", body: "Daily to yearly intervals, free trials, feature lists and a recommended tier — previewed as subscribers see it." },
@@ -1041,6 +1041,7 @@ const FB_CHAINS: Array<{ key: ChainKey; name: string; balance: number }> = [
   { key: "base", name: "Base", balance: 4.12 },
   { key: "arbitrum", name: "Arbitrum", balance: 38 },
   { key: "optimism", name: "Optimism", balance: 12.5 },
+  { key: "monad", name: "Monad", balance: 20 },
 ];
 
 function fbStateFor(i: number, st: number): FbState {
@@ -1357,6 +1358,7 @@ const DEMO_CHAINS: Array<{ key: ChainKey; name: string }> = [
   { key: "base", name: "USDC on Base" },
   { key: "arbitrum", name: "USDC on Arbitrum" },
   { key: "optimism", name: "USDC on Optimism" },
+  { key: "monad", name: "USDC on Monad" },
 ];
 
 const DEMO_RAIL: Array<[string, string]> = [
@@ -1411,7 +1413,7 @@ function Demo() {
   };
 
   const activeIdx = done ? 2 : 1;
-  const prettyName: Record<string, string> = { base: "Base", arbitrum: "Arbitrum", optimism: "Optimism" };
+  const prettyName: Record<string, string> = { base: "Base", arbitrum: "Arbitrum", optimism: "Optimism", monad: "Monad" };
   const LINE = "1px solid var(--color-divider)";
 
   return (
@@ -1444,7 +1446,7 @@ function Demo() {
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 12, fontSize: 15, color: "var(--color-neutral-800)" }}>
             {[
-              "Network and bridge fees covered by Sweep Console",
+              "Network fees covered by Sweep Console",
               "Each charge goes straight to the creator",
               "Cancel anytime by revoking from the wallet",
             ].map((t) => (
