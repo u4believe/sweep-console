@@ -1,3 +1,4 @@
+import { clearWalletStorage } from "@/lib/walletReset";
 import { reportGrantDiagnostic } from "@/lib/gateway";
 import { TestModeBanner } from "@/components/checkout/TestModeBanner";
 import { fetchConfig } from "@/lib/gateway";
@@ -438,6 +439,9 @@ export function AuthorizePage() {
    */
   const switchWallet = () => {
     disconnect();
+    // And the persisted account underneath it, or the "different" wallet can
+    // come back as the old address the next time the page reconnects.
+    clearWalletStorage();
     // After wagmi has settled, or the modal opens against the old account.
     setTimeout(() => openConnectModal?.(), 0);
   };

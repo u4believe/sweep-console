@@ -23,6 +23,7 @@ import { getChainId, getConnectorClient, switchChain } from "wagmi/actions";
 import { grantRenewalMandate } from "./grant";
 import { ensureSmartAccount } from "./upgrade";
 import { wagmiConfig } from "@/lib/wagmi";
+import { resetWalletConnection, WalletAccountMismatchError } from "@/lib/walletReset";
 import type { GrantTarget } from "@/lib/gateway";
 import {
   isRequestSuperseded,
@@ -281,6 +282,46 @@ export async function grantRenewalMandates(
   onAttempt?: (info: { index: number; total: number; chainId: number }) => void
 ): Promise<GrantFailure[]> {
   const now = Math.floor(Date.now() / 1000);
+
+  /**
+   * ASK THE WALLET WHO IT IS, before asking it for anything.
+   *
+   * `walletAddress` comes from the page — wagmi's state, a latch over it, and
+   * underneath both the MetaMask SDK's account cache in localStorage. All of
+   * that survives the wallet itself: reinstall MetaMask, import a different
+   * account, and the page can still be holding the old address. Every grant
+   * then names an account the wallet has never authorized for this site, and
+   * MetaMask refuses with 4100 before a single prompt appears — on every
+   * chain, on every retry, until the site's storage is cleared by hand.
+   *
+   * eth_requestAccounts is answered by the wallet, not by any cache: it
+   * returns the account the wallet will actually sign with, prompting to
+   * connect if it must. If that is not the address this checkout was built
+   * for, nothing below can succeed — so reset the stale state and say so,
+   * rather than spend four prompts proving it. The page's own address,
+   * balances and verification were all computed for the old account, so
+   * carrying on with the new one silently would be wrong in a different way.
+   */
+  if (targets.length > 0) {
+    const first = await connectorClientOnChain(targets[0]!.chain_id);
+    let live: string[] = [];
+    try {
+      live = ((await first.request({ method: "eth_requestAccounts" } as never)) as string[]) ?? [];
+    } catch (e) {
+      // A refusal to connect is an answer: the subscriber said no.
+      if (isUserRejection(e)) throw e;
+      live = (await readPermittedAccounts(first)) ?? [];
+    }
+    const actual = live[0] ?? null;
+    if (!actual || actual.toLowerCase() !== walletAddress.toLowerCase()) {
+      console.warn(
+        `[grant] page holds ${walletAddress}, wallet reports ${actual ?? "no account"} — ` +
+          `resetting the stale connection instead of requesting permissions for the wrong account`
+      );
+      await resetWalletConnection();
+      throw new WalletAccountMismatchError(walletAddress, actual);
+    }
+  }
   const request = (client: Awaited<ReturnType<typeof connectorClientOnChain>>, t: GrantTarget) =>
     grantRenewalMandate(client, {
       chainId: t.chain_id,
@@ -421,7 +462,11 @@ export async function grantRenewalMandates(
            */
           console.warn(`[grant] 4100 on ${t.name}; asking the wallet to re-authorize this site`);
           reauthorized = true;
-          if (!(await reauthorizeSite(client, walletAddress as Address))) throw e;
+          if (!(await reauthorizeSite(client, walletAddress as Address))) {
+            const holding = (await readPermittedAccounts(client))?.[0] ?? null;
+            await resetWalletConnection();
+            throw new WalletAccountMismatchError(walletAddress, holding);
+          }
           mandate = await request(await connectorClientOnChain(t.chain_id), t);
         } else {
           throw e;
@@ -461,6 +506,9 @@ export async function grantRenewalMandates(
       done += 1;
       onProgress?.(done, targets.length);
     } catch (e) {
+      // The connection was just reset: every remaining chain would fail on a
+      // disconnected wallet, and the reason is this one, not theirs.
+      if (e instanceof WalletAccountMismatchError) throw e;
       failures.push({ target: t, error: e });
       report?.({
         stage,

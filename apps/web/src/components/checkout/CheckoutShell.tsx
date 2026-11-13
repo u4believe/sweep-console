@@ -1,3 +1,4 @@
+import { clearWalletStorage } from "@/lib/walletReset";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import {
@@ -355,6 +356,9 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
   const onConnect = () => openConnectModal?.();
   const onUseDifferentWallet = () => {
     disconnect();
+    // And the persisted account underneath it, or the "different" wallet can
+    // come back as the old address the next time the page reconnects.
+    clearWalletStorage();
     setTimeout(() => openConnectModal?.(), 200);
   };
 
