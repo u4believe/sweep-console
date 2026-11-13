@@ -2011,7 +2011,7 @@ function Compare() {
           {[
             ["Plan price", "$29.00"],
             ["Platform fee", `${formatFeePercent(bps)} · −$${feeOnAmount(29, bps)}`],
-            ["Network & bridge gas", "Covered"],
+            ["Network gas", "Covered"],
           ].map(([k, v]) => (
             <div key={k} style={{ ...ROW, position: "relative", borderTopColor: "rgba(255,255,255,0.2)" }}>
               <span style={{ color: "rgba(255,255,255,0.8)" }}>{k}</span>
