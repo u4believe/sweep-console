@@ -74,3 +74,37 @@ export class WalletAccountMismatchError extends ApiError {
     this.name = "WalletAccountMismatchError";
   }
 }
+
+/**
+ * MetaMask refused the permission AFTER the subscriber approved it.
+ *
+ * NOT OURS, AND NOT FIXABLE FROM HERE. MetaMask extension 13.55.0 changed its
+ * permission checks to read accounts from the per-chain CAIP-25 scope, and
+ * its preinstalled permissions snap only holds accounts under the wildcard
+ * scope — so the snap finds no authorized account for the chain it is
+ * granting on and throws 4100, after the prompt and after Grant was pressed.
+ * Any account, clean install or not. Tracked upstream as
+ * MetaMask/metamask-extension#47707, labelled regression-prod-13.55.0, open
+ * with no fix at the time of writing.
+ *
+ * It is told apart from a genuine authorization problem by order: the grant
+ * has already asked the wallet for its account (eth_requestAccounts) and got
+ * the right one back, so the site and account ARE authorized when this
+ * arrives. What is refused is MetaMask's own internal step.
+ *
+ * Said plainly because every earlier version of this message sent people to
+ * reinstall MetaMask or reconnect the site — which installs the broken
+ * version again, and reconnects a site that was never disconnected.
+ */
+export class MetaMaskGrantRefusedError extends ApiError {
+  constructor(readonly clientVersion: string | null) {
+    const v = clientVersion?.match(/v?(\d+\.\d+\.\d+)/)?.[1];
+    super(
+      `MetaMask${v ? ` ${v}` : ""} refused this permission after you approved it. This is a known ` +
+        `bug in MetaMask 13.55.0 and later that MetaMask hasn't fixed yet — your wallet and this ` +
+        `page are set up correctly, and nothing was charged for this permission. Please try a different wallet for ` +
+        `now, or try again after MetaMask releases an update.`,
+    );
+    this.name = "MetaMaskGrantRefusedError";
+  }
+}

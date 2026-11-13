@@ -23,7 +23,11 @@ import { getChainId, getConnectorClient, switchChain } from "wagmi/actions";
 import { grantRenewalMandate } from "./grant";
 import { ensureSmartAccount } from "./upgrade";
 import { wagmiConfig } from "@/lib/wagmi";
-import { resetWalletConnection, WalletAccountMismatchError } from "@/lib/walletReset";
+import {
+  MetaMaskGrantRefusedError,
+  resetWalletConnection,
+  WalletAccountMismatchError,
+} from "@/lib/walletReset";
 import type { GrantTarget } from "@/lib/gateway";
 import {
   isRequestSuperseded,
@@ -172,45 +176,6 @@ async function readPermittedAccounts(
   }
 }
 
-/**
- * Ask the wallet to re-authorize this site for this account.
- *
- * THE FIX FOR THE 4100 NOBODY COULD REPRODUCE. Rejecting a run of permission
- * prompts — three or four in a row, which is exactly what this loop asks for
- * — leaves MetaMask treating the account as no longer authorized for the
- * site. Every later `wallet_requestExecutionPermissions` then fails with 4100
- * before a prompt is ever shown, and it keeps failing: a reload does not
- * clear it, because nothing is broken in the page. The account's standing
- * with the site is.
- *
- * `wallet_requestPermissions` is what re-establishes it, and it is the same
- * thing a subscriber would achieve by hand through Settings → Connected sites
- * → remove → reconnect. Doing it for them turns a dead end into one extra
- * prompt.
- *
- * Returns true only if the account we need is connected afterwards, so a
- * caller can tell "recovered" from "the subscriber refused again".
- */
-async function reauthorizeSite(
-  client: Awaited<ReturnType<typeof connectorClientOnChain>> | undefined,
-  account: Address
-): Promise<boolean> {
-  if (!client) return false;
-  try {
-    await client.request({
-      method: "wallet_requestPermissions",
-      params: [{ eth_accounts: {} }],
-    } as never);
-  } catch (e) {
-    // 4001 here is the subscriber declining the reconnect, which is a real
-    // answer and not an error to retry past.
-    console.warn(`[grant] re-authorization refused:`, e);
-    return false;
-  }
-  const after = await readPermittedAccounts(client);
-  return Boolean(after?.some((a) => a.toLowerCase() === account.toLowerCase()));
-}
-
 async function readDelegationTarget(
   client: Awaited<ReturnType<typeof connectorClientOnChain>> | undefined,
   account: Address
@@ -302,8 +267,15 @@ export async function grantRenewalMandates(
    * balances and verification were all computed for the old account, so
    * carrying on with the new one silently would be wrong in a different way.
    */
+  /** "MetaMask/v13.56.0" — named in the message when MetaMask refuses. */
+  let clientVersion: string | null = null;
   if (targets.length > 0) {
     const first = await connectorClientOnChain(targets[0]!.chain_id);
+    clientVersion = await first
+      .request({ method: "web3_clientVersion" } as never)
+      .then((v) => (typeof v === "string" ? v : null))
+      .catch(() => null);
+    console.info(`[grant] wallet reports ${clientVersion ?? "no client version"}`);
     let live: string[] = [];
     try {
       live = ((await first.request({ method: "eth_requestAccounts" } as never)) as string[]) ?? [];
@@ -360,8 +332,6 @@ export async function grantRenewalMandates(
 
   let done = 0;
   const failures: GrantFailure[] = [];
-  /** Re-authorization is per site and per account, so it is asked for once. */
-  let reauthorized = false;
   for (const t of targets) {
     const ctx = { index: done + failures.length + 1, total: targets.length, targetChainId: t.chain_id, chainName: t.name };
     /**
@@ -449,25 +419,22 @@ export async function grantRenewalMandates(
         // user rejecting it — retry once now that the chain switch has settled.
         if (isRequestSuperseded(e)) {
           mandate = await request(await connectorClientOnChain(t.chain_id), t);
-        } else if (isUnauthorized(e) && !reauthorized) {
+        } else if (isUnauthorized(e)) {
           /**
-           * 4100 before any prompt appears: the account has lost its standing
-           * with this site, almost always because an earlier run of prompts
-           * was rejected. Re-authorize and try once more.
+           * 4100 AFTER the account was confirmed: MetaMask's own regression.
            *
-           * ONCE PER RUN, not per chain. The authorization is per site and
-           * per account, so a second chain hitting the same wall needs no
-           * second prompt — and asking four times is how a subscriber ends
-           * up here in the first place.
+           * The pre-check above asked the wallet for its account and got
+           * this one, so the site and the account are authorized. A 4100
+           * now is MetaMask refusing its internal step after the subscriber
+           * pressed Grant — MetaMask/metamask-extension#47707, since 13.55.0.
+           *
+           * This used to re-request site permissions and retry. That cannot
+           * help here, and it put one more prompt in front of someone who
+           * had just approved one. It also carried on to the next chain,
+           * which meant pressing Grant three more times for three certain
+           * failures — the ten-second gaps in the logs are exactly that.
            */
-          console.warn(`[grant] 4100 on ${t.name}; asking the wallet to re-authorize this site`);
-          reauthorized = true;
-          if (!(await reauthorizeSite(client, walletAddress as Address))) {
-            const holding = (await readPermittedAccounts(client))?.[0] ?? null;
-            await resetWalletConnection();
-            throw new WalletAccountMismatchError(walletAddress, holding);
-          }
-          mandate = await request(await connectorClientOnChain(t.chain_id), t);
+          throw new MetaMaskGrantRefusedError(clientVersion);
         } else {
           throw e;
         }
@@ -566,6 +533,10 @@ export async function grantRenewalMandates(
         },
         error: e,
       });
+
+      // Every remaining chain goes through the same broken MetaMask step, so
+      // each would be another Grant press for another certain failure.
+      if (e instanceof MetaMaskGrantRefusedError) throw e;
 
       /**
        * STOP ASKING. This is what put accounts in the broken state.
