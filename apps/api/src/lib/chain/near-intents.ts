@@ -235,6 +235,46 @@ const fmt = (micro: unknown, decimals: number): string => {
 };
 
 /**
+ * The one quote request, dry or live.
+ *
+ * These were two hand-written bodies, and they drifted: an edit to the live
+ * one dropped `recipientType`, so every price shown was a valid dry quote and
+ * every real withdrawal was refused by 1Click ("recipientType should not be
+ * empty") — the preview could not catch it because the preview was the copy
+ * that was still right. One builder, and `dry` the only thing that differs.
+ */
+export function quoteRequest(input: {
+  dry: boolean;
+  src: PayoutToken;
+  dst: PayoutToken;
+  amountMicro: string;
+  refundTo: string;
+  recipient: string;
+}): Record<string, unknown> {
+  return {
+    dry: input.dry,
+    swapType: "EXACT_INPUT",
+    // 1% in basis points. Bounds what the solver may return; a tighter
+    // tolerance does not make the route cheaper, it makes solvers decline.
+    slippageTolerance: 100,
+    originAsset: input.src.assetId,
+    depositType: "ORIGIN_CHAIN",
+    destinationAsset: input.dst.assetId,
+    amount: input.amountMicro,
+    refundTo: input.refundTo,
+    refundType: "ORIGIN_CHAIN",
+    recipient: input.recipient.trim(),
+    recipientType: "DESTINATION_CHAIN",
+    /**
+     * ADVISORY. 1Click overrides it: asked for 30 minutes, it returns about
+     * 72 hours, with `timeWhenInactive` set to the same instant (measured).
+     * The record stores the response's value, never this one.
+     */
+    deadline: new Date(Date.now() + 30 * 60_000).toISOString(),
+  };
+}
+
+/**
  * Price one payout. Dry, so nothing it returns can be paid into.
  *
  * `slippageTolerance` is 100bp. A tighter bound does not make the route
@@ -279,20 +319,9 @@ export async function quotePayout(input: {
     r = await fetch(`${API}/v0/quote`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({
-        dry: true,
-        swapType: "EXACT_INPUT",
-        slippageTolerance: 100,
-        originAsset: src.assetId,
-        depositType: "ORIGIN_CHAIN",
-        destinationAsset: dst.assetId,
-        amount: amountMicro,
-        refundTo: input.refundTo,
-        refundType: "ORIGIN_CHAIN",
-        recipient: input.recipient.trim(),
-        recipientType: "DESTINATION_CHAIN",
-        deadline: new Date(Date.now() + 30 * 60_000).toISOString(),
-      }),
+      body: JSON.stringify(
+        quoteRequest({ dry: true, src, dst, amountMicro, refundTo: input.refundTo, recipient: input.recipient }),
+      ),
     });
   } catch (e) {
     return { ok: false, why: `We couldn't reach the payout network just now (${String(e)}).` };
@@ -408,26 +437,9 @@ export async function openPayout(input: {
     r = await fetch(`${API}/v0/quote`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({
-        dry: false,
-        swapType: "EXACT_INPUT",
-        slippageTolerance: 100,
-        originAsset: src.assetId,
-        depositType: "ORIGIN_CHAIN",
-        destinationAsset: dst.assetId,
-        amount: amountMicro,
-        refundTo: input.refundTo,
-        refundType: "ORIGIN_CHAIN",
-        recipient: input.recipient.trim(),
-        /**
-         * ADVISORY. 1Click overrides it: asked for 30 minutes, it returns
-         * about 72 hours, and sets `timeWhenInactive` to the same instant
-         * (measured). So the window a payout really has is whatever comes
-         * back, which is why the record stores the response's value and never
-         * this one.
-         */
-        deadline: new Date(Date.now() + 30 * 60_000).toISOString(),
-      }),
+      body: JSON.stringify(
+        quoteRequest({ dry: false, src, dst, amountMicro, refundTo: input.refundTo, recipient: input.recipient }),
+      ),
     });
   } catch (e) {
     return { ok: false, why: `We couldn't reach the payout network just now (${String(e)}).` };
