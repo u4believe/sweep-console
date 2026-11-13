@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { formatUnits } from "viem";
 import { HAIRLINE } from "./CheckoutFrame";
 import { settlementNote } from "@/lib/useSweepConfig";
@@ -17,8 +16,8 @@ const INTERVAL_LABELS: Record<string, string> = {
  *
  * `.btn-primary` fills with --color-accent-fill, a gradient that runs out to
  * #6B6EEA — on a full-width button that violet end is most of what the eye
- * sees, so step 01 read purple beside step 02's solid-blue chain selection.
- * One flat accent here makes the two steps the same colour.
+ * sees, so step 01 read purple beside step 02's solid-blue selection. One flat
+ * accent makes the two steps the same colour.
  */
 const ACCENT_SOLID = "var(--color-accent)";
 
@@ -32,21 +31,39 @@ export interface ShowcaseTier {
   features: string[];
 }
 
+/** The small uppercase label step 02 uses for "Your plan" and "Pay from". */
+const kicker = {
+  fontSize: 11,
+  fontWeight: 600,
+  letterSpacing: "0.1em",
+  lineHeight: 1.3,
+  color: "var(--color-neutral-800)",
+} as const;
+
+/** Step 02's mono row number, "01", "02" — accent, not body ink. */
+const rowNumber = {
+  fontFamily: "var(--font-mono, ui-monospace, monospace)",
+  fontSize: 12,
+  fontWeight: 600,
+  color: ACCENT_SOLID,
+  minWidth: 20,
+} as const;
+
 /**
- * Checkout step 01 — choose a plan — drawn in step 02's language.
+ * Checkout step 01 — one card per plan, each drawn as step 02's card.
  *
- * It was a full-width pricing table: a 52px headline over separate cards, each
- * with its own button. Step 02 is one centred 540px card with a hairline
- * header row and radio rows marked by an accent bar. Two steps of one
- * checkout looked like two different products, so this is now the same card:
- * a header, one row per tier, the selected tier's features beneath it, and a
- * single button.
+ * The layout is the pricing table it always was: a heading, then a card per
+ * tier side by side, each with its own button. What changed is the card. It
+ * was a bordered box with a 54px price; it is now the payment-details card in
+ * miniature — the same ring and shadow, a hairline header row with the plan
+ * and its price, numbered hairline rows beneath, "Network fee · Covered" and
+ * "Due today" as step 02 ends, and the same solid blue — so choosing a plan
+ * and paying for it look like one checkout.
  *
  * It lives apart from CheckoutShell so the merchant portal can render the exact
  * same markup as a preview. A preview must not be a checkout in a costume: it
  * omits onChoose, and with no handler there is nothing here that can reach a
- * session, a wallet, or a payment — the rows still select, so a merchant can
- * see each tier's features, but the button is inert.
+ * session, a wallet, or a payment — the cards simply have no live buttons.
  */
 export function PlanShowcase({
   merchantName,
@@ -60,150 +77,153 @@ export function PlanShowcase({
   tierOptions: ShowcaseTier[];
   /** A tier id, or the literal "default" for the plan's own terms. Null = no badge. */
   recommendedTierId?: string | null;
-  /** Omit to render an inert button (preview). */
+  /** Omit to render inert cards (preview). */
   onChoose?: (tierId: string | null) => void;
 }) {
-  // The merchant picks the recommended tier on the plan screen. No pick means
-  // no badge — a guess and a deliberate choice would look identical.
-  const isRecommended = (t: ShowcaseTier) =>
-    recommendedTierId === "default" ? t.id === null : !!recommendedTierId && t.id === recommendedTierId;
-
-  // Start on the recommended tier when there is one, so the common case is a
-  // single click; otherwise the first.
-  const initial = tierOptions.find(isRecommended) ?? tierOptions[0];
-  const [selected, setSelected] = useState<string | null>(initial?.id ?? null);
-  const chosen = tierOptions.find((t) => t.id === selected) ?? initial;
-
-  const price = (t: ShowcaseTier) => (t.amount === 0 ? "Free" : formatUnits(BigInt(t.amount), 6));
+  // The merchant picks this on the plan screen. No pick means no badge — a
+  // guess and a deliberate choice would look identical.
+  const recommendedId = recommendedTierId === "default" ? null : recommendedTierId ?? undefined;
 
   return (
-    <div
-      className="mx-auto w-full"
-      style={{ maxWidth: 1040, padding: "clamp(16px,3vw,28px) clamp(16px,3vw,32px) 22px" }}
-    >
-      {/* Same card as step 02: width, ground, radius, ring and shadow. */}
-      <div
-        className="mx-auto w-full"
-        style={{
-          maxWidth: 540,
-          background: "var(--color-bg)",
-          borderRadius: "var(--radius-lg)",
-          boxShadow: "0 0 0 1px var(--color-neutral-400), var(--shadow-lg)",
-          overflow: "hidden",
-        }}
+    <div style={{ padding: "clamp(28px,5vw,52px) clamp(16px,3vw,32px) 44px" }}>
+      <p
+        className="m-0 uppercase"
+        style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.14em", color: ACCENT_SOLID, marginBottom: 10 }}
       >
-        {/* Header row, set like step 02's "Your plan" row. */}
-        <div style={{ padding: "11px 18px 9px", borderBottom: HAIRLINE }}>
-          <p
-            className="m-0 uppercase"
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: "0.1em",
-              lineHeight: 1.3,
-              color: "var(--color-neutral-800)",
-            }}
-          >
-            Choose your plan
-          </p>
-          <p className="m-0 mt-1" style={{ fontWeight: 700, fontSize: 16, lineHeight: 1.15 }}>
-            {merchantName}
-          </p>
-          <p className="m-0 mt-1.5" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--color-neutral-700)" }}>
-            {description || "Pay in USDC from any supported chain. Cancel anytime from your own wallet."}
-          </p>
-        </div>
+        {merchantName}
+      </p>
+      <h1
+        className="m-0"
+        style={{ fontSize: "clamp(34px, 5vw, 52px)", letterSpacing: "-0.04em", lineHeight: 1.02, marginBottom: 10 }}
+      >
+        Choose your plan
+      </h1>
+      <p className="m-0" style={{ fontSize: 15.5, lineHeight: 1.6, color: "var(--color-neutral-800)", marginBottom: 32 }}>
+        {description || "Pay in USDC from any supported chain. Cancel anytime from your own wallet."}
+      </p>
 
-        {/* Tier rows — the chain rows' radio pattern: hairline between, a
-            3px accent bar and surface fill on the selected one. */}
-        <div role="radiogroup" aria-label="Plans" className="flex flex-col">
-          {tierOptions.map((t, i) => {
-            const on = (chosen?.id ?? null) === t.id;
-            return (
-              <button
-                key={t.id ?? "default"}
-                type="button"
-                role="radio"
-                aria-checked={on}
-                onClick={() => setSelected(t.id)}
-                className="flex items-center gap-3.5 text-left"
-                style={{
-                  background: on ? "var(--color-surface)" : "transparent",
-                  border: 0,
-                  borderTop: i === 0 ? 0 : HAIRLINE,
-                  borderLeft: `3px solid ${on ? ACCENT_SOLID : "transparent"}`,
-                  padding: "11px 18px 11px 15px",
-                  cursor: "pointer",
-                  fontFamily: "var(--font-body)",
-                }}
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 14.5 }}>
-                      {t.name}
-                    </span>
-                    {isRecommended(t) && <span className="tag tag-outline">Recommended</span>}
-                  </span>
-                  <span className="mt-0.5 block" style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
-                    {t.trialDays > 0 ? `${t.trialDays}-day free trial` : "No trial"}
-                  </span>
-                </span>
-                <span className="shrink-0" style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 14 }}>
-                  {price(t)}{" "}
-                  {t.amount > 0 && (
-                    <span style={{ fontSize: 11.5, fontWeight: 500, color: "var(--color-neutral-700)" }}>
-                      USDC {INTERVAL_LABELS[t.interval] ?? ""}
-                    </span>
-                  )}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+      {/* auto-fit sizes the track from the content: two tiers make two
+          columns, five wrap, without being told how many there are. */}
+      <div
+        className="grid items-stretch"
+        style={{ gap: 16, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,280px),1fr))" }}
+      >
+        {tierOptions.map((t) => {
+          const free = t.amount === 0;
+          const recommended = recommendedTierId === "default" ? t.id === null : t.id === recommendedId;
+          const features = t.features.length ? t.features : ["Full access"];
+          const amount = free ? "Free" : formatUnits(BigInt(t.amount), 6);
+          const dueToday = free || t.trialDays > 0 ? "Free" : amount;
 
-        {/* What the selected tier includes — shown for one tier at a time, so
-            the rows stay a comparison of name and price, as step 02 is. */}
-        {chosen && (
-          <div style={{ borderTop: HAIRLINE, padding: "12px 18px 4px" }}>
-            <p
-              className="m-0 uppercase"
-              style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", color: "var(--color-neutral-800)" }}
+          return (
+            <div
+              key={t.id ?? "default"}
+              className="flex flex-col"
+              style={{
+                background: "var(--color-bg)",
+                borderRadius: "var(--radius-lg)",
+                overflow: "hidden",
+                // Step 02's ring and shadow. The recommended card swaps the
+                // neutral ring for the accent one, as the selected chain row
+                // swaps its bar.
+                boxShadow: recommended
+                  ? `0 0 0 2px ${ACCENT_SOLID}, var(--shadow-lg)`
+                  : "0 0 0 1px var(--color-neutral-400), var(--shadow-lg)",
+              }}
             >
-              {chosen.name} includes
-            </p>
-            <div className="mt-2 flex flex-col gap-[6px]">
-              {(chosen.features.length ? chosen.features : ["Full access"]).map((f, i) => (
-                <span key={i} className="flex gap-2.5" style={{ fontSize: 13, lineHeight: 1.45 }}>
-                  <span style={{ color: ACCENT_SOLID, fontWeight: 700 }}>✓</span>
-                  {f}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
+              {/* Header row — step 02's "Your plan" row: name left, price right. */}
+              <div
+                className="flex flex-wrap items-baseline justify-between"
+                style={{ gap: 10, padding: "11px 18px 9px", borderBottom: HAIRLINE }}
+              >
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="m-0 uppercase" style={kicker}>Plan</p>
+                    {recommended && <span className="tag tag-outline">Recommended</span>}
+                  </div>
+                  <p className="m-0 mt-1" style={{ fontWeight: 700, fontSize: 16, lineHeight: 1.15 }}>
+                    {t.name}
+                  </p>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <p className="m-0" style={{ fontWeight: 700, fontSize: 22, letterSpacing: "-0.03em", lineHeight: 1.15 }}>
+                    {amount}{" "}
+                    {!free && (
+                      <span style={{ fontSize: 13, fontWeight: 500, letterSpacing: 0, color: "var(--color-neutral-800)" }}>
+                        USDC {INTERVAL_LABELS[t.interval] ?? ""}
+                      </span>
+                    )}
+                  </p>
+                  <p className="m-0 mt-0.5" style={{ fontSize: 12, color: "var(--color-neutral-800)" }}>
+                    {t.trialDays > 0 ? `${t.trialDays}-day free trial` : "No trial"}
+                  </p>
+                </div>
+              </div>
 
-        <div style={{ padding: "14px 18px 16px" }}>
-          <button
-            type="button"
-            onClick={onChoose && chosen ? () => onChoose(chosen.id) : undefined}
-            // Inert in preview: drawn, so the merchant sees the real card,
-            // but not clickable.
-            disabled={!onChoose}
-            className="btn btn-block"
-            style={{
-              padding: "12px 16px",
-              background: ACCENT_SOLID,
-              color: "var(--color-accent-ink, #fff)",
-              ...(onChoose ? {} : { cursor: "default", opacity: 1 }),
-            }}
-          >
-            {chosen && chosen.amount === 0 ? "Start free →" : `Continue with ${chosen?.name ?? "this plan"} →`}
-          </button>
-          <p className="m-0 mt-2.5 text-center" style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
-            {settlementNote()} · gasless renewals · one signature covers every supported chain
-          </p>
-        </div>
+              {/* Numbered hairline rows, as step 02 numbers its email, wallet
+                  and chain rows. */}
+              <div className="flex flex-1 flex-col" style={{ padding: "2px 18px 0" }}>
+                {features.map((f, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-3"
+                    style={{ padding: "10px 0", borderTop: i === 0 ? 0 : HAIRLINE, fontSize: 13.5, lineHeight: 1.4 }}
+                  >
+                    <span style={rowNumber}>{String(i + 1).padStart(2, "0")}</span>
+                    <span>{f}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Step 02's closing rows. */}
+              <div style={{ padding: "0 18px" }}>
+                <div
+                  className="flex items-center justify-between"
+                  style={{ borderTop: HAIRLINE, padding: "10px 0", fontSize: 13 }}
+                >
+                  <span>Network fee</span>
+                  <span style={{ color: ACCENT_SOLID, fontWeight: 600 }}>Covered by Sweep Console</span>
+                </div>
+                <div
+                  className="flex items-baseline justify-between"
+                  style={{ borderTop: HAIRLINE, padding: "10px 0 12px" }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: 14.5 }}>Due today</span>
+                  <span style={{ fontWeight: 700, fontSize: 18, letterSpacing: "-0.02em" }}>
+                    {dueToday}{" "}
+                    {dueToday !== "Free" && (
+                      <span style={{ fontSize: 11.5, fontWeight: 500, color: "var(--color-neutral-700)" }}>USDC</span>
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ padding: "0 18px 16px" }}>
+                <button
+                  type="button"
+                  onClick={onChoose ? () => onChoose(t.id) : undefined}
+                  // Inert in preview: drawn, so the merchant sees the real
+                  // card, but not clickable.
+                  disabled={!onChoose}
+                  className="btn btn-block"
+                  style={{
+                    padding: "12px 16px",
+                    background: ACCENT_SOLID,
+                    color: "var(--color-accent-ink, #fff)",
+                    ...(onChoose ? {} : { cursor: "default", opacity: 1 }),
+                  }}
+                >
+                  {free ? "Start free →" : `Choose ${t.name} →`}
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
+
+      <p className="m-0" style={{ fontSize: 11.5, color: "var(--color-neutral-700)", marginTop: 18 }}>
+        {settlementNote()} · gasless renewals · one signature covers every supported chain
+      </p>
     </div>
   );
 }
