@@ -56,9 +56,9 @@ const rowNumber = {
  * tier side by side, each with its own button. What changed is the card. It
  * was a bordered box with a 54px price; it is now the payment-details card in
  * miniature — the same ring and shadow, a hairline header row with the plan
- * and its price, numbered hairline rows beneath, "Network fee · Covered" and
- * "Due today" as step 02 ends, and the same solid blue — so choosing a plan
- * and paying for it look like one checkout.
+ * and its price, numbered hairline rows beneath, and the same solid blue — so
+ * choosing a plan and paying for it look like one checkout. The fee and
+ * amount-due rows stay on step 02, where the payment actually happens.
  *
  * It lives apart from CheckoutShell so the merchant portal can render the exact
  * same markup as a preview. A preview must not be a checkout in a costume: it
@@ -113,7 +113,6 @@ export function PlanShowcase({
           const recommended = recommendedTierId === "default" ? t.id === null : t.id === recommendedId;
           const features = t.features.length ? t.features : ["Full access"];
           const amount = free ? "Free" : formatUnits(BigInt(t.amount), 6);
-          const dueToday = free || t.trialDays > 0 ? "Free" : amount;
 
           return (
             <div
@@ -179,30 +178,7 @@ export function PlanShowcase({
                 ))}
               </div>
 
-              {/* Step 02's closing rows. */}
-              <div style={{ padding: "0 18px" }}>
-                <div
-                  className="flex items-center justify-between"
-                  style={{ borderTop: HAIRLINE, padding: "10px 0", fontSize: 13 }}
-                >
-                  <span>Network fee</span>
-                  <span style={{ color: ACCENT_SOLID, fontWeight: 600 }}>Covered by Sweep Console</span>
-                </div>
-                <div
-                  className="flex items-baseline justify-between"
-                  style={{ borderTop: HAIRLINE, padding: "10px 0 12px" }}
-                >
-                  <span style={{ fontWeight: 700, fontSize: 14.5 }}>Due today</span>
-                  <span style={{ fontWeight: 700, fontSize: 18, letterSpacing: "-0.02em" }}>
-                    {dueToday}{" "}
-                    {dueToday !== "Free" && (
-                      <span style={{ fontSize: 11.5, fontWeight: 500, color: "var(--color-neutral-700)" }}>USDC</span>
-                    )}
-                  </span>
-                </div>
-              </div>
-
-              <div style={{ padding: "0 18px 16px" }}>
+              <div style={{ padding: "8px 18px 16px" }}>
                 <button
                   type="button"
                   onClick={onChoose ? () => onChoose(t.id) : undefined}
