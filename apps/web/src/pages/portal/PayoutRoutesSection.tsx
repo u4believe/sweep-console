@@ -550,16 +550,6 @@ export function PayoutRoutesSection({ embedded = false }: { embedded?: boolean }
 
   return (
     <Wrap {...wrapProps}>
-      <p
-        className={canExecute ? "m-0 mb-4" : "m-0 mb-1"}
-        style={{ fontSize: 13, color: "var(--color-neutral-700)" }}
-      >
-        {canExecute ? "Withdraw to" : "Price a payout to"} a chain Sweep doesn't settle on —{" "}
-        {dests.slice(0, 3).map((d) => d.label).join(", ")}
-        {/* "and 0 more" is what a hardcoded list of three says on a deployment
-            with exactly three destinations. Counted, and omitted at zero. */}
-        {dests.length > 3 ? ` and ${dests.length - 3} more` : ""} — paid in USDC or USDT.
-      </p>
 
       {/* Said before the form, not after it. A creator who fills five fields
           and then learns nothing can be sent has been wasted, and the panel
