@@ -474,6 +474,8 @@ export type UpstreamStatus =
 
 export type PayoutProgress = {
   upstream: UpstreamStatus | string;
+  /** 1Click's id for the swap — what their support asks for. */
+  correlationId: string | null;
   /** Our mapping of it; see the schema comment on CrossChainPayout.status. */
   status: "pending_deposit" | "processing" | "refunding" | "succeeded" | "refunded" | "failed";
   destinationTxHash: string | null;
@@ -514,6 +516,7 @@ export async function payoutProgress(
   const json = (await r.json().catch(() => ({}))) as {
     status?: string;
     message?: string;
+    correlationId?: string;
     swapDetails?: Record<string, unknown>;
   };
   if (!r.ok) return { ok: false, why: String(json.message ?? `status ${r.status}`) };
@@ -549,6 +552,7 @@ export async function payoutProgress(
     ok: true,
     progress: {
       upstream,
+      correlationId: typeof json.correlationId === "string" ? json.correlationId : null,
       status,
       destinationTxHash: firstHash(d.destinationChainTxHashes ?? d.destinationTxHash),
       depositTxHash: firstHash(d.originChainTxHashes ?? d.depositTxHash),

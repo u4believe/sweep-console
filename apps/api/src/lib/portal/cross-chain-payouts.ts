@@ -126,6 +126,10 @@ export async function recordPayoutProgress(row: CrossChainPayout): Promise<Cross
         data: {
           status: strandedNow ? "stranded" : "failed",
           upstreamStatus: p.upstream,
+          // The id from THIS read matters most: it is the observation that
+          // concluded the payout was stranded, and the one NEAR support can
+          // look up alongside the deposit address.
+          ...(p.correlationId ? { correlationId: p.correlationId } : {}),
           checkedAt: new Date(),
           settledAt: new Date(),
           failureReason: strandedNow
@@ -144,6 +148,9 @@ export async function recordPayoutProgress(row: CrossChainPayout): Promise<Cross
         status: p.status,
         upstreamStatus: p.upstream,
         checkedAt: new Date(),
+        // Latest wins. It traces a request, not the swap, so the newest is
+        // the one that still corresponds to something.
+        ...(p.correlationId ? { correlationId: p.correlationId } : {}),
         ...(p.destinationTxHash ? { destinationTxHash: p.destinationTxHash } : {}),
         // Only ever filled in, never corrected: the first hash we see for the
         // deposit is the deposit, and a later differing one would be 1Click
@@ -185,6 +192,15 @@ export function payoutView(row: CrossChainPayout) {
     deposit_explorer_url: explorerTxUrl(row.circleTxHash, row.fromChain),
     destination_tx_hash: row.destinationTxHash,
     failure_reason: row.failureReason,
+    /** Shown only where it is needed: beside a payout that went wrong. */
+    correlation_id: row.correlationId,
+    /**
+     * The swap's actual identity, and what support can act on.
+     *
+     * Surfaced only on a payout that went wrong — it is an address money was
+     * sent to, not something to put in front of someone mid-success.
+     */
+    deposit_address: isTerminal(row.status) && row.status !== "succeeded" ? row.depositAddress : null,
     created_at: row.createdAt.toISOString(),
     deposited_at: row.depositedAt?.toISOString() ?? null,
     settled_at: row.settledAt?.toISOString() ?? null,

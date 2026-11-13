@@ -1134,6 +1134,19 @@ model CrossChainPayout {
   /// 1Click's own last word, kept verbatim beside our mapping so a status
   /// they add later is visible instead of silently becoming "processing".
   upstreamStatus String?
+  /// 1Click's trace id for ONE status request — NOT a handle for the swap.
+  ///
+  /// Measured: three consecutive status calls on the same deposit address
+  /// returned three different ids. So it identifies the observation, not the
+  /// payout, and the stable identifier for a swap is `depositAddress`, which
+  /// is unique here for exactly that reason.
+  ///
+  /// Kept anyway, and overwritten each time rather than fixed on the first,
+  /// so that whatever is stored belongs to the most recent look — above all
+  /// the one that concluded a payout was stranded. That gives NEAR support a
+  /// specific request in their logs at a known moment, which is worth more
+  /// than the first id we happened to see days earlier.
+  correlationId  String?
   failureReason String?
 
   /// Leg one: the Circle transfer out of the creator's wallet.

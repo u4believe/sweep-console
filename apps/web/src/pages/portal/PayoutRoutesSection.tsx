@@ -36,6 +36,8 @@ type Payout = {
   destination_tx_hash: string | null;
   deposit_explorer_url: string | null;
   failure_reason: string | null;
+  correlation_id: string | null;
+  deposit_address: string | null;
   terminal: boolean;
 };
 
@@ -162,10 +164,32 @@ function PayoutProgressNote({ payout }: { payout: Payout }) {
           </>
         )}
       </p>
+      {/* Everything a person would need to chase it, only when something
+          went wrong. A stranded payout has no API that can recover it — it
+          takes a human at NEAR, and what they can act on is the deposit
+          address, which identifies the swap. The trace id is the specific
+          look that concluded it had failed, which narrows their logs to a
+          moment. */}
       {bad && (
-        <p className="m-0 mt-2" style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
-          Quote this payout id to support. It is also in your recent activity.
-        </p>
+        <div className="m-0 mt-2" style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
+          <p className="m-0">Quote these to support. They're in your recent activity too.</p>
+          {payout.deposit_address && (
+            <p className="m-0 mt-1">
+              Deposit address{" "}
+              <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
+                {payout.deposit_address}
+              </span>
+            </p>
+          )}
+          {payout.correlation_id && (
+            <p className="m-0">
+              Trace{" "}
+              <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
+                {payout.correlation_id}
+              </span>
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
@@ -456,6 +480,8 @@ export function PayoutRoutesSection() {
             destination_tx_hash: null,
             deposit_explorer_url: null,
             failure_reason: null,
+            correlation_id: null,
+            deposit_address: null,
             terminal: false,
           });
         }
