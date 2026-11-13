@@ -3947,6 +3947,19 @@ portalRouter.post(
 );
 
 // ─── Cross-chain payouts (NEAR Intents) ───────────────────────────────────────
+/**
+ * Every success in this section goes out as `{ data }`.
+ *
+ * `ok()` sends its payload exactly as given, and every other portal route
+ * wraps itself — `/withdrawals` returns `ok(res, { data: rows })`. These
+ * routes did not, while the dashboard read `.data` from all of them. So in
+ * production the destinations list came back empty, quotes and withdrawals
+ * looked failed, accepting the terms reported an error after the server had
+ * saved it, and payouts never reached Recent activity. One helper for the
+ * whole section, so a new route cannot forget again.
+ */
+const okData = <T,>(res: Parameters<typeof ok>[0], data: T) => ok(res, { data });
+
 //
 // QUOTE ONLY. Both routes below are dry: they price a payout to a chain we do
 // not settle on and return nothing that can be paid into. Execution is a
@@ -3969,7 +3982,7 @@ portalRouter.get("/payouts/destinations", async (req, res) => {
         prisma.merchant.findUnique({ where: { id: dbId }, select: { nearPayoutTermsAt: true } }),
       ),
     ]);
-    return ok(res, {
+    return okData(res, {
       destinations: list,
       /**
        * Sent with the list the panel already fetches, so the terms do not
@@ -4061,7 +4074,7 @@ portalRouter.post("/payouts/quote", async (req, res) => {
       refundTo,
     });
     if (!result.ok) return err(res, result.why, 422, "no_route");
-    return ok(res, { quote: result.quote, from, to, asset });
+    return okData(res, { quote: result.quote, from, to, asset });
   } catch (e) {
     return serverError(res, "portal/payouts/quote", e, "We couldn't price that payout.");
   }
@@ -4087,14 +4100,14 @@ portalRouter.post("/payouts/accept-terms", async (req, res) => {
       }),
     );
     if (existing.nearPayoutTermsAt) {
-      return ok(res, { accepted_at: existing.nearPayoutTermsAt.toISOString(), already: true });
+      return okData(res, { accepted_at: existing.nearPayoutTermsAt.toISOString(), already: true });
     }
     const at = new Date();
     await withRetry(() =>
       prisma.merchant.update({ where: { id: dbId }, data: { nearPayoutTermsAt: at } }),
     );
     console.log(`[portal/payouts] ${dbId} accepted the cross-chain payout terms`);
-    return ok(res, { accepted_at: at.toISOString(), already: false });
+    return okData(res, { accepted_at: at.toISOString(), already: false });
   } catch (e) {
     return serverError(res, "portal/payouts/accept-terms", e, "We couldn't record that.");
   }
@@ -4253,7 +4266,7 @@ portalRouter.post(
       console.log(
         `[portal/payouts] ${dbId} ${payout.payoutId} ${amount} USDC ${fromSlug}→${to}/${asset}`,
       );
-      return ok(res, {
+      return okData(res, {
         payout_id: payout.payoutId,
         userToken,
         encryptionKey,
@@ -4284,7 +4297,7 @@ portalRouter.post("/payouts/:id/deposited", async (req, res) => {
     );
     if (!row) return err(res, "No such payout.", 404);
     if (row.status !== "created" && row.status !== "depositing") {
-      return ok(res, { payout: payoutView(row) });
+      return okData(res, { payout: payoutView(row) });
     }
     const updated = await withRetry(() =>
       prisma.crossChainPayout.update({
@@ -4292,7 +4305,7 @@ portalRouter.post("/payouts/:id/deposited", async (req, res) => {
         data: { status: "pending_deposit", depositedAt: new Date() },
       }),
     );
-    return ok(res, { payout: payoutView(updated) });
+    return okData(res, { payout: payoutView(updated) });
   } catch (e) {
     return serverError(res, "portal/payouts/deposited", e, "We couldn't update that payout.");
   }
@@ -4314,7 +4327,7 @@ portalRouter.get("/payouts/:id", async (req, res) => {
     );
     if (!row) return err(res, "No such payout.", 404);
     const fresh = await recordPayoutProgress(row).catch(() => row);
-    return ok(res, { payout: payoutView(fresh) });
+    return okData(res, { payout: payoutView(fresh) });
   } catch (e) {
     return serverError(res, "portal/payouts/:id", e, "We couldn't check that payout.");
   }
@@ -4343,7 +4356,7 @@ portalRouter.get("/payouts", async (req, res) => {
         take,
       }),
     );
-    return ok(res, rows.map(payoutView));
+    return okData(res, rows.map(payoutView));
   } catch (e) {
     return serverError(res, "portal/payouts", e, "We couldn't load your cross-chain payouts.");
   }
