@@ -137,7 +137,11 @@ export function PlanShowcase({
                 style={{ gap: 10, padding: "11px 18px 9px", borderBottom: HAIRLINE }}
               >
                 <div>
-                  <div className="flex items-center gap-2">
+                  {/* Fixed height, so the Recommended tag (taller than the
+                      kicker) cannot push one card's rows below its
+                      neighbours'. Every header is the same height with or
+                      without it. */}
+                  <div className="flex items-center gap-2" style={{ height: 22 }}>
                     <p className="m-0 uppercase" style={kicker}>Plan</p>
                     {recommended && <span className="tag tag-outline">Recommended</span>}
                   </div>
