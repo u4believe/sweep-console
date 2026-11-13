@@ -10,11 +10,11 @@ import {
   base, arbitrum, optimism, monad,
   baseSepolia, arbitrumSepolia, optimismSepolia,
 } from "viem/chains";
-import { arcMainnet, arcTestnet } from "./chain/config";
 
-// Arc is the subscription/destination chain. The CCTP V2 source chains are
-// included so the wallet can switch to each one to sign its gasless ERC-3009
-// transferWithAuthorization, which is an EIP-712 payload bound to that chain.
+// The chains a subscriber can pay from. Arc is NOT among them any more: it was
+// the settlement chain, settlement happens on the payer's own chain now, and
+// leaving it listed meant a wallet could still be asked to add or switch to a
+// network this platform never touches.
 export const wagmiConfig = getDefaultConfig({
   appName: "SweepConsole",
   projectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID ?? "demo",
@@ -45,7 +45,7 @@ export const wagmiConfig = getDefaultConfig({
   chains: [
     // Monad is mainnet-only — see MAINNET_CHAINS in the API's gateway/chains.ts.
     // There is no sandbox counterpart to list beside the Sepolias below.
-    arcMainnet, base, arbitrum, optimism, monad,
-    arcTestnet, baseSepolia, arbitrumSepolia, optimismSepolia,
+    base, arbitrum, optimism, monad,
+    baseSepolia, arbitrumSepolia, optimismSepolia,
   ],
 });

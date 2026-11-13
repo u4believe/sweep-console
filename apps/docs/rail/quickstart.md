@@ -26,7 +26,7 @@ Two of them, because each one serves a different network:
 | | base URL | keys | chains |
 | --- | --- | --- | --- |
 | **Sandbox** | `https://api-sandbox.sweepconsole.xyz` | `test_…` | Base, Arbitrum, Optimism Sepolia |
-| **Live** | `https://api.sweepconsole.xyz` | `live_…` | Base, Arbitrum, Optimism |
+| **Live** | `https://api.sweepconsole.xyz` | `live_…` | Base, Arbitrum, Optimism, Monad |
 
 Each refuses the other's keys. A test key sent to the live API gets a `403`
 naming the sandbox, and the reverse, so a key on the wrong host tells you so

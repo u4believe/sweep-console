@@ -29,19 +29,6 @@ export interface SweepConfig {
   /** True when this deployment is the sandbox. */
   isTest: boolean;
   /**
-   * How settlement works here, and therefore what the page may claim.
-   *
-   *   "direct"  — paid and settled on the payer's own chain, one transaction
-   *   "bridged" — pulled on the payer's chain, bridged, minted on Arc
-   *
-   * The page cannot know this at build time: one bundle serves a deployment
-   * whose flag can change under it, and "Settled on Arc" baked into the
-   * landing page would keep promising a chain nothing touches. So it is
-   * served by /config beside the fee, which already works this way for the
-   * same reason.
-   */
-  settlementModel: "direct" | "bridged";
-  /**
    * The chains a payer may pay from, as THIS deployment serves them.
    *
    * The hosted checkout hardcoded three, which was fine while the list had
@@ -75,7 +62,6 @@ const FALLBACK_BPS = Number(import.meta.env.VITE_PLATFORM_FEE_BPS ?? "200");
  * will ever appear there. One is vague for a moment; the other is wrong in a
  * way a payer could act on.
  */
-const FALLBACK_MODEL: "direct" | "bridged" = "direct";
 
 /**
  * What to offer before /config answers.
@@ -95,7 +81,6 @@ export function useSweepConfig(): SweepConfig {
   const [cfg, setCfg] = useState<SweepConfig>({
     platformFeeBps: FALLBACK_BPS,
     isTest: isSandboxBuild(),
-    settlementModel: FALLBACK_MODEL,
     sourceChains: FALLBACK_CHAINS,
     appUrl: null,
     loaded: false,
@@ -110,7 +95,6 @@ export function useSweepConfig(): SweepConfig {
         const d = (json.data ?? json) as {
           platform_fee_bps?: number;
           mode?: string;
-          settlement_model?: string;
           source_chains?: Array<{ key: string; name: string }>;
           app_url?: string;
         };
@@ -118,9 +102,6 @@ export function useSweepConfig(): SweepConfig {
         setCfg({
           platformFeeBps: d.platform_fee_bps,
           isTest: d.mode === "test",
-          // Only "bridged" turns it back; anything else, including an older
-          // API that does not send the field, reads as direct.
-          settlementModel: d.settlement_model === "bridged" ? "bridged" : "direct",
           // An empty list would leave a payer no way to pay, so an API that
           // sends none keeps the fallback rather than blanking the picker.
           sourceChains: d.source_chains?.length ? d.source_chains : FALLBACK_CHAINS,
@@ -156,29 +137,29 @@ export function keepsOfAmount(amount: number, bps: number): string {
 }
 
 /**
- * How to say where a payment settles, for a given deployment.
+ * How to say where a payment settles.
  *
  * ONE PLACE, because the alternative was nine. "Settled on Arc" appeared on
  * the landing page, in both checkouts, on the dashboard and in the manage
- * screens, each written out by hand — so making it true again would have
- * meant finding all of them and agreeing with myself nine times.
+ * screens, each written out by hand.
+ *
+ * NO MODEL ARGUMENT ANY MORE. It took "direct" or "bridged" and answered
+ * "Settled on Arc" for the second — but the bridge is deleted, Arc settles
+ * nothing, and a deployment that simply had not set DIRECT_SETTLEMENT_ENABLED
+ * would have told every visitor their money lands on a chain this platform no
+ * longer touches. Removing the parameter is what makes that unsayable rather
+ * than one config flag away.
  *
  * `chain` is the chain a payer actually used, where the caller knows it.
  * Without it the phrasing stays general, which is what a landing page needs
  * before anyone has chosen anything.
  */
-export function settlementNote(
-  model: "direct" | "bridged",
-  chain?: string | null
-): string {
-  if (model === "bridged") return "Settled on Arc";
+export function settlementNote(chain?: string | null): string {
   if (!chain) return "Settled on the chain you pay from";
   return `Settled on ${chain}`;
 }
 
 /** The same fact as a sentence, for body copy rather than a label. */
-export function settlementSentence(model: "direct" | "bridged"): string {
-  return model === "bridged"
-    ? "They pay from Base, Arbitrum or Optimism, and it settles to you on Arc."
-    : "They pay from Base, Arbitrum, Optimism or Monad, and it lands in your wallet on that same chain.";
+export function settlementSentence(): string {
+  return "They pay from Base, Arbitrum, Optimism or Monad, and it lands in your wallet on that same chain.";
 }

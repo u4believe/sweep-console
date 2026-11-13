@@ -82,7 +82,7 @@ type Phase = "planning" | "review" | "signing" | "executing" | "insufficient" | 
  * Three seconds was chosen against the bridged path, where activation meant a
  * burn, a wait on Circle's attestation and a mint on Arc — minutes, so a
  * three-second poll was free. Direct settlement is ONE redeemDelegations,
- * which lands in a few seconds on Base, Arbitrum or Optimism, and against
+ * which lands in a few seconds on Base, Arbitrum, Optimism or Monad, and against
  * that the poll interval became a visible share of the wait: a payment that
  * settled could sit unacknowledged for most of three seconds.
  *
@@ -259,7 +259,7 @@ export function GatewaySweepPanel({
         <div className="space-y-2">
           <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
             Cross-chain isn't available: your wallet can't authorize renewals on any of the
-            supported chains (Base, Arbitrum, or Optimism Sepolia).
+            supported chains (Base, Arbitrum, Optimism or Monad).
           </p>
           <button onClick={loadPlan} className="text-sm text-brand-600 hover:underline">
             Try again

@@ -26,7 +26,6 @@ const USDC_BY_CHAIN: Record<number, string> = {
   84532: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",   // Base Sepolia
   421614: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",  // Arbitrum Sepolia
   11155420: "0x5fd84259d66Cd46123540766Be93DFE6D43130D7", // OP Sepolia
-  5042002: "0x3600000000000000000000000000000000000000",  // Arc testnet
 };
 const DEFAULT_TOKEN = USDC_BY_CHAIN[84532]!;
 
@@ -74,10 +73,6 @@ export function DevGrantTestPage() {
   const [error, setError] = useState("");
 
   // Real CCTP bridge (moves funds).
-  const [bridgeSpeed, setBridgeSpeed] = useState<"standard" | "fast">("standard");
-  const [burnTx, setBurnTx] = useState<{ hash: string; domain: number } | null>(null);
-  const [bridgeMsg, setBridgeMsg] = useState("");
-  const [bridgeErr, setBridgeErr] = useState("");
 
   // Integration run (seed a due sub + run the pass).
   const [creator, setCreator] = useState("");
@@ -240,46 +235,6 @@ export function DevGrantTestPage() {
     }
   };
 
-  // Real CCTP bridge: relayer burns its own USDC on the source chain → mint on Arc.
-  const onBurn = async () => {
-    setBridgeErr(""); setBridgeMsg(""); setBurnTx(null);
-    if (!address) { setBridgeErr("Connect a wallet first"); return; }
-    try {
-      const res = await fetch(`${API_URL}/dev/test-bridge-burn`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chain_id: chainId, token, amount, mint_recipient: address, speed: bridgeSpeed }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error?.message ?? "Burn failed");
-      setBurnTx({ hash: data.burn_tx_hash, domain: data.source_domain });
-      setBridgeMsg(`Burned ✓ ${data.burn_tx_hash} (source domain ${data.source_domain}) — now run B.`);
-    } catch (e) {
-      setBridgeErr(e instanceof Error ? e.message : "Burn failed");
-    }
-  };
-
-  const onReceive = async () => {
-    setBridgeErr("");
-    if (!burnTx) { setBridgeErr("Burn first (A)"); return; }
-    try {
-      const res = await fetch(`${API_URL}/dev/test-bridge-receive`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source_domain: burnTx.domain, burn_tx_hash: burnTx.hash }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error?.message ?? "Receive failed");
-      setBridgeMsg(
-        data.pending
-          ? "Attestation still pending — wait ~30s and click B again."
-          : `Minted on Arc ✓ ${data.mint_tx_hash}`
-      );
-    } catch (e) {
-      setBridgeErr(e instanceof Error ? e.message : "Receive failed");
-    }
-  };
-
   // Integration run: seed a DUE subscription from the granted context, run a pass, inspect.
   const onSeed = async () => {
     setIntgErr(""); setIntgMsg("");
@@ -414,44 +369,11 @@ export function DevGrantTestPage() {
           <p className="text-sm font-medium">Simulation result</p>
           <pre className="mt-1 max-h-60 overflow-auto rounded bg-gray-900 p-3 text-xs text-gray-100">{redeemResult}</pre>
           <p className="mt-1 text-xs text-gray-600">
-            <code>{`{ "ok": true }`}</code> → the mandate redeems as a capped transfer (the relayer then
-            bridges via CCTP to Arc). An error → read it (e.g. insufficient subscriber USDC balance).
+            <code>{`{ "ok": true }`}</code> → the mandate redeems as a capped transfer, paying the
+            creator on the payer's own chain. An error → read it (e.g. insufficient subscriber USDC).
           </p>
         </div>
       )}
-
-      <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-4">
-        <p className="text-sm font-semibold">
-          Real CCTP bridge (relayer → Arc){" "}
-          <span className="text-xs font-normal text-amber-700">⚠ moves real testnet funds</span>
-        </p>
-        <p className="text-xs text-gray-600">
-          The relayer burns its OWN USDC on this source chain (amount + token above) and mints to your
-          address on Arc. Requires the relayer <code className="break-all">{delegate}</code> funded with
-          USDC + native gas here, and native gas on Arc.
-        </p>
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-gray-600">Speed</label>
-          <select
-            value={bridgeSpeed}
-            onChange={(e) => setBridgeSpeed(e.target.value as "standard" | "fast")}
-            className="rounded border border-gray-300 px-2 py-1 text-xs"
-          >
-            <option value="standard">standard (free, slower)</option>
-            <option value="fast">fast (paid maxFee)</option>
-          </select>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button onClick={onBurn} disabled={!address} className="rounded bg-amber-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">
-            A · Burn on source
-          </button>
-          <button onClick={onReceive} disabled={!burnTx} className="rounded bg-gray-800 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">
-            B · Attest + mint on Arc
-          </button>
-        </div>
-        {bridgeErr && <p className="text-xs text-red-600 break-all">{bridgeErr}</p>}
-        {bridgeMsg && <p className="font-mono text-xs text-green-700 break-all">{bridgeMsg}</p>}
-      </div>
 
       <div className="space-y-2 rounded-lg border border-indigo-300 bg-indigo-50 p-4">
         <p className="text-sm font-semibold">
@@ -461,7 +383,7 @@ export function DevGrantTestPage() {
         <p className="text-xs text-gray-600">
           Seeds a DUE subscription from the granted context above (at the granted amount
           {grantedAmount ? ` ${grantedAmount}` : ""}), then runs one full processDelegatedRenewals pass
-          (real periodic redeem → Arc settle, or source → bridge). Grant (1) first; the subscriber
+          (a real redeemDelegations on the payer's chain). Grant (1) first; the subscriber
           ({address?.slice(0, 8)}…) needs USDC on the chosen chain. Changed the amount? Re-grant.
         </p>
         <div>

@@ -19,14 +19,21 @@
 
 const BASE = "/design";
 
-export type ChainKey = "base" | "arbitrum" | "optimism" | "arc" | "monad";
+/**
+ * ARC IS NOT A CHAIN HERE ANY MORE.
+ *
+ * It was the settlement chain, and settlement no longer happens there. Left
+ * in this union, `chain="arc"` stayed a legal thing for any screen to render
+ * — which is how a retired architecture reappears on a merchant's dashboard.
+ * Removing it makes every such reference a compile error instead.
+ */
+export type ChainKey = "base" | "arbitrum" | "optimism" | "monad";
 
 /** The chain marks, keyed the way the rest of the app keys chains. */
 export const CHAIN_ASSET: Partial<Record<ChainKey, string>> = {
   base: `${BASE}/chain-base.svg`,
   arbitrum: `${BASE}/chain-arbitrum.svg`,
   optimism: `${BASE}/chain-optimism.svg`,
-  arc: `${BASE}/chain-arc.svg`,
   /**
    * Monad ships as a TOKEN mark, not a chain one, and that is the design's
    * own choice — the v4 package has token-mon.svg and no chain-monad.svg,
@@ -56,7 +63,7 @@ export const METAMASK_LOGO = `${BASE}/metamask-logo.svg`;
 export const METAMASK_LOGO_LIGHT = `${BASE}/metamask-logo-light.svg`;
 export const CIRCLE_LOGO = `${BASE}/circle-logo.png`;
 
-const CHAIN_KEYS: ChainKey[] = ["base", "arbitrum", "optimism", "arc", "monad"];
+const CHAIN_KEYS: ChainKey[] = ["base", "arbitrum", "optimism", "monad"];
 
 export function isChainKey(k: string): k is ChainKey {
   return (CHAIN_KEYS as string[]).includes(k);

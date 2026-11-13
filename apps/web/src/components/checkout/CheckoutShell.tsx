@@ -261,7 +261,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
    * nothing touches. Served by /config rather than baked in, because one
    * bundle serves a deployment whose flag can change under it.
    */
-  const { settlementModel, sourceChains, appUrl } = useSweepConfig();
+  const { sourceChains, appUrl } = useSweepConfig();
   /**
    * The payer's own warning, for the case the merchant never sees.
    *
@@ -512,8 +512,8 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
   /**
    * The chains a subscriber can pay from, in the design's order.
    *
-   * Arc is deliberately absent: it is where money settles, not where it comes
-   * from. Each of these is swept to Arc via CCTP.
+   * Arc is deliberately absent: it was where money settled, and settlement
+   * now happens on the payer's own chain. Nothing is swept anywhere.
    *
    * Picking one PAYS. There is no separate pay button on this step: pickChain
    * reads the balance, requests the renewal permission and hands off to the
@@ -528,9 +528,10 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
    * Monad simply was not offered, which is the quietest way for a chain to be
    * unavailable: it works end to end and no payer can reach it.
    *
-   * "arc" is filtered even though /config does not list it among source
-   * chains: it settles payments, it never funds one, and a defensive filter
-   * costs nothing against an API that starts including it.
+   * "arc" is still filtered, defensively. It is no longer a ChainKey and
+   * settles nothing, but /config is served by a deployment that may be older
+   * than this bundle, and a stray key would render as an unknown chain a
+   * payer could select and never be able to pay from.
    */
   const PAY_CHAINS = sourceChains
     .filter((c) => c.key !== "arc")
@@ -539,7 +540,7 @@ export function CheckoutShell({ sessionId, sessionToken, plan, tiers, merchant, 
       return {
         key: c.key,
         name: `USDC on ${label}`,
-        note: settlementNote(settlementModel, label),
+        note: settlementNote(label),
       };
     });
 

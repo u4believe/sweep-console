@@ -404,7 +404,7 @@ export function ManageSubscriptionsPage() {
       // redundant prompt leaves a permanent authorization behind.
       const usable = walletCan.filter((t) => !granted_chain_ids.includes(t.chain_id));
       if (walletCan.length === 0) {
-        setError("You need USDC on a supported chain (Base, Arbitrum, or Optimism) your wallet can authorize.");
+        setError("You need USDC on a supported chain (Base, Arbitrum, Optimism or Monad) your wallet can authorize.");
         return;
       }
       if (usable.length === 0) {

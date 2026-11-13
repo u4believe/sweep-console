@@ -510,9 +510,6 @@ function AccountTab({
 /* ── Payout wallet ───────────────────────────────────────────────────────── */
 
 function WalletTab({ profile }: { profile: MerchantProfile }) {
-  // This section describes where money lands, so it follows the deployment
-  // rather than the bundle.
-  const { settlementModel } = useSweepConfig();
   return (
     <section style={{ padding: "26px 32px", maxWidth: 820 }}>
       <WalletSettings

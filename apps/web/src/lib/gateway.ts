@@ -1,6 +1,6 @@
 // Client for the cross-chain checkout (CCTP V2, delegation-gated).
 //
-// Every payment is cross-chain: Arc is settlement-only, so the subscriber grants
+// Every payment settles on the chain the subscriber paid from. They grant
 // ONCE — an ERC-7715 delegation per funded source chain, no fee. The platform then
 // funds + activates the subscription from a granted chain, covering gas + bridge
 // from the platform fee on each charge (PLATFORM_FEE_BPS). This client exposes the
@@ -355,7 +355,7 @@ export interface PortalSubscription {
   cross_chain_enabled: boolean;
   revocable: boolean;
   /// Most recent first, capped server-side. `settled_on` is where the payment
-  /// LANDED (always Arc for a renewal), not where the money came from — the
+  /// LANDED (the payer's own chain for a renewal), not where it came from — the
   /// source chain is chosen per charge and is not recorded on the row.
   payments: PortalPayment[];
 }
@@ -545,7 +545,7 @@ export interface WalletBalances {
   chains: { chain: string; name: string; domain: number; wallet_balance: string }[];
 }
 
-/** USDC the wallet holds on every supported source chain (and Arc, while it remains). */
+/** USDC the wallet holds on every supported source chain. */
 export function fetchWalletBalances(address: string): Promise<WalletBalances> {
   return request<WalletBalances>(`/v1/wallet/balances?address=${address}`);
 }

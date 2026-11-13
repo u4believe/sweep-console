@@ -90,12 +90,12 @@ const STEPS = [
   {
     n: "02",
     title: "Pay from any chain",
-    body: "Subscribers verify their email, connect a wallet and pick Base, Arbitrum or Optimism. One signature, no gas.",
+    body: "Subscribers verify their email, connect a wallet and pick Base, Arbitrum, Optimism or Monad. One signature, no gas.",
     bg: "#4447D6",
     ink: "#fff",
     sub: "rgba(255,255,255,0.84)",
     tileBg: "rgba(255,255,255,0.18)",
-    chains: ["base", "arbitrum", "optimism"] as ChainKey[],
+    chains: ["base", "arbitrum", "optimism", "monad"] as ChainKey[],
     usdc: false,
   },
   {
@@ -109,7 +109,7 @@ const STEPS = [
     ink: "#fff",
     sub: "rgba(255,255,255,0.76)",
     tileBg: "#E5484D",
-    chains: ["arc"] as ChainKey[],
+    chains: ["base", "arbitrum", "optimism", "monad"] as ChainKey[],
     usdc: false,
   },
 ];
@@ -128,6 +128,7 @@ const CHAINS: Array<{ key: ChainKey; name: string; note: string }> = [
   { key: "base", name: "Base", note: "Lowest fees" },
   { key: "arbitrum", name: "Arbitrum", note: "Deep USDC liquidity" },
   { key: "optimism", name: "Optimism", note: "Fast finality" },
+  { key: "monad", name: "Monad", note: "High throughput" },
 ];
 
 /** The names apps/api actually sends. Checked, not copied from the mockup. */
@@ -369,7 +370,7 @@ function useScrollReveal(disabled: boolean) {
  *
  * Two identical halves scrolling as one, so the loop has no seam, and the
  * whole thing is aria-hidden: it is a row of logos, not information, and a
- * screen reader reading "Base Arbitrum Optimism USDC Arc MetaMask Circle"
+ * screen reader reading "Base Arbitrum Optimism Monad USDC MetaMask NEAR"
  * twice is noise. It stops dead under prefers-reduced-motion — an infinite
  * horizontal scroll is the single worst offender for motion sensitivity.
  */
@@ -694,7 +695,6 @@ const NAV_CTA: CSSProperties = {
  * 700/800.
  */
 function Hero() {
-  const { settlementModel } = useSweepConfig();
   const reducedCoin = usePrefersReducedMotion();
   return (
     <section
@@ -881,8 +881,6 @@ function Hero() {
 /* ── how it works ─────────────────────────────────────────────────────── */
 
 function HowItWorks() {
-  const { settlementModel } = useSweepConfig();
-  const direct = settlementModel === "direct";
   return (
     <Section id="how" dark background="#121A5C">
       <div data-reveal="" style={{ textAlign: "center", marginBottom: 52 }}>
@@ -919,9 +917,8 @@ function HowItWorks() {
               ? {
                   ...step,
                   title: "Settled on their chain",
-                  body: direct
-                    ? "USDC goes straight to your payout wallet on the chain they paid from. Renewals repeat on their own."
-                    : "USDC is swept over CCTP straight to your payout wallet. Renewals repeat on their own.",
+                  body:
+                    "USDC goes straight to your payout wallet on the chain they paid from. Renewals repeat on their own.",
                 }
               : step;
           return (
@@ -1054,7 +1051,6 @@ function fbStateFor(i: number, st: number): FbState {
 
 
 function Fallback() {
-  const { settlementModel } = useSweepConfig();
   const reduced = usePrefersReducedMotion();
   // 4 is the resolved frame: Arbitrum paid, Optimism untouched. Stage 5 is
   // only the closing line, so a still of 4 tells the whole story.
@@ -1144,14 +1140,14 @@ function Fallback() {
               maxWidth: "44ch",
             }}
           >
-            A card renewal dies when the card does. With one signature covering Base, Arbitrum and Optimism, a short
+            A card renewal dies when the card does. With one signature covering Base, Arbitrum, Optimism and Monad, a short
             balance on one chain just means the charge comes from the next.
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 12, fontSize: 15, color: "rgba(255,255,255,0.88)" }}>
             {[
               ["var(--color-danger)", "Short balance detected before anything is charged"],
               ["#CD94E6", "Charged from the next funded chain, same signature"],
-              ["#8F90A6", `${settlementNote(settlementModel)} like any other renewal`],
+              ["#8F90A6", `${settlementNote()} like any other renewal`],
             ].map(([c, t]) => (
               <span key={t} style={{ display: "flex", gap: 12, alignItems: "center" }}>
                 <span style={{ width: 18, height: 4, borderRadius: 2, background: c, flex: "none" }} />
@@ -1381,7 +1377,7 @@ const RENEW_NOTE: Record<RenewState, string> = {
 function Demo() {
   const reduced = usePrefersReducedMotion();
   // The API's mode when it has answered, the build-time guess until then.
-  const { isTest, settlementModel } = useSweepConfig();
+  const { isTest } = useSweepConfig();
   const [chain, setChain] = useState<ChainKey>("base");
   const [stage, setStage] = useState<DemoStage>(null);
   const [done, setDone] = useState(false);
@@ -1602,7 +1598,7 @@ function Demo() {
                             : "Processing payment…"
                         : renew === "on"
                           ? "Authorized · renewals can charge from here"
-                          : settlementNote(settlementModel);
+                          : settlementNote();
                       return (
                         <button
                           key={c.key}
@@ -1881,7 +1877,7 @@ function Compare() {
   // The deployment's own fee, not the one baked into this bundle — see
   // useSweepConfig. Both the rate and the two amounts come from one number,
   // so the card cannot quote a rate it does not then apply.
-  const { platformFeeBps: bps, settlementModel } = useSweepConfig();
+  const { platformFeeBps: bps } = useSweepConfig();
   const ROW: CSSProperties = {
     display: "flex",
     justifyContent: "space-between",
@@ -2149,7 +2145,7 @@ function Compare() {
                 color: "var(--color-neutral-600)",
               }}
             >
-              <span style={{ fontWeight: 700, color: "var(--color-accent)" }}>{settlementNote(settlementModel)} &middot; seconds</span>
+              <span style={{ fontWeight: 700, color: "var(--color-accent)" }}>{settlementNote()} &middot; seconds</span>
               <span>Already in your wallet</span>
             </div>
           </div>
@@ -2469,7 +2465,6 @@ function Developers() {
 /* ── closing call ──────────────────────────────────────────────────────── */
 
 function StartCta() {
-  const { settlementModel } = useSweepConfig();
   return (
     <section
       id="start"

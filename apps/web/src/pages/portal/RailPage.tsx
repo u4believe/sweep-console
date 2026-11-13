@@ -88,9 +88,6 @@ const usdc = (v: number) => formatUnits(BigInt(v), 6);
 type Tab = "charges" | "mandates";
 
 export function RailPage() {
-  // The fee/settlement note below describes where money lands, so it follows
-  // the deployment rather than the bundle.
-  const { settlementModel } = useSweepConfig();
   const [data, setData] = useState<RailData | null>(null);
   const [error, setError] = useState("");
   /**
@@ -340,9 +337,10 @@ export function RailPage() {
                         {c.sourceChain ? CHAIN_NAMES[c.sourceChain] ?? c.sourceChain : "—"}
                       </td>
                       <td style={{ color: "var(--color-neutral-700)" }}>
-                        {/* Always an ARC hash even though the money came from the
-                            chain in the previous column — the pair confuses people
-                            who go looking for it on Base. */}
+                        {/* The hash is on the chain in the previous column.
+                            It used to be an Arc hash regardless, which sent
+                            people looking for a Base payment on the wrong
+                            explorer; under direct settlement the two agree. */}
                         {c.txHash ? (
                           <Mono>{shortAddress(c.txHash)}</Mono>
                         ) : c.status === "succeeded" ? (

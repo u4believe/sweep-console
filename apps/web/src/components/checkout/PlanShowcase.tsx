@@ -47,7 +47,6 @@ export function PlanShowcase({
 }) {
   // Served by /config, not baked in: this line is a promise about where the
   // payer's money ends up.
-  const { settlementModel } = useSweepConfig();
   // One "recommended" tier takes the surface fill, mirroring the landing pricing.
   // The merchant picks this on the plan screen. No pick means no badge — we
   // deliberately no longer guess at the middle card, because a guess and a
@@ -164,7 +163,7 @@ export function PlanShowcase({
       </div>
 
       <p className="m-0" style={{ fontSize: 11.5, color: "var(--color-neutral-700)", marginTop: 16 }}>
-        {settlementNote(settlementModel)} · gasless renewals · one signature covers every supported chain
+        {settlementNote()} · gasless renewals · one signature covers every supported chain
       </p>
     </div>
   );

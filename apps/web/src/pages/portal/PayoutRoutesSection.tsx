@@ -56,7 +56,6 @@ const CHAIN_LABEL: Record<string, string> = {
   ARB: "Arbitrum",
   OP: "Optimism",
   MONAD: "Monad",
-  ARC: "Arc",
 };
 const chainLabel = (code: string) => CHAIN_LABEL[code] ?? code;
 
