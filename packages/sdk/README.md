@@ -94,7 +94,7 @@ app.post("/subscribe/usdc", async (req, res) => {
     email: req.user.email,
     maxAmount: usdc("15.00"),              // the CEILING, not the price
     interval: "monthly",
-    chains: ["base", "arbitrum", "optimism"],  // what to OFFER — they pick
+    chains: ["base", "arbitrum", "optimism", "monad"],  // what to OFFER — they pick
     expiresAt: new Date("2027-01-01"),
     returnUrl: "https://shop.example.com/thanks",
   });

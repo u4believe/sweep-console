@@ -374,9 +374,9 @@ const SHEET_MAX_WIDTH = PANEL_MAX_WIDTH + 48;
 // The panel pops in like a dialog: it grows from 92% with a slight spring past
 // full size while the backdrop dims and softens. On a phone it is a sheet that
 // slides up from the bottom instead (see the media query).
-export const MODAL_CSS = `.sweep-modal{position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(35,35,59,.55);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);opacity:0;transition:opacity .2s ease}
+export const MODAL_CSS = `.sweep-modal{position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;padding:12px;background:rgba(35,35,59,.55);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);opacity:0;transition:opacity .2s ease}
 .sweep-modal[data-open=true]{opacity:1}
-.sweep-modal__panel{position:relative;width:100%;max-width:${PANEL_MAX_WIDTH}px;height:min(1020px,calc(100vh - 48px));background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 0 0 1px rgba(35,35,80,.08),0 30px 60px -30px rgba(35,35,80,.45);opacity:0;transform:translateY(16px) scale(.92);transition:transform .34s cubic-bezier(.2,1.25,.4,1),opacity .2s ease}
+.sweep-modal__panel{position:relative;width:100%;max-width:${PANEL_MAX_WIDTH}px;height:min(1200px,calc(100vh - 24px));background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 0 0 1px rgba(35,35,80,.08),0 30px 60px -30px rgba(35,35,80,.45);opacity:0;transform:translateY(16px) scale(.92);transition:transform .34s cubic-bezier(.2,1.25,.4,1),opacity .2s ease}
 .sweep-modal[data-open=true] .sweep-modal__panel{opacity:1;transform:none}
 .sweep-modal__frame{display:block;width:100%;height:100%;border:0}
 .sweep-modal__close{position:absolute;top:10px;right:10px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:rgba(244,244,251,.9);color:#5D5E73;cursor:pointer;font:inherit;font-size:17px;line-height:1}
@@ -479,6 +479,7 @@ export function openAuthorize(url: string, opts: OpenAuthorizeOptions = {}): Swe
     if (done) return;
     done = true;
     window.removeEventListener("message", onMessage);
+    window.removeEventListener("resize", fitPanel);
     document.removeEventListener("keydown", onKey);
     document.body.style.overflow = prevOverflow;
     root.remove();
@@ -517,8 +518,40 @@ export function openAuthorize(url: string, opts: OpenAuthorizeOptions = {}): Swe
     }
     if (msg.type === "cancelled") {
       dismiss();
+      return;
+    }
+    if (msg.type === "resize") {
+      const h = (msg as { height?: unknown }).height;
+      if (typeof h === "number" && isFinite(h) && h > 0) {
+        contentHeight = h;
+        fitPanel();
+      }
     }
   }
+
+  /**
+   * The panel as tall as the checkout, up to the screen.
+   *
+   * It was a fixed min(1020px, 100vh - 48px) whatever the page held, so on a
+   * laptop the checkout scrolled inside a frame that stopped short of the
+   * screen's edge. The page now reports its real height and the panel takes
+   * exactly that, capped at the viewport less a 12px margin each side — so
+   * it only scrolls when the checkout genuinely cannot fit.
+   *
+   * Not on a phone, where the panel is a full-height sheet and the media
+   * query owns its size.
+   */
+  let contentHeight = 0;
+  function fitPanel() {
+    if (!contentHeight) return;
+    if (window.matchMedia && window.matchMedia("(max-width:" + SHEET_MAX_WIDTH + "px)").matches) {
+      panel.style.height = "";
+      return;
+    }
+    const room = window.innerHeight - 24;
+    panel.style.height = Math.min(Math.ceil(contentHeight), room) + "px";
+  }
+  window.addEventListener("resize", fitPanel);
 
   window.addEventListener("message", onMessage);
   document.addEventListener("keydown", onKey);

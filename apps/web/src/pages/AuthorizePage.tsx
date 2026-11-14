@@ -2,7 +2,7 @@ import { clearWalletStorage } from "@/lib/walletReset";
 import { reportGrantDiagnostic } from "@/lib/gateway";
 import { TestModeBanner } from "@/components/checkout/TestModeBanner";
 import { fetchConfig } from "@/lib/gateway";
-import { type CSSProperties, useCallback, useEffect, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useAccount, useDisconnect } from "wagmi";
 import {
@@ -13,6 +13,7 @@ import {
   relayPopupResult,
   reportAuthorized,
   reportCancelled,
+  reportContentHeight,
 } from "../lib/embed";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { formatUnits } from "viem";
@@ -200,6 +201,20 @@ export function AuthorizePage() {
   // otherwise the merchant watches an empty panel while we fetch.
   useEffect(() => { beginEmbedHandshake(); }, []);
 
+  /**
+   * Report this page's height to the modal, so its frame fits the checkout
+   * instead of stopping short at a fixed size.
+   *
+   * A callback ref, because `shell()` is called from every phase and React
+   * may hand back a different element between them; this re-attaches to
+   * whichever one is mounted.
+   */
+  const stopReporting = useRef<() => void>(() => {});
+  const shellRef = useCallback((el: HTMLDivElement | null) => {
+    stopReporting.current();
+    stopReporting.current = el ? reportContentHeight(el) : () => {};
+  }, []);
+
   const [phase, setPhase] = useState<Phase>("loading");
   const [error, setError] = useState("");
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -364,6 +379,7 @@ export function AuthorizePage() {
      * within a box. Unframed it is the page, unchanged.
      */
     <div
+      ref={embedded ? shellRef : undefined}
       className={
         embedded
           ? "flex min-h-full flex-col bg-[#F4F4FB] px-7 py-7"
@@ -625,7 +641,23 @@ export function AuthorizePage() {
         <dl className="mt-3 text-sm">
           <div className="flex justify-between gap-4 border-t border-[color:var(--color-divider)] py-2">
             <dt className="text-gray-500">Paid in</dt>
-            <dd className="text-right font-medium text-gray-900">USDC from {chainNames.join(", ")}</dd>
+            {/* Marks, not names. Four names — five, six as chains are added —
+                ran past the line on a 420px panel and wrapped under the
+                label. The icons stay on one line however many there are; the
+                names are still there for a screen reader and on hover. */}
+            <dd
+              className="flex items-center justify-end gap-2 font-medium text-gray-900"
+              aria-label={`USDC from ${chainNames.join(", ")}`}
+            >
+              <span>USDC on</span>
+              <span className="flex items-center gap-1.5">
+                {view.targets.map((t, i) => (
+                  <span key={t.chain_key} title={chainNames[i]} className="inline-flex">
+                    <ChainMark chain={t.chain_key} size={20} />
+                  </span>
+                ))}
+              </span>
+            </dd>
           </div>
           {/*
             True on this rail, and worth saying because a payer who has used

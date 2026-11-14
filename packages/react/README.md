@@ -21,7 +21,7 @@ app.post("/api/sweep/mandate-link", requireLogin, async (req, res) => {
     externalRef: req.user.id,
     maxAmount: usdc("35.00"),   // the ceiling, with headroom — not the price
     interval: "monthly",
-    chains: ["base", "arbitrum", "optimism"],
+    chains: ["base", "arbitrum", "optimism", "monad"],
   });
   res.json({ url: mandate.authorizationUrl });
 });

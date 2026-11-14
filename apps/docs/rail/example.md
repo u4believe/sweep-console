@@ -30,7 +30,7 @@ app.post("/subscribe/usdc", async (req, res) => {
     email: req.user.email,
     maxAmount: usdc("15.00"),
     interval: "monthly",
-    chains: ["base", "arbitrum", "optimism"],
+    chains: ["base", "arbitrum", "optimism", "monad"],
     expiresAt: new Date("2027-01-01"),
   });
 
@@ -55,7 +55,7 @@ app.post("/subscribe/usdc", async (req, res) => {
       email: user.email,
       max_amount: 15_000_000,         // 15.00 USDC ceiling, NOT the price
       interval: "monthly",
-      chains: ["base", "arbitrum", "optimism"],
+      chains: ["base", "arbitrum", "optimism", "monad"],
       expires_at: "2027-01-01T00:00:00Z",
     }),
   });

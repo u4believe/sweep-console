@@ -12,7 +12,7 @@
  *     email: user.email,
  *     maxAmount: usdc("15.00"),          // the CEILING, not the price
  *     interval: "monthly",
- *     chains: ["base", "arbitrum", "optimism"],
+ *     chains: ["base", "arbitrum", "optimism", "monad"],
  *     expiresAt: new Date("2027-01-01"),
  *   });
  *

@@ -34,7 +34,7 @@ app.post("/api/sweep/session", requireLogin, async (req, res) => {
 //     externalRef: req.user.id,
 //     maxAmount: usdc("35.00"),        // the ceiling, with headroom — not the price
 //     interval: "monthly",
-//     chains: ["base", "arbitrum", "optimism"],
+//     chains: ["base", "arbitrum", "optimism", "monad"],
 //     expiresAt: addYears(new Date(), 1),
 //   });
 //   res.json({ url: mandate.authorizationUrl });

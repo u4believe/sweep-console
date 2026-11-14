@@ -32,7 +32,8 @@
 type Outbound =
   | { source: "sweep"; type: "ready" }
   | { source: "sweep"; type: "authorized"; mandate: { mandate_id?: string } }
-  | { source: "sweep"; type: "cancelled" };
+  | { source: "sweep"; type: "cancelled" }
+  | { source: "sweep"; type: "resize"; height: number };
 
 /**
  * Framed by the embed, as opposed to merely being in some iframe.
@@ -93,7 +94,11 @@ export function beginEmbedHandshake(): void {
     if (!msg || msg.source !== "sweep" || msg.type !== "host") return;
     // First answer wins. A second one, from anywhere, is ignored rather than
     // allowed to redirect where our events go.
-    if (hostOrigin === null) hostOrigin = e.origin;
+    if (hostOrigin === null) {
+      hostOrigin = e.origin;
+      // A height measured before the host answered was held, not lost.
+      if (pendingHeight) post({ source: "sweep", type: "resize", height: pendingHeight });
+    }
   });
 
   window.parent.postMessage({ source: "sweep", type: "ready" } satisfies Outbound, "*");
@@ -188,4 +193,54 @@ export function openAuthorizePopup(): Window | null {
     "sweep_authorize",
     `width=${w},height=${h},left=${Math.round(left)},top=${Math.round(top)}`
   );
+}
+
+let pendingHeight = 0;
+
+/**
+ * Keep the host's panel as tall as this page's content.
+ *
+ * The modal used to be a fixed height whatever the checkout held, so on a
+ * laptop the payer scrolled inside a frame that stopped short of the screen.
+ * This reports the real height and the host fits the panel to it, up to the
+ * viewport.
+ *
+ * Measured from the shell's CHILDREN plus its padding, not from the shell or
+ * the document: the embedded shell is `min-h-full`, so its own height is never
+ * less than the frame's — reading it would report "as tall as you made me"
+ * and the panel could only ever grow. Returns the cleanup.
+ */
+export function reportContentHeight(shell: HTMLElement): () => void {
+  if (!isEmbedded() || typeof ResizeObserver === "undefined") return () => {};
+  let raf = 0;
+  const measure = () => {
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => {
+      const cs = getComputedStyle(shell);
+      let h = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      for (const child of Array.from(shell.children) as HTMLElement[]) {
+        const c = getComputedStyle(child);
+        h += child.offsetHeight + parseFloat(c.marginTop) + parseFloat(c.marginBottom);
+      }
+      h = Math.ceil(h);
+      if (!h || h === pendingHeight) return;
+      pendingHeight = h;
+      post({ source: "sweep", type: "resize", height: h });
+    });
+  };
+  const ro = new ResizeObserver(measure);
+  for (const child of Array.from(shell.children)) ro.observe(child);
+  // Children come and go as the payer moves through the steps.
+  const mo = new MutationObserver(() => {
+    ro.disconnect();
+    for (const child of Array.from(shell.children)) ro.observe(child);
+    measure();
+  });
+  mo.observe(shell, { childList: true });
+  measure();
+  return () => {
+    cancelAnimationFrame(raf);
+    ro.disconnect();
+    mo.disconnect();
+  };
 }

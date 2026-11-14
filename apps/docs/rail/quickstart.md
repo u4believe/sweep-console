@@ -65,7 +65,7 @@ app.post("/subscribe/usdc", async (req, res) => {
     email: req.user.email,                 // prefilled for them, and editable
     maxAmount: usdc("15.00"),              // the CEILING, not the price
     interval: "monthly",
-    chains: ["base", "arbitrum", "optimism"],  // offer all three — they pick
+    chains: ["base", "arbitrum", "optimism", "monad"],  // offer all four — they pick
     expiresAt: new Date("2027-01-01"),
   });
 
@@ -138,7 +138,7 @@ everything you support, and read back what you actually got.
 
 ```ts
 const m = await sweep.mandates.retrieve(mandateId);
-m.chains;         // ["base", "arbitrum", "optimism"] — what you offered
+m.chains;         // ["base", "arbitrum", "optimism", "monad"] — what you offered
 m.grantedChains;  // ["base"] — what they signed, and what a charge can draw from
 ```
 
@@ -167,7 +167,7 @@ curl -X POST https://api-sandbox.sweepconsole.xyz/v1/mandates \
     "email": "ada@example.com",
     "max_amount": 15000000,
     "interval": "monthly",
-    "chains": ["base", "arbitrum", "optimism"],
+    "chains": ["base", "arbitrum", "optimism", "monad"],
     "expires_at": "2027-01-01T00:00:00Z"
   }'
 ```
@@ -183,7 +183,7 @@ const r = await fetch("https://api-sandbox.sweepconsole.xyz/v1/mandates", {
     email: user.email,
     max_amount: 15_000_000,        // USDC micro-units: 15.00
     interval: "monthly",
-    chains: ["base", "arbitrum", "optimism"],
+    chains: ["base", "arbitrum", "optimism", "monad"],
     expires_at: "2027-01-01T00:00:00Z",
   }),
 });

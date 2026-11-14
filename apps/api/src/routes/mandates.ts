@@ -160,6 +160,22 @@ mandatesRouter.post("/", verifyApiKey, requireExternalRail, async (req, res) => 
   const d = parsed.data;
 
   const allowed = allowedChains();
+  /**
+   * Monad is mainnet-only, and on a deployment that does not offer it it is
+   * SKIPPED rather than refused.
+   *
+   * The docs offer all four chains, and a developer copies that one call into
+   * both their sandbox and live code. Refusing "monad" in the sandbox would
+   * make the documented example fail exactly where they try it first — for a
+   * chain that has no testnet to offer anyway. Only when nothing else would be
+   * left is it still an error, since a mandate must offer something.
+   */
+  const MAINNET_ONLY = ["monad"];
+  const requested = [...new Set(d.chains.map((c) => c.toLowerCase()))];
+  const skippable = requested.filter((c) => MAINNET_ONLY.includes(c) && !allowed.includes(c));
+  if (skippable.length > 0 && skippable.length < requested.length) {
+    d.chains = requested.filter((c) => !skippable.includes(c));
+  }
   const unknown = [...new Set(d.chains.map((c) => c.toLowerCase()))].filter((c) => !allowed.includes(c));
   if (unknown.length > 0) {
     const arc = unknown.includes("arc");

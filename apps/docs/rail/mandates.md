@@ -11,7 +11,7 @@ const mandate = await sweep.mandates.create({
   email: "ada@example.com",
   maxAmount: usdc("5.00"),
   interval: "daily",
-  chains: ["base", "arbitrum", "optimism"],
+  chains: ["base", "arbitrum", "optimism", "monad"],
   expiresAt: new Date("2027-09-12"),
   metadata: { plan: "pro" },
 });
@@ -25,7 +25,7 @@ curl -X POST https://api-sandbox.sweepconsole.xyz/v1/mandates \
     "email": "ada@example.com",
     "max_amount": 5000000,
     "interval": "daily",
-    "chains": ["base", "arbitrum", "optimism"],
+    "chains": ["base", "arbitrum", "optimism", "monad"],
     "expires_at": "2027-09-12T00:00:00.000Z",
     "metadata": { "plan": "pro" }
   }'
@@ -40,7 +40,7 @@ curl -X POST https://api-sandbox.sweepconsole.xyz/v1/mandates \
 | `interval` | `daily`, `weekly`, `monthly` or `yearly` — the period the ceiling applies to |
 | `chains` | The chains to **offer**. The payer picks which to sign, so this is a maximum rather than a promise — offer everything you support, and read `granted_chains` back to see what you got |
 | `granted_chains` | Response only. What the payer actually signed, and what a charge can draw from. Empty while pending; it shrinks if they later disable a chain in their wallet |
-| `chains` | Where the payer may authorize. One of `base`, `arbitrum`, `optimism`, `monad` — a charge settles on the chain the payer used |
+| `chains` | Where the payer may authorize: any of `base`, `arbitrum`, `optimism`, `monad`. A charge settles on the chain the payer used. `monad` is Live-only — in Sandbox it is skipped, so the same list works in both |
 | `external_ref` | **Your** id for this payer. Echoed on every webhook, so you never store ours |
 | `metadata` | Stored and returned by `GET /v1/rail/mandates`. **Not** sent on webhooks — see [the payload](/webhooks/payload#envelope-fields). Anything your event handler needs goes in `external_ref` |
 | `email` | Prefilled on the authorization page, and the payer may change it. Omit it and they supply their own |
