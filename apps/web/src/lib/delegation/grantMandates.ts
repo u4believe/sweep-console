@@ -220,7 +220,7 @@ export async function grantRenewalMandates(
       payee_count: number;
       permission_type: string;
       sends_redeemer: boolean;
-      sends_from: string;
+      sends_from: string | null;
       delegated_to: string | null;
     };
     error: unknown;
@@ -441,6 +441,23 @@ export async function grantRenewalMandates(
       }
       logGrantSuccess(ctx, await readActiveChainId(client));
 
+      /**
+       * The account that SIGNED must be the one this checkout verified.
+       *
+       * The request no longer names it (`from` was removed), so MetaMask grants
+       * from whichever account is selected. Normally that is the same one the
+       * pre-check confirmed; if the payer switched accounts in between, the
+       * grant belongs to a wallet we never checked — its email, its balance,
+       * the address we would charge. Refused here, before it is saved, rather
+       * than discovered at the first renewal.
+       */
+      const signer = mandate.accountAddress;
+      if (signer && !/^0x0{40}$/i.test(signer) && signer.toLowerCase() !== walletAddress.toLowerCase()) {
+        console.warn(`[grant] granted by ${signer}, but this checkout verified ${walletAddress} — not saving`);
+        await resetWalletConnection();
+        throw new WalletAccountMismatchError(walletAddress, signer);
+      }
+
       stage = "save";
       await save({
         wallet_address: walletAddress,
@@ -517,7 +534,9 @@ export async function grantRenewalMandates(
            * exists to establish.
            */
           sends_redeemer: Boolean(t.pin_redeemer),
-          sends_from: walletAddress,
+          // Null: the request carries no `from` now, and the log should say
+          // OMITTED rather than claim an address that was never sent.
+          sends_from: null,
           /**
            * WHAT THE PAYER'S ACCOUNT IS DELEGATED TO on this chain, which is
            * the fact that explained a month of 4100s and -32603s in one line.

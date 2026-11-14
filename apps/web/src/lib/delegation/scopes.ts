@@ -135,7 +135,13 @@ export function buildPeriodicPermission(
 ): PermissionRequestParameter {
   return {
     chainId: input.chainId,
-    from: input.payer,
+    /**
+     * NO `from`. MetaMask grants from the account it has selected, which is
+     * how the old path worked for all 27 of its grants. Who actually signed
+     * is read back from the response (grant.ts) rather than asserted here,
+     * and grantMandates refuses to save a grant signed by any account other
+     * than the one the checkout verified — the one protection `from` gave.
+     */
     to: input.delegate,
     expiry: input.expirySec,
     ...(input.pinRedeemer ? { redeemer: [input.delegate] } : {}),
